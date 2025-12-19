@@ -56,14 +56,44 @@ export async function parseLabelFromImage(
 
         if (error) {
             console.error('Label parse error:', error);
+
+            // Try to get more details from the error context
+            let errorMessage = 'Failed to analyze label';
+            let errorDetail = 'Please try again';
+
+            // Check if error has a context with body (contains the actual error)
+            if (error.context && typeof error.context === 'object') {
+                try {
+                    // The context might contain the response body
+                    const ctx = error.context as any;
+                    if (ctx.body) {
+                        const bodyText = await ctx.body.text?.() || ctx.body;
+                        const bodyJson = typeof bodyText === 'string' ? JSON.parse(bodyText) : bodyText;
+                        if (bodyJson.error) errorMessage = bodyJson.error;
+                        if (bodyJson.details) errorDetail = bodyJson.details;
+                    }
+                } catch {
+                    // If parsing fails, use defaults
+                }
+            }
+
+            // Check error message for common cases
+            if (error.message?.includes('rate limit') || error.message?.includes('429')) {
+                errorMessage = 'Too many requests';
+                errorDetail = 'Please wait a moment and try again';
+            } else if (error.message?.includes('timeout')) {
+                errorMessage = 'Request timed out';
+                errorDetail = 'The image may be too large. Try a smaller photo.';
+            }
+
             return {
                 success: false,
-                error: 'Failed to analyze label',
-                errorDetail: error.message || 'Please try again',
+                error: errorMessage,
+                errorDetail: errorDetail,
             };
         }
 
-        if (data.error) {
+        if (data?.error) {
             return {
                 success: false,
                 error: data.error,
@@ -79,12 +109,25 @@ export async function parseLabelFromImage(
             parsed,
             food,
         };
-    } catch (err) {
+    } catch (err: any) {
         console.error('Label scan failed:', err);
+
+        // Provide user-friendly error messages
+        let errorMessage = 'Something went wrong';
+        let errorDetail = 'Please try again';
+
+        if (err?.message?.includes('network') || err?.message?.includes('fetch')) {
+            errorMessage = 'Network error';
+            errorDetail = 'Check your connection and try again';
+        } else if (err?.message?.includes('non-2xx')) {
+            errorMessage = 'Could not read the label';
+            errorDetail = 'Try better lighting or flatten the package';
+        }
+
         return {
             success: false,
-            error: 'Network error',
-            errorDetail: 'Check your connection and try again',
+            error: errorMessage,
+            errorDetail: errorDetail,
         };
     }
 }
