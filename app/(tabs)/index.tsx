@@ -6,7 +6,7 @@ import { SegmentedControl } from '@/components/segmented-control';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { FibreRange, getActivityLogsByDateRange, getFibreIntakeSummary, getGlucoseLogsByDateRange, getUserProfile, GlucoseLog } from '@/lib/supabase';
+import { FibreRange, getActivityLogsByDateRange, getFibreIntakeSummary, getGlucoseLogsByDateRange, getPendingReviews, getUserProfile, GlucoseLog, PostMealReview } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,15 +15,21 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Animated,
+    Dimensions,
+    Modal,
     Platform,
     Pressable,
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type RangeKey = '24h' | '7d' | '14d' | '30d' | '90d';
 
@@ -773,10 +779,168 @@ function HighExposureCard({ range }: { range: RangeKey }) {
     );
 }
 
-// Tip Card Component
-function TipCard() {
+// Spike Risk Input Sheet - Bottom sheet for quick meal input
+function SpikeRiskInputSheet({
+    visible,
+    onClose,
+    onAnalyze
+}: {
+    visible: boolean;
+    onClose: () => void;
+    onAnalyze: (text: string) => void;
+}) {
+    const [inputText, setInputText] = React.useState('');
+    const slideAnim = React.useRef(new Animated.Value(300)).current;
+
+    React.useEffect(() => {
+        if (visible) {
+            Animated.spring(slideAnim, {
+                toValue: 0,
+                useNativeDriver: true,
+                tension: 65,
+                friction: 11,
+            }).start();
+        } else {
+            slideAnim.setValue(300);
+        }
+    }, [visible, slideAnim]);
+
+    const handleAnalyze = () => {
+        if (inputText.trim()) {
+            onAnalyze(inputText.trim());
+            setInputText('');
+        }
+    };
+
+    const handleClose = () => {
+        Animated.timing(slideAnim, {
+            toValue: 300,
+            duration: 200,
+            useNativeDriver: true,
+        }).start(() => {
+            setInputText('');
+            onClose();
+        });
+    };
+
     return (
-        <View style={styles.tipCardContainer}>
+        <Modal
+            visible={visible}
+            transparent
+            animationType="fade"
+            onRequestClose={handleClose}
+        >
+            <Pressable style={spikeSheetStyles.overlay} onPress={handleClose}>
+                <Animated.View
+                    style={[
+                        spikeSheetStyles.sheet,
+                        { transform: [{ translateY: slideAnim }] }
+                    ]}
+                >
+                    <Pressable onPress={() => { }}>
+                        <View style={spikeSheetStyles.handle} />
+                        <Text style={spikeSheetStyles.title}>Check spike risk</Text>
+                        <Text style={spikeSheetStyles.subtitle}>
+                            What are you planning to eat?
+                        </Text>
+                        <TextInput
+                            style={spikeSheetStyles.input}
+                            placeholder="e.g., butter chicken with naan and rice"
+                            placeholderTextColor="#878787"
+                            value={inputText}
+                            onChangeText={setInputText}
+                            multiline
+                            numberOfLines={3}
+                            textAlignVertical="top"
+                            autoFocus
+                        />
+                        <TouchableOpacity
+                            style={[
+                                spikeSheetStyles.analyzeButton,
+                                !inputText.trim() && spikeSheetStyles.analyzeButtonDisabled,
+                            ]}
+                            onPress={handleAnalyze}
+                            disabled={!inputText.trim()}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={spikeSheetStyles.analyzeButtonText}>Analyze</Text>
+                        </TouchableOpacity>
+                    </Pressable>
+                </Animated.View>
+            </Pressable>
+        </Modal>
+    );
+}
+
+const spikeSheetStyles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'flex-end',
+    },
+    sheet: {
+        backgroundColor: '#1A1B1C',
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        padding: 24,
+        paddingBottom: 40,
+    },
+    handle: {
+        width: 36,
+        height: 4,
+        backgroundColor: '#3F4243',
+        borderRadius: 2,
+        alignSelf: 'center',
+        marginBottom: 20,
+    },
+    title: {
+        fontFamily: fonts.semiBold,
+        fontSize: 20,
+        color: '#FFFFFF',
+        marginBottom: 8,
+    },
+    subtitle: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#878787',
+        marginBottom: 16,
+    },
+    input: {
+        backgroundColor: '#232527',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+        padding: 16,
+        fontFamily: fonts.regular,
+        fontSize: 16,
+        color: '#E7E8E9',
+        minHeight: 80,
+    },
+    analyzeButton: {
+        backgroundColor: '#26A861',
+        borderRadius: 12,
+        paddingVertical: 16,
+        alignItems: 'center',
+        marginTop: 20,
+    },
+    analyzeButtonDisabled: {
+        backgroundColor: '#3F4243',
+    },
+    analyzeButtonText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
+        color: '#FFFFFF',
+    },
+});
+
+// Tip Card Component
+function TipCard({ onPress }: { onPress: () => void }) {
+    return (
+        <TouchableOpacity
+            style={styles.tipCardContainer}
+            onPress={onPress}
+            activeOpacity={0.8}
+        >
             <View style={styles.tipCardShadow} />
             <View style={styles.tipCard}>
                 <Ionicons name="bulb" size={24} color="#CAA163" />
@@ -784,21 +948,214 @@ function TipCard() {
                     Planning your next lunch? <Text style={styles.tipLink}>Tap to check spike risk</Text>
                 </Text>
             </View>
-        </View>
+        </TouchableOpacity>
     );
 }
+// Meal Card Component with Mini Chart
+const MINI_CHART_WIDTH = 280;
+const MINI_CHART_HEIGHT = 130;
 
-// Meal Card Component
-function MealCard({ mealType, mealName, time, peakValue, status, statusText }: {
-    mealType: string;
-    mealName: string;
-    time: string;
-    peakValue: number;
-    status: 'good' | 'warning' | 'bad';
-    statusText: string;
+function MealCard({ review, onPress }: {
+    review: PostMealReview;
+    onPress?: () => void;
 }) {
+    const predictedCurve = review.predicted_curve || [];
+    const actualCurve = review.actual_curve || [];
+
+    // Format time
+    const formatTime = (dateStr: string | null) => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        const h = date.getHours();
+        const m = date.getMinutes();
+        return `${(h % 12 || 12).toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    };
+
+    // Determine meal type from time
+    const getMealType = (dateStr: string | null) => {
+        if (!dateStr) return 'Meal';
+        const h = new Date(dateStr).getHours();
+        if (h < 11) return 'Breakfast';
+        if (h < 15) return 'Lunch';
+        if (h < 18) return 'Snack';
+        return 'Dinner';
+    };
+
+    // Status tag styling
+    const getStatusStyle = () => {
+        switch (review.status_tag) {
+            case 'steady':
+                return { bg: '#1E4D2B', text: '#4CAF50', label: 'Steady' };
+            case 'mild_elevation':
+                return { bg: '#3D5A1F', text: '#8BC34A', label: 'Mild Elevation' };
+            case 'spike':
+                return { bg: '#4D1E1E', text: '#F44336', label: 'Spike' };
+            default:
+                return { bg: '#2D2D2D', text: '#878787', label: 'Unknown' };
+        }
+    };
+
+    // Render mini chart
+    const renderMiniChart = () => {
+        if (predictedCurve.length === 0 && actualCurve.length === 0) {
+            return (
+                <View style={styles.miniChartEmpty}>
+                    <Text style={styles.miniChartEmptyText}>No data</Text>
+                </View>
+            );
+        }
+
+        const padding = { left: 30, right: 10, top: 20, bottom: 30 };
+        const yTicks = [0, 3, 5, 7, 9, 11, 15];
+        const maxTime = 120;
+
+        const chartW = MINI_CHART_WIDTH - padding.left - padding.right;
+        const chartH = MINI_CHART_HEIGHT - padding.top - padding.bottom;
+
+        const scaleX = (time: number) => padding.left + (time / maxTime) * chartW;
+        const scaleY = (value: number) => padding.top + chartH - ((value - 0) / 15) * chartH;
+
+        const createPath = (curve: { time: number; value: number }[]) => {
+            if (curve.length === 0) return '';
+            const sorted = [...curve].sort((a, b) => a.time - b.time);
+            return sorted.map((p, i) =>
+                `${i === 0 ? 'M' : 'L'} ${scaleX(p.time)} ${scaleY(p.value)}`
+            ).join(' ');
+        };
+
+        const predictedPeak = predictedCurve.length > 0
+            ? predictedCurve.reduce((max, p) => p.value > max.value ? p : max, predictedCurve[0])
+            : null;
+        const actualPeak = actualCurve.length > 0
+            ? actualCurve.reduce((max, p) => p.value > max.value ? p : max, actualCurve[0])
+            : null;
+
+        return (
+            <View style={styles.miniChartContainer}>
+                {/* Legend */}
+                <View style={styles.miniChartLegend}>
+                    <Text style={styles.miniChartYLabel}>mmol/L</Text>
+                    <View style={styles.miniChartLegendItems}>
+                        <View style={styles.miniChartLegendItem}>
+                            <View style={[styles.legendDot, { backgroundColor: '#3494D9' }]} />
+                            <Text style={styles.legendText}>Actual</Text>
+                        </View>
+                        <View style={styles.miniChartLegendItem}>
+                            <View style={[styles.legendDot, { backgroundColor: '#6B6B6B' }]} />
+                            <Text style={styles.legendText}>Predicted</Text>
+                        </View>
+                    </View>
+                </View>
+
+                <Svg width={MINI_CHART_WIDTH} height={MINI_CHART_HEIGHT}>
+                    {/* Grid lines */}
+                    {[0, 5, 9, 15].map(val => (
+                        <Line
+                            key={`grid-${val}`}
+                            x1={padding.left}
+                            y1={scaleY(val)}
+                            x2={MINI_CHART_WIDTH - padding.right}
+                            y2={scaleY(val)}
+                            stroke="#2D2D2D"
+                            strokeWidth={1}
+                        />
+                    ))}
+
+                    {/* Target zone line */}
+                    <Line
+                        x1={padding.left}
+                        y1={scaleY(9)}
+                        x2={MINI_CHART_WIDTH - padding.right}
+                        y2={scaleY(9)}
+                        stroke="#4A4A4A"
+                        strokeWidth={1}
+                        strokeDasharray="3,3"
+                    />
+
+                    {/* Y-axis labels */}
+                    {[0, 5, 9, 15].map(val => (
+                        <SvgText
+                            key={`y-${val}`}
+                            x={padding.left - 5}
+                            y={scaleY(val) + 3}
+                            fontSize={9}
+                            fill="#878787"
+                            textAnchor="end"
+                        >
+                            {val}
+                        </SvgText>
+                    ))}
+
+                    {/* Predicted curve (gray) */}
+                    {predictedCurve.length > 0 && (
+                        <Path
+                            d={createPath(predictedCurve)}
+                            stroke="#6B6B6B"
+                            strokeWidth={1.5}
+                            fill="none"
+                        />
+                    )}
+
+                    {/* Actual curve (blue) */}
+                    {actualCurve.length > 0 && (
+                        <Path
+                            d={createPath(actualCurve)}
+                            stroke="#3494D9"
+                            strokeWidth={2}
+                            fill="none"
+                        />
+                    )}
+
+                    {/* Peak markers */}
+                    {predictedPeak && (
+                        <>
+                            <Circle
+                                cx={scaleX(predictedPeak.time)}
+                                cy={scaleY(predictedPeak.value)}
+                                r={3}
+                                fill="#6B6B6B"
+                            />
+                            <SvgText
+                                x={scaleX(predictedPeak.time)}
+                                y={scaleY(predictedPeak.value) - 6}
+                                fontSize={9}
+                                fill="#878787"
+                                textAnchor="middle"
+                            >
+                                {predictedPeak.value.toFixed(1)}
+                            </SvgText>
+                        </>
+                    )}
+
+                    {actualPeak && (
+                        <>
+                            <Circle
+                                cx={scaleX(actualPeak.time)}
+                                cy={scaleY(actualPeak.value)}
+                                r={4}
+                                fill="#3494D9"
+                            />
+                            <SvgText
+                                x={scaleX(actualPeak.time)}
+                                y={scaleY(actualPeak.value) - 8}
+                                fontSize={10}
+                                fill="#FFFFFF"
+                                textAnchor="middle"
+                                fontWeight="600"
+                            >
+                                {actualPeak.value.toFixed(1)}
+                            </SvgText>
+                        </>
+                    )}
+                </Svg>
+            </View>
+        );
+    };
+
+    const statusStyle = getStatusStyle();
+
     return (
-        <View style={styles.mealCard}>
+        <TouchableOpacity style={styles.mealCard} onPress={onPress} activeOpacity={0.8}>
             {/* Header */}
             <View style={styles.mealHeader}>
                 <View style={styles.mealIconContainer}>
@@ -806,53 +1163,141 @@ function MealCard({ mealType, mealName, time, peakValue, status, statusText }: {
                 </View>
                 <View style={styles.mealInfo}>
                     <View style={styles.mealMetaRow}>
-                        <Text style={styles.mealType}>{mealType}</Text>
-                        <Text style={styles.mealTime}>{time}</Text>
+                        <Text style={styles.mealType}>{getMealType(review.meal_time)}</Text>
+                        <Text style={styles.mealTime}>{formatTime(review.meal_time)}</Text>
                     </View>
-                    <Text style={styles.mealName}>{mealName}</Text>
+                    <Text style={styles.mealName} numberOfLines={1}>{review.meal_name || 'Meal'}</Text>
                 </View>
             </View>
 
-            {/* Chart placeholder */}
-            <View style={styles.chartContainer}>
-                <View style={styles.chartPlaceholder}>
-                    <Text style={styles.chartLabel}>mmol/L</Text>
-                    <View style={styles.chartArea}>
-                        {/* Simplified chart representation */}
-                        <View style={styles.chartLine} />
-                        <View style={styles.chartLegend}>
-                            <View style={styles.legendItem}>
-                                <View style={[styles.legendDot, { backgroundColor: '#3494D9' }]} />
-                                <Text style={styles.legendText}>Actual</Text>
-                            </View>
-                            <View style={styles.legendItem}>
-                                <View style={[styles.legendDot, { backgroundColor: '#DB7B32' }]} />
-                                <Text style={styles.legendText}>Predicted</Text>
-                            </View>
-                        </View>
-                    </View>
-                </View>
-            </View>
+            {/* Chart */}
+            {renderMiniChart()}
 
             {/* Status */}
             <View style={styles.mealStatus}>
-                <View style={styles.statusBadge}>
-                    <Text style={styles.statusBadgeText}>Mild Elevation</Text>
+                <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+                    <Text style={[styles.statusBadgeText, { color: statusStyle.text }]}>{statusStyle.label}</Text>
                 </View>
                 <Text style={styles.statusDescription}>
-                    Peaked at {peakValue} mmol/L - smoother than expected
+                    Peaked at {(review.actual_peak || 0).toFixed(1)} mmol/L - {
+                        review.status_tag === 'steady' ? 'steady response' :
+                            review.status_tag === 'mild_elevation' ? 'smoother than expected' :
+                                'higher than expected'
+                    }
                 </Text>
             </View>
-        </View>
+        </TouchableOpacity>
     );
 }
 
 export default function TodayScreen() {
-    const { profile } = useAuth();
+    const { profile, user } = useAuth();
     const [isFabOpen, setIsFabOpen] = useState(false);
-    const [range, setRange] = useState<RangeKey>('30d'); // Shared range state for all stat cards
+    const [range, setRange] = useState<RangeKey>('30d');
+    const [pastMealReviews, setPastMealReviews] = useState<PostMealReview[]>([]);
+    const [spikeSheetVisible, setSpikeSheetVisible] = useState(false);
     const overlayOpacity = React.useRef(new Animated.Value(0)).current;
     const fabRef = React.useRef<AnimatedFABRef>(null);
+
+    // Fetch past meal reviews when screen focuses
+    useFocusEffect(
+        useCallback(() => {
+            const fetchReviews = async () => {
+                if (!user?.id) return;
+                const reviews = await getPendingReviews(user.id);
+                // Only show reviews that have been opened (have actual data)
+                const completedReviews = reviews.filter(r => r.status === 'opened' && r.actual_peak !== null);
+
+                // If no real reviews, show mock data for UI demonstration
+                if (completedReviews.length === 0) {
+                    const mockReviews = [
+                        {
+                            id: 'mock-1',
+                            user_id: user.id,
+                            meal_id: 'meal-1',
+                            scheduled_for: new Date().toISOString(),
+                            status: 'opened',
+                            meal_name: 'Butter chicken with butter naan',
+                            meal_time: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(), // 3 hours ago (breakfast time)
+                            predicted_curve: [
+                                { time: 0, value: 5.2 }, { time: 15, value: 5.8 }, { time: 30, value: 6.5 },
+                                { time: 45, value: 7.2 }, { time: 60, value: 7.5 }, { time: 75, value: 7.1 },
+                                { time: 90, value: 6.8 }, { time: 105, value: 6.2 }, { time: 120, value: 5.8 }
+                            ],
+                            actual_curve: [
+                                { time: 0, value: 5.0 }, { time: 15, value: 5.5 }, { time: 30, value: 6.8 },
+                                { time: 45, value: 7.8 }, { time: 60, value: 8.4 }, { time: 75, value: 7.9 },
+                                { time: 90, value: 7.2 }, { time: 105, value: 6.5 }, { time: 120, value: 5.9 }
+                            ],
+                            predicted_peak: 7.5,
+                            actual_peak: 8.4,
+                            status_tag: 'mild_elevation',
+                            summary: 'Peaked at 8.4 mmol/L - smoother than expected',
+                            contributors: [{ title: 'Carb-rich meal', detail: 'The naan bread contributed to a moderate glucose rise.', impact: 'moderate' }],
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
+                        },
+                        {
+                            id: 'mock-2',
+                            user_id: user.id,
+                            meal_id: 'meal-2',
+                            scheduled_for: new Date().toISOString(),
+                            status: 'opened',
+                            meal_name: 'Grilled salmon with vegetables',
+                            meal_time: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago (lunch)
+                            predicted_curve: [
+                                { time: 0, value: 5.0 }, { time: 15, value: 5.3 }, { time: 30, value: 5.6 },
+                                { time: 45, value: 5.9 }, { time: 60, value: 6.0 }, { time: 75, value: 5.8 },
+                                { time: 90, value: 5.5 }, { time: 105, value: 5.2 }, { time: 120, value: 5.0 }
+                            ],
+                            actual_curve: [
+                                { time: 0, value: 5.1 }, { time: 15, value: 5.4 }, { time: 30, value: 5.7 },
+                                { time: 45, value: 5.8 }, { time: 60, value: 5.9 }, { time: 75, value: 5.7 },
+                                { time: 90, value: 5.4 }, { time: 105, value: 5.2 }, { time: 120, value: 5.0 }
+                            ],
+                            predicted_peak: 6.0,
+                            actual_peak: 5.9,
+                            status_tag: 'steady',
+                            summary: 'Peaked at 5.9 mmol/L - steady response',
+                            contributors: [{ title: 'High protein, low carb', detail: 'Protein and healthy fats kept glucose stable.', impact: 'positive' }],
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
+                        },
+                        {
+                            id: 'mock-3',
+                            user_id: user.id,
+                            meal_id: 'meal-3',
+                            scheduled_for: new Date().toISOString(),
+                            status: 'opened',
+                            meal_name: 'Pasta with marinara sauce',
+                            meal_time: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // Yesterday dinner
+                            predicted_curve: [
+                                { time: 0, value: 5.5 }, { time: 15, value: 6.5 }, { time: 30, value: 8.0 },
+                                { time: 45, value: 9.2 }, { time: 60, value: 9.5 }, { time: 75, value: 8.8 },
+                                { time: 90, value: 7.8 }, { time: 105, value: 6.8 }, { time: 120, value: 6.0 }
+                            ],
+                            actual_curve: [
+                                { time: 0, value: 5.3 }, { time: 15, value: 7.0 }, { time: 30, value: 9.2 },
+                                { time: 45, value: 10.5 }, { time: 60, value: 11.2 }, { time: 75, value: 10.0 },
+                                { time: 90, value: 8.5 }, { time: 105, value: 7.2 }, { time: 120, value: 6.3 }
+                            ],
+                            predicted_peak: 9.5,
+                            actual_peak: 11.2,
+                            status_tag: 'spike',
+                            summary: 'Peaked at 11.2 mmol/L - higher than expected',
+                            contributors: [{ title: 'Refined carbohydrates', detail: 'White pasta caused a significant spike.', impact: 'negative' }],
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
+                        },
+                    ];
+                    setPastMealReviews(mockReviews as unknown as PostMealReview[]);
+                } else {
+                    setPastMealReviews(completedReviews.slice(0, 10));
+                }
+            };
+            fetchReviews();
+        }, [user?.id])
+    );
 
     // Get user initials from profile
     const getInitials = () => {
@@ -887,7 +1332,7 @@ export default function TodayScreen() {
                             <Text style={styles.avatarText}>{getInitials()}</Text>
                         </TouchableOpacity>
                         <Text style={styles.headerTitle}>GLUCO</Text>
-                        <TouchableOpacity style={styles.notificationButton}>
+                        <TouchableOpacity style={styles.notificationButton} onPress={() => router.push('/notifications-list')}>
                             <Ionicons name="notifications-outline" size={24} color="#E7E8E9" />
                         </TouchableOpacity>
                     </View>
@@ -936,7 +1381,7 @@ export default function TodayScreen() {
                         </View>
 
                         {/* Tip Card */}
-                        <TipCard />
+                        <TipCard onPress={() => setSpikeSheetVisible(true)} />
 
                         {/* Page indicator */}
                         <View style={styles.pageIndicator}>
@@ -951,22 +1396,37 @@ export default function TodayScreen() {
                             style={styles.mealCardsScroll}
                             contentContainerStyle={styles.mealCardsContainer}
                         >
-                            <MealCard
-                                mealType="Breakfast"
-                                mealName="Butter chicken with butter naan"
-                                time="08:10"
-                                peakValue={8.4}
-                                status="good"
-                                statusText="Mild Elevation"
-                            />
-                            <MealCard
-                                mealType="Breakfast"
-                                mealName="Butter chicken with butter naan"
-                                time="08:10"
-                                peakValue={8.4}
-                                status="good"
-                                statusText="Mild Elevation"
-                            />
+                            {pastMealReviews.length > 0 ? (
+                                pastMealReviews.map((review) => (
+                                    <MealCard
+                                        key={review.id}
+                                        review={review}
+                                        onPress={() => {
+                                            // For mock reviews, pass data directly; for real reviews, just pass ID
+                                            if (review.id.startsWith('mock-')) {
+                                                router.push({
+                                                    pathname: '/post-meal-review' as any,
+                                                    params: {
+                                                        reviewId: review.id,
+                                                        mockData: JSON.stringify(review)
+                                                    }
+                                                });
+                                            } else {
+                                                router.push({
+                                                    pathname: '/post-meal-review' as any,
+                                                    params: { reviewId: review.id }
+                                                });
+                                            }
+                                        }}
+                                    />
+                                ))
+                            ) : (
+                                <View style={styles.noMealsCard}>
+                                    <Ionicons name="restaurant-outline" size={32} color="#878787" />
+                                    <Text style={styles.noMealsText}>No meal reviews yet</Text>
+                                    <Text style={styles.noMealsSubtext}>Log a meal to see your glucose response</Text>
+                                </View>
+                            )}
                         </ScrollView>
                     </ScrollView>
 
@@ -1004,6 +1464,16 @@ export default function TodayScreen() {
                     </View>
                 </SafeAreaView>
             </View>
+
+            {/* Spike Risk Input Sheet */}
+            <SpikeRiskInputSheet
+                visible={spikeSheetVisible}
+                onClose={() => setSpikeSheetVisible(false)}
+                onAnalyze={(text) => {
+                    setSpikeSheetVisible(false);
+                    router.push({ pathname: '/check-spike-risk', params: { initialText: text } } as any);
+                }}
+            />
         </AnimatedScreen>
     );
 }
@@ -1276,22 +1746,20 @@ const styles = StyleSheet.create({
         backgroundColor: Colors.textPrimary,
     },
     mealCardsScroll: {
-        marginHorizontal: -16,
+        marginTop: 16,
     },
     mealCardsContainer: {
-        paddingHorizontal: 16,
         gap: 16,
+        paddingRight: 16,
     },
     mealCard: {
-        width: 345,
+        width: SCREEN_WIDTH - 72,
         backgroundColor: '#22282C',
         borderRadius: 16,
         padding: 16,
-        gap: 24,
-        shadowColor: '#E7E8E9',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.1,
-        shadowRadius: 1,
+        gap: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
     },
     mealHeader: {
         flexDirection: 'row',
@@ -1476,6 +1944,67 @@ const styles = StyleSheet.create({
         backgroundColor: '#3494D9',
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    // Mini chart styles for meal card
+    miniChartContainer: {
+        marginVertical: 8,
+    },
+    miniChartEmpty: {
+        height: MINI_CHART_HEIGHT,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(63, 66, 67, 0.2)',
+        borderRadius: 8,
+    },
+    miniChartEmptyText: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#878787',
+    },
+    miniChartLegend: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 4,
+    },
+    miniChartYLabel: {
+        fontFamily: fonts.regular,
+        fontSize: 10,
+        color: '#878787',
+    },
+    miniChartLegendItems: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    miniChartLegendItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    // No meals placeholder card
+    noMealsCard: {
+        width: '100%',
+        backgroundColor: '#22282C',
+        borderRadius: 16,
+        paddingVertical: 48,
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+    },
+    noMealsText: {
+        fontFamily: fonts.medium,
+        fontSize: 16,
+        color: '#E7E8E9',
+        marginTop: 8,
+    },
+    noMealsSubtext: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: '#878787',
+        textAlign: 'center',
+        paddingHorizontal: 32,
     },
 });
 

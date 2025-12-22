@@ -1,8 +1,10 @@
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { schedulePostMealReviewNotification } from '@/lib/notifications';
 import {
     addMealItems,
     createMeal,
+    createPostMealReview,
     invokePremealAnalyze,
     PremealAdjustmentTip,
     PremealCurvePoint,
@@ -663,6 +665,33 @@ export default function PreMealCheckScreen() {
                 await addMealItems(user.id, meal.id, items);
             }
 
+            // Schedule post-meal review notification for 2 hours after meal
+            const scheduledFor = new Date(mealTime.getTime() + 2 * 60 * 60 * 1000);
+
+            // Create review row in database
+            const review = await createPostMealReview(user.id, {
+                meal_id: meal.id,
+                scheduled_for: scheduledFor,
+                meal_name: mealName,
+                meal_time: mealTime,
+                predicted_risk_pct: spikeRisk,
+                predicted_curve: predictedCurve.map(p => ({ time: p.t_min, value: p.glucose_delta })),
+                total_carbs: totalMacros.carbs,
+                total_protein: totalMacros.protein,
+                total_fibre: totalMacros.fiber,
+            });
+
+            // Schedule local notification
+            if (review) {
+                const notificationId = await schedulePostMealReviewNotification(
+                    review.id,
+                    meal.id,
+                    mealName,
+                    scheduledFor
+                );
+                console.log('Scheduled post-meal review:', review.id, 'notification:', notificationId);
+            }
+
             Alert.alert('Success', 'Meal logged successfully!', [
                 { text: 'OK', onPress: () => router.dismissTo('/(tabs)') },
             ]);
@@ -854,27 +883,32 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     header: {
-        height: 56,
+        height: 72,
         paddingHorizontal: 16,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
     },
     headerIconBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: 'rgba(63, 66, 67, 0.6)',
+        width: 48,
+        height: 48,
+        borderRadius: 33,
+        backgroundColor: 'rgba(63, 66, 67, 0.3)',
         justifyContent: 'center',
         alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.25,
+        shadowRadius: 2,
     },
     headerIconBtnSpacer: {
-        width: 40,
+        width: 48,
     },
     headerTitle: {
-        fontFamily: fonts.semiBold,
-        fontSize: 16,
+        fontFamily: fonts.bold,
+        fontSize: 18,
         color: '#FFFFFF',
+        letterSpacing: 1,
     },
     content: {
         paddingHorizontal: 16,

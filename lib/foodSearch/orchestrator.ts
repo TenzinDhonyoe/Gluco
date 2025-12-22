@@ -17,10 +17,10 @@ import { needsGeminiFallback, rankResults } from './rank';
 // Configuration
 const CONFIG = {
     MIN_QUERY_LENGTH: 2,
-    MIN_RESULTS_FOR_GOOD_SEARCH: 8,
+    MIN_RESULTS_FOR_GOOD_SEARCH: 5,  // Lowered from 8 to reduce Gemini calls
     MIN_SCORE_THRESHOLD: 50,
     MAX_RESULTS: 50,
-    DEBOUNCE_MS: 400,
+    DEBOUNCE_MS: 250,  // Reduced from 400 for faster response
 };
 
 export interface SearchOptions {
@@ -95,21 +95,30 @@ export async function searchWithOrchestration(
         }
     }
 
-    // Step 3: Initial search with typo-fixed query
+    // Step 3: Initial search with typo-fixed query + variants in parallel
     let allResults: NormalizedFood[] = [];
 
     try {
-        // Search with the main query (typo-fixed)
-        const mainResults = await searchFoods(typoFixedQuery, CONFIG.MAX_RESULTS);
-        allResults = [...mainResults];
-
-        // Also search with variants if different
+        // Build list of queries to search (main + variants)
+        const queriesToSearch = [typoFixedQuery];
         for (const variant of queryVariants) {
-            if (variant !== typoFixedQuery && allResults.length < CONFIG.MAX_RESULTS) {
-                if (signal?.aborted) break;
+            if (variant !== typoFixedQuery && queriesToSearch.length < 4) {
+                queriesToSearch.push(variant);
+            }
+        }
 
-                const variantResults = await searchFoods(variant, 15);
-                allResults = [...allResults, ...variantResults];
+        // Search all queries in parallel
+        const searchPromises = queriesToSearch.map((query, index) =>
+            searchFoods(query, index === 0 ? CONFIG.MAX_RESULTS : 15)
+        );
+
+        const results = await Promise.allSettled(searchPromises);
+
+        // Collect successful results
+        for (const result of results) {
+            if (signal?.aborted) break;
+            if (result.status === 'fulfilled') {
+                allResults = [...allResults, ...result.value];
             }
         }
     } catch (error) {

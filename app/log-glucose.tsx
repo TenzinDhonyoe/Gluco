@@ -3,10 +3,10 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { createGlucoseLog, type GlucoseContext } from '@/lib/supabase';
+import { createGlucoseLog, type GlucoseContext, updatePostMealReviewWithManualGlucose } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import {
   ActivityIndicator,
@@ -67,6 +67,11 @@ function ChevronDown() {
 
 export default function LogGlucoseScreen() {
   const { user } = useAuth();
+  const { reviewId, context: paramContext, returnTo } = useLocalSearchParams<{
+    reviewId?: string;
+    context?: string;
+    returnTo?: string;
+  }>();
   const [glucoseLevel, setGlucoseLevel] = React.useState('');
   const [context, setContext] = React.useState<GlucoseContext | null>(null);
   const [glucoseTime, setGlucoseTime] = React.useState<Date>(new Date());
@@ -74,6 +79,13 @@ export default function LogGlucoseScreen() {
 
   const [timeModalOpen, setTimeModalOpen] = React.useState(false);
   const [contextModalOpen, setContextModalOpen] = React.useState(false);
+
+  // Auto-set context if coming from post-meal review
+  React.useEffect(() => {
+    if (paramContext === 'post_meal' && !context) {
+      setContext('post_meal');
+    }
+  }, [paramContext, context]);
 
   // Wheel options (minute is 00-59)
   const HOURS = React.useMemo(() => Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')), []);
@@ -147,8 +159,29 @@ export default function LogGlucoseScreen() {
       });
 
       if (result) {
+        // If coming from post-meal review, update the review with this glucose value
+        if (reviewId) {
+          const updateSuccess = await updatePostMealReviewWithManualGlucose(reviewId, level);
+          if (!updateSuccess) {
+            console.warn('Failed to update post-meal review with glucose');
+          }
+        }
+
         Alert.alert('Success', 'Glucose level logged successfully', [
-          { text: 'OK', onPress: () => router.back() },
+          {
+            text: 'OK',
+            onPress: () => {
+              if (returnTo && reviewId) {
+                // Navigate back to post-meal review with refresh flag
+                router.replace({
+                  pathname: returnTo as any,
+                  params: { reviewId, refresh: 'true' },
+                });
+              } else {
+                router.back();
+              }
+            }
+          },
         ]);
       } else {
         Alert.alert('Error', 'Failed to save glucose log. Please try again.');
@@ -159,7 +192,7 @@ export default function LogGlucoseScreen() {
     } finally {
       setIsSaving(false);
     }
-  }, [user, glucoseLevel, tempHour12, tempMinute, tempPeriod, context]);
+  }, [user, glucoseLevel, tempHour12, tempMinute, tempPeriod, context, reviewId, returnTo]);
 
   const selectedContextLabel = context
     ? GLUCOSE_CONTEXTS.find((c) => c.value === context)?.label

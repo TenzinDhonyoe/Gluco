@@ -979,3 +979,339 @@ export async function getPersonalizedTips(userId: string): Promise<PersonalizedT
         return null;
     }
 }
+
+// ==========================================
+// POST MEAL REVIEW FUNCTIONS
+// ==========================================
+
+export type ReviewStatus = 'scheduled' | 'ready' | 'opened';
+export type ReviewStatusTag = 'steady' | 'mild_elevation' | 'spike';
+
+export interface PostMealReview {
+    id: string;
+    user_id: string;
+    meal_id: string;
+    scheduled_for: string;
+    notification_id: string | null;
+    status: ReviewStatus;
+    opened_at: string | null;
+    predicted_peak: number | null;
+    predicted_curve: { time: number; value: number }[] | null;
+    predicted_risk_pct: number | null;
+    actual_peak: number | null;
+    actual_curve: { time: number; value: number }[] | null;
+    summary: string | null;
+    status_tag: ReviewStatusTag | null;
+    contributors: { title: string; detail: string; impact: string }[] | null;
+    meal_name: string | null;
+    meal_time: string | null;
+    total_carbs: number | null;
+    total_protein: number | null;
+    total_fibre: number | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CreatePostMealReviewInput {
+    meal_id: string;
+    scheduled_for: Date;
+    notification_id?: string;
+    predicted_peak?: number;
+    predicted_curve?: { time: number; value: number }[];
+    predicted_risk_pct?: number;
+    meal_name?: string;
+    meal_time?: Date;
+    total_carbs?: number;
+    total_protein?: number;
+    total_fibre?: number;
+}
+
+export async function createPostMealReview(
+    userId: string,
+    input: CreatePostMealReviewInput
+): Promise<PostMealReview | null> {
+    const { data, error } = await supabase
+        .from('post_meal_reviews')
+        .insert({
+            user_id: userId,
+            meal_id: input.meal_id,
+            scheduled_for: input.scheduled_for.toISOString(),
+            notification_id: input.notification_id || null,
+            status: 'scheduled',
+            predicted_peak: input.predicted_peak || null,
+            predicted_curve: input.predicted_curve || null,
+            predicted_risk_pct: input.predicted_risk_pct || null,
+            meal_name: input.meal_name || null,
+            meal_time: input.meal_time?.toISOString() || null,
+            total_carbs: input.total_carbs || null,
+            total_protein: input.total_protein || null,
+            total_fibre: input.total_fibre || null,
+        })
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error creating post meal review:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function getPostMealReview(reviewId: string): Promise<PostMealReview | null> {
+    const { data, error } = await supabase
+        .from('post_meal_reviews')
+        .select('*')
+        .eq('id', reviewId)
+        .single();
+
+    if (error) {
+        console.error('Error fetching post meal review:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function updatePostMealReviewStatus(
+    reviewId: string,
+    status: ReviewStatus,
+    updates?: {
+        opened_at?: Date;
+        actual_peak?: number;
+        actual_curve?: { time: number; value: number }[];
+        summary?: string;
+        status_tag?: ReviewStatusTag;
+        contributors?: { title: string; detail: string; impact: string }[];
+    }
+): Promise<PostMealReview | null> {
+    const updateData: any = { status };
+
+    if (updates?.opened_at) updateData.opened_at = updates.opened_at.toISOString();
+    if (updates?.actual_peak !== undefined) updateData.actual_peak = updates.actual_peak;
+    if (updates?.actual_curve) updateData.actual_curve = updates.actual_curve;
+    if (updates?.summary) updateData.summary = updates.summary;
+    if (updates?.status_tag) updateData.status_tag = updates.status_tag;
+    if (updates?.contributors) updateData.contributors = updates.contributors;
+
+    const { data, error } = await supabase
+        .from('post_meal_reviews')
+        .update(updateData)
+        .eq('id', reviewId)
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error updating post meal review:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function getPendingReviews(userId: string): Promise<PostMealReview[]> {
+    const { data, error } = await supabase
+        .from('post_meal_reviews')
+        .select('*')
+        .eq('user_id', userId)
+        .order('scheduled_for', { ascending: false })
+        .limit(20);
+
+    if (error) {
+        console.error('Error fetching pending reviews:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+export async function getReadyReviewsCount(userId: string): Promise<number> {
+    const now = new Date().toISOString();
+
+    const { count, error } = await supabase
+        .from('post_meal_reviews')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .lte('scheduled_for', now)
+        .neq('status', 'opened');
+
+    if (error) {
+        console.error('Error counting ready reviews:', error);
+        return 0;
+    }
+
+    return count || 0;
+}
+
+/**
+ * Compute actual glucose curve from logs for a given time window
+ */
+export async function computeActualGlucoseCurve(
+    userId: string,
+    mealTime: Date,
+    windowHours: number = 3
+): Promise<{
+    curve: { time: number; value: number }[];
+    peak: number | null;
+    hasData: boolean;
+}> {
+    const endTime = new Date(mealTime.getTime() + windowHours * 60 * 60 * 1000);
+
+    const { data, error } = await supabase
+        .from('glucose_logs')
+        .select('glucose_level, logged_at')
+        .eq('user_id', userId)
+        .gte('logged_at', mealTime.toISOString())
+        .lte('logged_at', endTime.toISOString())
+        .order('logged_at', { ascending: true });
+
+    if (error || !data || data.length === 0) {
+        return { curve: [], peak: null, hasData: false };
+    }
+
+    // Convert to curve format (time in minutes from meal)
+    const curve = data.map(log => ({
+        time: (new Date(log.logged_at).getTime() - mealTime.getTime()) / (60 * 1000),
+        value: log.glucose_level,
+    }));
+
+    const peak = Math.max(...data.map(log => log.glucose_level));
+
+    return { curve, peak, hasData: true };
+}
+
+/**
+ * Generate review summary and status tag based on predicted vs actual
+ */
+export function generateReviewInsights(
+    predictedPeak: number | null,
+    actualPeak: number | null,
+    baselineGlucose: number = 5.5
+): {
+    summary: string;
+    statusTag: ReviewStatusTag;
+    contributors: { title: string; detail: string; impact: string }[];
+} {
+    if (actualPeak === null) {
+        return {
+            summary: 'Not enough glucose data for this review',
+            statusTag: 'steady',
+            contributors: [],
+        };
+    }
+
+    const elevation = actualPeak - baselineGlucose;
+    let statusTag: ReviewStatusTag;
+    let summary: string;
+    const contributors: { title: string; detail: string; impact: string }[] = [];
+
+    // Determine status tag based on elevation
+    if (elevation < 2.0) {
+        statusTag = 'steady';
+        summary = `Peaked at ${actualPeak.toFixed(1)} mmol/L – steady response`;
+    } else if (elevation < 3.5) {
+        statusTag = 'mild_elevation';
+        summary = `Peaked at ${actualPeak.toFixed(1)} mmol/L – mild elevation`;
+    } else {
+        statusTag = 'spike';
+        summary = `Peaked at ${actualPeak.toFixed(1)} mmol/L – notable spike`;
+    }
+
+    // Compare to prediction if available
+    if (predictedPeak !== null) {
+        const diff = actualPeak - predictedPeak;
+        if (Math.abs(diff) < 0.5) {
+            summary += ' – as expected';
+            contributors.push({
+                title: 'Matched Prediction',
+                detail: 'Your glucose response was close to what we predicted',
+                impact: 'neutral',
+            });
+        } else if (diff < 0) {
+            summary += ' – better than expected';
+            contributors.push({
+                title: 'Lower Than Expected',
+                detail: `Peaked ${Math.abs(diff).toFixed(1)} mmol/L below prediction`,
+                impact: 'positive',
+            });
+        } else {
+            summary += ' – higher than expected';
+            contributors.push({
+                title: 'Higher Than Expected',
+                detail: `Peaked ${diff.toFixed(1)} mmol/L above prediction`,
+                impact: 'negative',
+            });
+        }
+    }
+
+    // Add general insights
+    if (statusTag === 'steady') {
+        contributors.push({
+            title: 'Balanced Meal',
+            detail: 'This meal combination worked well for your glucose',
+            impact: 'positive',
+        });
+    } else if (statusTag === 'spike') {
+        contributors.push({
+            title: 'Consider Adjustments',
+            detail: 'Adding fiber or protein might help with similar meals',
+            impact: 'suggestion',
+        });
+    }
+
+    return { summary, statusTag, contributors };
+}
+
+/**
+ * Update post_meal_review with manually logged glucose value
+ * Used when user logs glucose manually from the post-meal review screen
+ */
+export async function updatePostMealReviewWithManualGlucose(
+    reviewId: string,
+    glucoseValue: number
+): Promise<boolean> {
+    try {
+        // Get the review to access predicted peak
+        const { data: review, error: fetchError } = await supabase
+            .from('post_meal_reviews')
+            .select('predicted_peak')
+            .eq('id', reviewId)
+            .single();
+
+        if (fetchError || !review) {
+            console.error('Failed to fetch review:', fetchError);
+            return false;
+        }
+
+        // Generate insights based on actual vs predicted
+        const insights = generateReviewInsights(
+            review.predicted_peak,
+            glucoseValue
+        );
+
+        // Update the review with actual data
+        const { error: updateError } = await supabase
+            .from('post_meal_reviews')
+            .update({
+                status: 'opened',
+                actual_peak: glucoseValue,
+                actual_curve: [{ time: 120, value: glucoseValue }], // Single point for manual log
+                summary: insights.summary,
+                status_tag: insights.statusTag,
+                contributors: insights.contributors,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', reviewId);
+
+        if (updateError) {
+            console.error('Failed to update review:', updateError);
+            return false;
+        }
+
+        return true;
+    } catch (err) {
+        console.error('Failed to update review with manual glucose:', err);
+        return false;
+    }
+}
+

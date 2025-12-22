@@ -1260,7 +1260,499 @@ const handleSave = async () => {
 
 ---
 
-## 📚 Key Files Reference
+## 🚀 New Features (December 2025)
+
+### Check Spike Risk Screen (`app/check-spike-risk.tsx`)
+
+**Purpose**: Allows users to type what they plan to eat and get AI-powered spike risk analysis before eating.
+
+**User Flow**:
+1. User taps "Planning your next lunch? Tap to check spike risk" card on Home screen
+2. Bottom sheet slides up with text input (fade overlay + spring slide animation)
+3. User types meal description (e.g., "butter chicken with naan and rice")
+4. Tap "Analyze" button → navigates to full check-spike-risk screen
+5. Screen shows:
+   - Loading animation with mascot
+   - Spike risk gauge (percentage + Low/Moderate/High label)
+   - Macro summary (carbs, protein, fibre, fat)
+   - Drivers affecting spike risk
+   - Personalized adjustment tips
+
+**Data Flow**:
+1. `parseInputToItems(text)` - Splits input on "and", "with", commas
+2. `searchWithOrchestration(item)` - Searches food databases
+3. `estimateMatchConfidence()` - Auto-select if ≥80%, else show disambiguation modal
+4. `invokePremealAnalyze(userId, mealDraft)` - Calls Edge Function
+5. Renders results from API response
+
+**Key Components**:
+- `SpikeRiskInputSheet` - Bottom sheet modal in `index.tsx`
+- `SpikeRiskGauge` - Circular progress gauge
+- `AILoadingScreen` - Loading state with animated dots
+- `FoodDisambiguationModal` - Pick correct food when low confidence
+
+---
+
+### Food Search Orchestration (`lib/foodSearch/`)
+
+**Purpose**: Unified food search with caching, normalization, Gemini fallback, and ranking.
+
+**Files**:
+- `orchestrator.ts` - Main `searchWithOrchestration()` function
+- `normalize.ts` - Query normalization and typo fixes
+- `rank.ts` - Result ranking and deduplication
+- `cache.ts` - AsyncStorage-based caching with TTL
+- `geminiRewrite.ts` - Gemini API for query rewrites
+
+**Flow**:
+```
+User Query → Normalize → Check Cache → Search FDC/OFF
+                                           ↓
+                              Results < threshold?
+                                    ↓ Yes
+                              Gemini Rewrite
+                                    ↓
+                              Search Alternatives
+                                    ↓
+                              Rank & Dedupe → Cache → Return
+```
+
+**Configuration** (`orchestrator.ts`):
+- `MIN_QUERY_LENGTH`: 2
+- `MIN_RESULTS_FOR_GOOD_SEARCH`: 8
+- `MIN_SCORE_THRESHOLD`: 50
+- `MAX_RESULTS`: 50
+
+**Cache TTLs**:
+- Search results: 1 hour
+- Provider results: 24 hours
+- Gemini rewrites: 7 days
+
+---
+
+### Pre-Meal Check (`app/pre-meal-check.tsx`)
+
+**Purpose**: Shows spike risk analysis and personalized tips for a meal before logging.
+
+**Components**:
+- `SpikeRiskGauge` - Circular gauge showing risk percentage
+- `DynamicGlucoseChart` - SVG-based predicted glucose curve
+- `AILoadingScreen` - Loading state with mascot + animated dots
+
+**API Integration**:
+- Calls `invokePremealAnalyze()` with meal draft
+- Receives: `spike_risk_pct`, `predicted_curve`, `drivers`, `adjustment_tips`
+
+**Tip Selection**:
+- Tips are selectable checkboxes
+- Shows estimated risk reduction percentage
+- Calculates new projected risk when tips are selected
+
+---
+
+### Post-Meal Review (`app/post-meal-review.tsx`)
+
+**Purpose**: Review screen 2 hours after eating to compare predicted vs actual glucose response.
+
+**Features**:
+- Side-by-side chart: Predicted (blue) vs Actual (orange) curves
+- Peak value comparison
+- Status tag: "Steady", "Mild Elevation", "Spike"
+- Mood selection: 😊 😐 😔
+- Contributor analysis
+
+**Navigation**:
+- Triggered by local notification 2 hours post-meal
+- Accessed from meal cards in Today section carousel
+
+**Mock Data Support**:
+- Mock reviews shown when no real data exists
+- Mock IDs (e.g., "mock-1") pass full review data via params to bypass Supabase fetch
+
+---
+
+### Label Scanning (`lib/labelScan.ts`)
+
+**Purpose**: Scan nutrition labels with camera to add custom foods.
+
+**Flow**:
+1. User takes photo of nutrition label
+2. Image sent to `label-parse` Edge Function
+3. Vision AI extracts nutrition data
+4. Creates `NormalizedFood` from parsed label
+
+**Functions**:
+- `parseLabelFromImage(base64)` - Calls Edge Function
+- `mapParsedLabelToFood(parsed)` - Converts to NormalizedFood
+- `isValidParsedLabel(parsed)` - Validates minimum data
+
+---
+
+### Meal Logging (`app/log-meal.tsx`, `app/log-meal-items.tsx`)
+
+**Purpose**: Complete meal logging flow with food search, item management, and analysis.
+
+**Features**:
+- Food search with debouncing
+- Recent foods and favorites tabs
+- Add custom items via label scan
+- Quantity adjustment per item
+- Total macro calculation
+- Navigation to pre-meal check
+
+**State Management**:
+- `MealItem[]` - Selected items with quantities
+- Total macros computed client-side
+- Meal draft built for API submission
+
+---
+
+### Today Screen Enhancements (`app/(tabs)/index.tsx`)
+
+**New Components**:
+
+1. **TipCard** - "Planning your next lunch?" CTA
+   - Opens `SpikeRiskInputSheet` bottom sheet on tap
+
+2. **SpikeRiskInputSheet** - Bottom sheet modal
+   - Fade overlay + spring slide animation
+   - Text input with placeholder
+   - Green "Analyze" button (#26A861)
+   - Navigates to `/check-spike-risk` with `initialText` param
+
+3. **MealCard** - Past meal review cards in carousel
+   - Mini SVG chart with predicted/actual curves
+   - Peak markers and status badges
+   - Tap to open full post-meal review
+
+4. **Past Meals Carousel**
+   - Horizontal ScrollView with meal cards
+   - Shows mock data when no real reviews exist
+   - Paginated indicator dots
+
+---
+
+## 📡 Supabase Edge Functions
+
+### `premeal-analyze`
+**Purpose**: AI-powered spike risk prediction
+
+**Input**:
+```typescript
+{
+  user_id: string,
+  meal_draft: {
+    name: string,
+    logged_at: string,
+    items: PremealMealItem[]
+  }
+}
+```
+
+**Output**:
+```typescript
+{
+  spike_risk_pct: number,
+  predicted_curve: { time: number, value: number }[],
+  drivers: { text: string, reason_code: string }[],
+  adjustment_tips: {
+    title: string,
+    detail: string,
+    risk_reduction_pct: number,
+    action_type: string
+  }[]
+}
+```
+
+### `label-parse`
+**Purpose**: Extract nutrition data from label photos
+
+**Input**: `{ image_base64: string, locale?: string, units?: 'metric'|'us' }`
+
+**Output**: `ParsedLabel` with nutrients, serving info, confidence score
+
+---
+
+## 🗄️ Database Tables (Updated)
+
+### New Tables
+
+#### `post_meal_reviews`
+Stores meal review data and glucose response comparisons.
+
+```sql
+- id (UUID, PRIMARY KEY)
+- user_id (UUID, REFERENCES auth.users)
+- meal_id (UUID, REFERENCES meals)
+- scheduled_for (TIMESTAMP) -- When review notification fires
+- status (TEXT) -- 'pending', 'opened', 'completed'
+- meal_name (TEXT)
+- meal_time (TIMESTAMP)
+- predicted_curve (JSONB)
+- actual_curve (JSONB)
+- predicted_peak (NUMERIC)
+- actual_peak (NUMERIC)
+- status_tag (TEXT) -- 'steady', 'mild_elevation', 'spike'
+- summary (TEXT)
+- contributors (JSONB)
+- mood (TEXT) -- 'great', 'okay', 'not_great'
+```
+
+#### `foods_cache`
+Caches food search results from external providers.
+
+```sql
+- id (UUID, PRIMARY KEY)
+- provider (TEXT) -- 'fdc', 'off'
+- external_id (TEXT)
+- display_name (TEXT)
+- brand (TEXT, nullable)
+- nutrients (JSONB)
+- serving_info (JSONB)
+- cached_at (TIMESTAMP)
+- expires_at (TIMESTAMP)
+```
+
+#### `premeal_checks`
+Stores pre-meal analysis results.
+
+```sql
+- id (UUID, PRIMARY KEY)
+- user_id (UUID)
+- meal_draft (JSONB)
+- spike_risk_pct (NUMERIC)
+- predicted_curve (JSONB)
+- drivers (JSONB)
+- tips (JSONB)
+- created_at (TIMESTAMP)
+```
+
+---
+
+## � Food Search Orchestration
+
+### Overview
+
+The food search system uses a multi-layered orchestrator pattern to provide fast, accurate results while handling typos, synonyms, and edge cases.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    User Input                                │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Orchestrator (orchestrator.ts)                  │
+│  - Normalize query, fix typos                               │
+│  - Check cache (4hr TTL)                                    │
+│  - Run parallel searches                                    │
+│  - Rank and dedupe results                                  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+           ┌─────────────────┼─────────────────┐
+           ▼                  ▼                  ▼
+    ┌───────────┐     ┌───────────┐     ┌───────────────┐
+    │Main Query │     │ Variants  │     │Gemini Fallback│
+    │  (50 max) │     │ (15 each) │     │ (if <5 results)│
+    └───────────┘     └───────────┘     └───────────────┘
+           │                  │                  │
+           └─────────────────┼─────────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│           food-search Edge Function (Supabase)               │
+│  - Searches FoodData Central (USDA) + Open Food Facts       │
+│  - Returns NormalizedFood[] with unified schema             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `lib/foodSearch/orchestrator.ts` | Main search coordination |
+| `lib/foodSearch/normalize.ts` | Query normalization, typo fixing |
+| `lib/foodSearch/cache.ts` | AsyncStorage caching with TTL |
+| `lib/foodSearch/rank.ts` | Result ranking and deduplication |
+| `lib/foodSearch/geminiRewrite.ts` | Gemini AI query enhancement |
+| `supabase/functions/food-search/` | Edge function for API calls |
+
+### Configuration
+
+```typescript
+const CONFIG = {
+    MIN_QUERY_LENGTH: 2,           // Minimum chars to trigger search
+    MIN_RESULTS_FOR_GOOD_SEARCH: 5, // Threshold before Gemini fallback
+    MIN_SCORE_THRESHOLD: 50,        // Minimum relevance score
+    MAX_RESULTS: 50,                // Maximum results returned
+    DEBOUNCE_MS: 250,               // Input debounce delay
+};
+```
+
+### Performance Optimizations
+
+1. **Parallel Searches**: Main query + variants run with `Promise.allSettled`
+2. **250ms Debounce**: Fast response while avoiding excessive API calls
+3. **4-Hour Cache**: Repeat searches return instantly from AsyncStorage
+4. **Smart Gemini Trigger**: Only calls AI when initial results < 5 items
+
+### Cache TTLs
+
+| Cache Type | TTL |
+|------------|-----|
+| Search Results | 4 hours |
+| Provider Results | 24 hours |
+| Gemini Rewrites | 7 days |
+
+### Data Flow
+
+1. User types query → 250ms debounce
+2. Check AsyncStorage cache → return if hit
+3. Normalize query, fix typos
+4. Generate variants (singular/plural, alternative spellings)
+5. Run parallel searches via Edge Function
+6. If results < 5, call Gemini for query rewrite
+7. Rank, dedupe, and cache final results
+
+---
+
+## 📱 Manual Glucose Logging for Reviews
+
+### Overview
+
+Non-CGM users can manually log glucose readings from the Post Meal Review screen. The logged value is compared with the prediction and stored for insights.
+
+### Flow
+
+```
+Post Meal Review (no CGM) 
+    │
+    ├─ "Log Glucose Level Manually" button
+    │
+    ▼
+Log Glucose Screen
+    │ (context auto-set to "Post Meal")
+    │ (reviewId passed via params)
+    │
+    ├─ User enters glucose value → Save
+    │
+    ▼
+updatePostMealReviewWithManualGlucose()
+    │
+    ├─ Fetch predicted_peak from review
+    ├─ Call generateReviewInsights(predicted, actual)
+    ├─ Update review with:
+    │   - actual_peak
+    │   - actual_curve (single point)
+    │   - summary, status_tag, contributors
+    │
+    ▼
+Navigate back to Post Meal Review
+    (with refresh=true param)
+    │
+    ▼
+Reloads and displays comparison
+```
+
+### Key Functions
+
+| Function | Location | Purpose |
+|----------|----------|---------|
+| `handleLogGlucoseManually()` | `post-meal-review.tsx` | Navigate with params |
+| `updatePostMealReviewWithManualGlucose()` | `lib/supabase.ts` | Update review record |
+| `generateReviewInsights()` | `lib/supabase.ts` | Create summary/status |
+
+### Status Tag Logic
+
+| Elevation Above Baseline | Status Tag |
+|-------------------------|------------|
+| < 2.0 mmol/L | `steady` |
+| 2.0 - 3.5 mmol/L | `mild_elevation` |
+| > 3.5 mmol/L | `spike` |
+
+### Comparison Summary Examples
+
+- "Peaked at 7.2 mmol/L – steady response – as expected"
+- "Peaked at 9.5 mmol/L – mild elevation – higher than expected"
+- "Peaked at 6.8 mmol/L – steady response – better than expected"
+
+---
+
+## 🎨 UI Consistency Standards
+
+### Header Pattern
+
+All log/review screens follow consistent header styling:
+
+```typescript
+header: {
+    height: 72,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+}
+
+headerIconBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 33,
+    backgroundColor: 'rgba(63, 66, 67, 0.3)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.25,
+    shadowRadius: 2,
+}
+
+headerTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 18,
+    color: '#FFFFFF',
+    letterSpacing: 1,
+}
+```
+
+### Title Capitalization
+
+All screen titles use ALL CAPS:
+- `LOG ACTIVITY`
+- `LOG GLUCOSE`
+- `PRE MEAL CHECK`
+- `POST MEAL REVIEW`
+- `NOTIFICATIONS`
+
+### Background Gradient
+
+All screens use consistent gradient:
+
+```typescript
+<LinearGradient
+    colors={['#1a1f24', '#181c20', '#111111']}
+    locations={[0, 0.3, 1]}
+    style={styles.topGlow}
+/>
+
+topGlow: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    height: 280,
+}
+```
+
+### Screens Updated for Consistency
+
+| Screen | File |
+|--------|------|
+| Pre-Meal Check | `app/pre-meal-check.tsx` |
+| Post-Meal Review | `app/post-meal-review.tsx` |
+| Notifications | `app/notifications-list.tsx` |
+| Log Activity | `app/log-activity.tsx` |
+| Log Glucose | `app/log-glucose.tsx` |
+
+---
+
+## �📚 Key Files Reference
 
 ### Critical Files to Understand
 
@@ -1270,6 +1762,14 @@ const handleSave = async () => {
 4. **`app/(tabs)/_layout.tsx`**: Tab navigator and animations
 5. **`context/TabTransitionContext.tsx`**: Tab transition logic
 6. **`components/animated-screen.tsx`**: Screen animation wrapper
+
+### New Feature Files
+
+- **`app/check-spike-risk.tsx`**: Check spike risk before eating
+- **`app/pre-meal-check.tsx`**: Pre-meal analysis screen
+- **`app/post-meal-review.tsx`**: Post-meal review screen
+- **`lib/foodSearch/orchestrator.ts`**: Unified food search
+- **`lib/labelScan.ts`**: Nutrition label scanning
 
 ### Component Files
 
@@ -1283,12 +1783,13 @@ const handleSave = async () => {
 
 ## 🐛 Known Issues / Considerations
 
-1. **Meal Logging Backend**: Not yet implemented (UI only)
-2. **Hardcoded Tips**: Tips section uses static data
+1. ~~**Meal Logging Backend**: Not yet implemented (UI only)~~ ✅ Implemented
+2. ~~**Hardcoded Tips**: Tips section uses static data~~ ✅ Dynamic tips from API
 3. **Supabase Keys**: Currently in source code (should use env vars in production)
 4. **Error Handling**: Basic error handling, could be more robust
 5. **Loading States**: Some screens may need loading indicators when fetching data
 6. **Offline Support**: No offline data caching implemented
+7. **CGM Integration**: Dexcom connection UI exists but data fetching not fully implemented
 
 ---
 
@@ -1302,5 +1803,6 @@ const handleSave = async () => {
 
 ---
 
-**Last Updated**: December 2025
-**Version**: 1.0.0
+**Last Updated**: December 22, 2025
+**Version**: 1.2.0
+

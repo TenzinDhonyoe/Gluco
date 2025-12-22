@@ -1,14 +1,34 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import 'react-native-reanimated';
 
 import { Colors } from '@/constants/Colors';
 import { AuthProvider } from '@/context/AuthContext';
 import { useOutfitFonts } from '@/hooks/useFonts';
+import {
+  configureAndroidChannel,
+  handleInitialNotification,
+  setupNotificationListeners,
+} from '@/lib/notifications';
 
 export default function RootLayout() {
   const { fontsLoaded, fontError } = useOutfitFonts();
+
+  // Setup notification handlers
+  useEffect(() => {
+    // Configure Android notification channel
+    configureAndroidChannel();
+
+    // Setup notification response listener
+    const cleanup = setupNotificationListeners();
+
+    // Handle notification if app was opened from one
+    handleInitialNotification();
+
+    return cleanup;
+  }, []);
 
   // Show loading screen while fonts load
   if (!fontsLoaded && !fontError) {
@@ -50,6 +70,8 @@ export default function RootLayout() {
           <Stack.Screen name="labs-health-info" />
           <Stack.Screen name="pre-meal-check" />
           <Stack.Screen name="scan-label" />
+          <Stack.Screen name="post-meal-review" />
+          <Stack.Screen name="notifications-list" />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         </Stack>
         <StatusBar style="light" />

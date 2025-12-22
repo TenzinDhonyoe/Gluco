@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export const CACHE_TTL = {
     PROVIDER_RESULTS: 24 * 60 * 60 * 1000,  // 24 hours
     GEMINI_REWRITE: 7 * 24 * 60 * 60 * 1000, // 7 days
-    SEARCH_RESULTS: 60 * 60 * 1000,          // 1 hour for combined results
+    SEARCH_RESULTS: 4 * 60 * 60 * 1000,      // 4 hours (increased for faster repeat searches)
 };
 
 // Cache key prefixes
