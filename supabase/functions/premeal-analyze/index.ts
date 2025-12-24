@@ -82,6 +82,37 @@ interface PremealResult {
             baseline_glucose: number;
             data_days: number;
         };
+        // NEW: Similar meal memory
+        similar_meals?: {
+            k: number;
+            avg_peak_delta: number;
+            avg_peak_time_min: number | null;
+            spike_rate: number;
+            top_matches?: Array<{ meal_name: string; score: number; peak_delta: number }>;
+        } | null;
+        // NEW: Context signals
+        context?: {
+            activity_minutes_last_6h?: number;
+            any_activity_last_2h?: boolean;
+            recent_avg_glucose_24h?: number;
+            recent_variability?: number;
+        };
+        // NEW: Risk breakdown
+        risk_breakdown?: {
+            base_risk: number;
+            similar_meal_adjustment: number;
+            context_adjustment: number;
+            final_risk: number;
+        };
+        // NEW: Calibration info
+        calibration?: {
+            confidence: number;
+            n_observations: number;
+            carb_sensitivity: number;
+            exercise_effect: number;
+            sleep_penalty: number;
+            driftWeight: number;
+        };
     };
 }
 
@@ -122,6 +153,314 @@ const DEFAULT_PROFILE: UserGlucoseProfile = {
     data_quality: 'none',
     data_days: 0,
 };
+
+// ============================================
+// USER CALIBRATION (Persistent EMA-updated)
+// ============================================
+
+interface UserCalibration {
+    user_id: string;
+    baseline_glucose: number;     // [4.0, 9.0] typical pre-meal
+    carb_sensitivity: number;     // [0.1, 1.2] mmol/L per 10g carbs
+    avg_peak_time_min: number;    // [25, 120] minutes to peak
+    exercise_effect: number;      // [0.0, 0.35] peak reduction per activity unit
+    sleep_penalty: number;        // [0.0, 0.45] peak increase per sleep deficit unit
+    n_observations: number;
+    n_quality_observations: number;
+    confidence: number;           // [0, 1]
+}
+
+const DEFAULT_CALIBRATION: UserCalibration = {
+    user_id: '',
+    baseline_glucose: 5.5,
+    carb_sensitivity: 0.4,
+    avg_peak_time_min: 45,
+    exercise_effect: 0.0,
+    sleep_penalty: 0.0,
+    n_observations: 0,
+    n_quality_observations: 0,
+    confidence: 0.0,
+};
+
+/**
+ * Fetch user's persistent calibration from database
+ */
+async function fetchUserCalibration(
+    supabase: any,
+    userId: string
+): Promise<UserCalibration> {
+    try {
+        const { data } = await supabase
+            .from('user_calibration')
+            .select('*')
+            .eq('user_id', userId)
+            .single();
+
+        if (data) {
+            return data as UserCalibration;
+        }
+    } catch (error) {
+        console.log('No calibration found, using defaults');
+    }
+    return { ...DEFAULT_CALIBRATION, user_id: userId };
+}
+
+/**
+ * Blend calibration with 14-day rolling profile
+ * driftWeight decreases as calibration confidence increases
+ */
+function blendCalibrationWithDrift(
+    calibration: UserCalibration,
+    rollingProfile: UserGlucoseProfile
+): UserGlucoseProfile {
+    // driftWeight = clamp(0.15 * (1 - confidence), 0.05, 0.2)
+    const driftWeight = Math.max(0.05, Math.min(0.2, 0.15 * (1 - calibration.confidence)));
+
+    // Blend baseline
+    const baseline_glucose = calibration.confidence > 0
+        ? (1 - driftWeight) * calibration.baseline_glucose + driftWeight * rollingProfile.baseline_glucose
+        : rollingProfile.baseline_glucose;
+
+    // Blend sensitivity
+    const carb_sensitivity = calibration.confidence > 0
+        ? (1 - driftWeight) * calibration.carb_sensitivity + driftWeight * rollingProfile.carb_sensitivity
+        : rollingProfile.carb_sensitivity;
+
+    // Blend peak time
+    const avg_peak_time_min = calibration.confidence > 0
+        ? Math.round((1 - driftWeight) * calibration.avg_peak_time_min + driftWeight * rollingProfile.avg_peak_time_min)
+        : rollingProfile.avg_peak_time_min;
+
+    return {
+        ...rollingProfile,
+        baseline_glucose: Math.round(baseline_glucose * 10) / 10,
+        carb_sensitivity: Math.round(carb_sensitivity * 100) / 100,
+        avg_peak_time_min,
+        // Keep data quality from rolling profile
+    };
+}
+
+/**
+ * Compute activity_score and sleep_deficit for prediction modifiers
+ */
+function computeContextScores(context: ContextFeatures): {
+    activity_score: number;
+    sleep_deficit: number;
+} {
+    // activity_score from recent weighted activity
+    let activity_score = 0;
+    if (context.any_activity_last_2h) {
+        activity_score = 1.0;
+    } else if (context.intensity_weighted_minutes) {
+        activity_score = Math.min(1.5, context.intensity_weighted_minutes / 30);
+    }
+
+    // sleep_deficit from sleep hours
+    let sleep_deficit = 0;
+    if (context.sleep_hours_last_night != null && context.sleep_hours_last_night < 7) {
+        sleep_deficit = Math.min(1.5, (7 - context.sleep_hours_last_night) / 3);
+    }
+
+    return { activity_score, sleep_deficit };
+}
+
+/**
+ * Apply calibration modifiers (exercise, sleep) to peak delta
+ */
+function applyCalibrationModifiers(
+    basePeakDelta: number,
+    calibration: UserCalibration,
+    activityScore: number,
+    sleepDeficit: number
+): number {
+    // Apply sleep penalty: peak *= (1 + sleep_penalty * sleep_deficit)
+    let peakDelta = basePeakDelta * (1 + calibration.sleep_penalty * sleepDeficit);
+
+    // Apply exercise reduction: peak *= (1 - exercise_effect * activity_score)
+    // Clamp multiplier to not go below 0.5
+    const exerciseMultiplier = Math.max(0.5, 1 - calibration.exercise_effect * activityScore);
+    peakDelta = peakDelta * exerciseMultiplier;
+
+    // Clamp result
+    return Math.max(0.5, Math.min(8, peakDelta));
+}
+
+// ============================================
+// CONTEXT FEATURES (Future HealthKit Ready)
+// ============================================
+
+interface ContextFeatures {
+    // Activity (available now)
+    activity_minutes_last_6h?: number;
+    intensity_weighted_minutes?: number;
+    any_activity_last_2h?: boolean;
+
+    // Sleep (MVP placeholder, future HealthKit)
+    sleep_hours_last_night?: number;
+
+    // Glucose state (available now)
+    recent_avg_glucose_24h?: number;
+    recent_variability?: number;
+    recent_high_count?: number;
+
+    // Future HealthKit signals
+    resting_hr?: number;
+    hrv?: number;
+    steps_today?: number;
+    stress_score?: number;
+}
+
+// ============================================
+// SIMILAR MEAL MEMORY
+// ============================================
+
+interface SimilarMealStats {
+    k: number;                    // Number of similar meals found
+    avg_peak_delta: number;       // Average glucose rise
+    avg_peak_time_min: number | null;
+    spike_rate: number;           // % of similar meals that spiked
+    matches: Array<{
+        meal_name: string;
+        score: number;
+        peak_delta: number;
+    }>;
+}
+
+// Stopwords to filter from meal tokens
+const STOPWORDS = new Set([
+    'the', 'a', 'an', 'and', 'or', 'with', 'of', 'in', 'on', 'for',
+    'to', 'from', 'by', 'at', 'as', 'is', 'it', 'no', 'not'
+]);
+
+function normalizeToken(token: string): string {
+    return token.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+}
+
+function buildMealTokens(mealDraft: MealDraft): string[] {
+    const tokens: string[] = [];
+
+    // Tokenize meal name
+    for (const word of mealDraft.name.split(/\s+/)) {
+        const normalized = normalizeToken(word);
+        if (normalized.length >= 3 && !STOPWORDS.has(normalized)) {
+            tokens.push(normalized);
+        }
+    }
+
+    // Tokenize item names
+    for (const item of mealDraft.items) {
+        for (const word of item.display_name.split(/\s+/)) {
+            const normalized = normalizeToken(word);
+            if (normalized.length >= 3 && !STOPWORDS.has(normalized)) {
+                tokens.push(normalized);
+            }
+        }
+    }
+
+    return [...new Set(tokens)]; // Dedupe
+}
+
+function jaccardSimilarity(a: string[], b: string[]): number {
+    if (a.length === 0 || b.length === 0) return 0;
+    const setA = new Set(a);
+    const setB = new Set(b);
+    const intersection = [...setA].filter(x => setB.has(x)).length;
+    const union = new Set([...a, ...b]).size;
+    return intersection / union;
+}
+
+async function fetchSimilarMealStats(
+    supabase: any,
+    userId: string,
+    mealTokens: string[]
+): Promise<SimilarMealStats | null> {
+    if (mealTokens.length === 0) return null;
+
+    // Fetch last 200 completed reviews with tokens
+    const { data: reviews } = await supabase
+        .from('post_meal_reviews')
+        .select('meal_name, peak_delta, time_to_peak_min, status_tag, meal_tokens')
+        .eq('user_id', userId)
+        .eq('status', 'opened')
+        .not('peak_delta', 'is', null)
+        .order('meal_time', { ascending: false })
+        .limit(200);
+
+    if (!reviews || reviews.length === 0) return null;
+
+    // Calculate similarity scores
+    const scored = reviews.map((r: any) => ({
+        ...r,
+        score: jaccardSimilarity(mealTokens, r.meal_tokens || []),
+    }));
+
+    // Filter by threshold and take top 5
+    const THRESHOLD = 0.25;
+    const matches = scored
+        .filter((r: any) => r.score >= THRESHOLD)
+        .sort((a: any, b: any) => b.score - a.score)
+        .slice(0, 5);
+
+    if (matches.length === 0) return null;
+
+    // Calculate stats
+    const avgPeakDelta = matches.reduce((s: number, m: any) => s + (m.peak_delta || 0), 0) / matches.length;
+    const validPeakTimes = matches.filter((m: any) => m.time_to_peak_min != null);
+    const avgPeakTime = validPeakTimes.length > 0
+        ? validPeakTimes.reduce((s: number, m: any) => s + m.time_to_peak_min, 0) / validPeakTimes.length
+        : null;
+    const spikeCount = matches.filter((m: any) => m.status_tag === 'spike').length;
+
+    return {
+        k: matches.length,
+        avg_peak_delta: Math.round(avgPeakDelta * 10) / 10,
+        avg_peak_time_min: avgPeakTime ? Math.round(avgPeakTime) : null,
+        spike_rate: Math.round((spikeCount / matches.length) * 100) / 100,
+        matches: matches.slice(0, 3).map((m: any) => ({
+            meal_name: m.meal_name || 'Unknown',
+            score: Math.round(m.score * 100) / 100,
+            peak_delta: Math.round((m.peak_delta || 0) * 10) / 10,
+        })),
+    };
+}
+
+function blendWithSimilarMeals(
+    baseRisk: number,
+    basePeakDelta: number,
+    basePeakTime: number,
+    similarStats: SimilarMealStats | null
+): { risk: number; peakDelta: number; peakTime: number } {
+    if (!similarStats || similarStats.k === 0) {
+        return { risk: baseRisk, peakDelta: basePeakDelta, peakTime: basePeakTime };
+    }
+
+    // Weight increases with k (more similar meals = more confidence)
+    const weight = Math.min(0.4, 0.1 * similarStats.k);
+
+    // Blend peak delta
+    let peakDelta = basePeakDelta * (1 - weight) + similarStats.avg_peak_delta * weight;
+    peakDelta = Math.max(0.5, Math.min(8, peakDelta)); // Clamp
+
+    // Blend peak time if available
+    let peakTime = basePeakTime;
+    if (similarStats.avg_peak_time_min != null) {
+        peakTime = basePeakTime * (1 - weight) + similarStats.avg_peak_time_min * weight;
+        peakTime = Math.max(25, Math.min(120, Math.round(peakTime)));
+    }
+
+    // Risk adjustment based on similar meal outcomes
+    let riskAdjust = 0;
+    if (similarStats.spike_rate >= 0.5) riskAdjust += 15;
+    else if (similarStats.spike_rate >= 0.3) riskAdjust += 8;
+
+    if (similarStats.avg_peak_delta >= 4.0) riskAdjust += 10;
+    else if (similarStats.avg_peak_delta >= 3.0) riskAdjust += 5;
+
+    // Clamp total adjustment to max +25
+    const risk = Math.min(100, Math.max(0, baseRisk + Math.min(25, riskAdjust)));
+
+    return { risk, peakDelta, peakTime };
+}
 
 // ============================================
 // BASELINE PREDICTOR (Deterministic)
@@ -217,8 +556,9 @@ function calculateUserGlucoseProfile(
     else if (uniqueDays >= 3) dataQuality = 'low';
 
     // Calculate baseline glucose (average of pre-meal/fasting readings)
+    // Handle both old ('fasting', 'before_meal') and new ('pre_meal') contexts
     const baselineReadings = glucoseLogs.filter(
-        log => log.context === 'fasting' || log.context === 'before_meal'
+        log => ['fasting', 'pre_meal', 'before_meal'].includes(log.context || '')
     );
     const baselineGlucose = baselineReadings.length >= 3
         ? baselineReadings.reduce((sum, l) => sum + l.glucose_level, 0) / baselineReadings.length
@@ -637,6 +977,118 @@ function generateFallbackExplanations(baseline: BaselineResult): { drivers: Driv
 }
 
 // ============================================
+// CONTEXT SIGNAL FETCHING
+// ============================================
+
+async function fetchActivityContext(
+    supabase: any,
+    userId: string,
+    mealTime: Date
+): Promise<Partial<ContextFeatures>> {
+    const sixHoursAgo = new Date(mealTime.getTime() - 6 * 60 * 60 * 1000);
+    const twoHoursAgo = new Date(mealTime.getTime() - 2 * 60 * 60 * 1000);
+
+    try {
+        const { data: activities } = await supabase
+            .from('activity_logs')
+            .select('duration_minutes, intensity, logged_at')
+            .eq('user_id', userId)
+            .gte('logged_at', sixHoursAgo.toISOString())
+            .lte('logged_at', mealTime.toISOString());
+
+        if (!activities || activities.length === 0) {
+            return { activity_minutes_last_6h: 0, any_activity_last_2h: false };
+        }
+
+        const intensityMap: Record<string, number> = { light: 1, moderate: 2, intense: 3 };
+        let totalMinutes = 0;
+        let weightedMinutes = 0;
+        let recentActivity = false;
+
+        for (const a of activities) {
+            totalMinutes += a.duration_minutes || 0;
+            weightedMinutes += (a.duration_minutes || 0) * (intensityMap[a.intensity] || 1);
+            if (new Date(a.logged_at) >= twoHoursAgo) {
+                recentActivity = true;
+            }
+        }
+
+        return {
+            activity_minutes_last_6h: totalMinutes,
+            intensity_weighted_minutes: weightedMinutes,
+            any_activity_last_2h: recentActivity,
+        };
+    } catch (error) {
+        console.warn('Failed to fetch activity context:', error);
+        return {};
+    }
+}
+
+function fetchGlucoseContext(
+    glucoseLogs: GlucoseLog[],
+    mealTime: Date
+): Partial<ContextFeatures> {
+    const oneDayAgo = mealTime.getTime() - 24 * 60 * 60 * 1000;
+    const recentLogs = glucoseLogs.filter(
+        g => new Date(g.logged_at).getTime() >= oneDayAgo
+    );
+
+    if (recentLogs.length === 0) return {};
+
+    const values = recentLogs.map(g => g.glucose_level);
+    const avg = values.reduce((s, v) => s + v, 0) / values.length;
+    const variance = values.reduce((s, v) => s + Math.pow(v - avg, 2), 0) / values.length;
+    const stdDev = Math.sqrt(variance);
+    const highCount = values.filter(v => v >= 9.0).length;
+
+    return {
+        recent_avg_glucose_24h: Math.round(avg * 10) / 10,
+        recent_variability: Math.round(stdDev * 10) / 10,
+        recent_high_count: highCount,
+    };
+}
+
+function applyContextAdjustments(
+    baseRisk: number,
+    context: ContextFeatures
+): { risk: number; reasons: string[] } {
+    let risk = baseRisk;
+    const reasons: string[] = [];
+
+    // Activity reduces risk
+    if (context.any_activity_last_2h) {
+        risk -= 8;
+        reasons.push('RECENT_ACTIVITY');
+    } else if ((context.intensity_weighted_minutes || 0) >= 60) {
+        risk -= 5;
+        reasons.push('RECENT_ACTIVITY');
+    } else if ((context.activity_minutes_last_6h || 0) === 0) {
+        risk += 3;
+        reasons.push('RECENT_INACTIVITY');
+    }
+
+    // Elevated baseline increases risk
+    if ((context.recent_avg_glucose_24h || 0) >= 7.5) {
+        risk += 8;
+        reasons.push('RECENT_HIGH_BASELINE');
+    }
+
+    // High variability increases risk
+    if ((context.recent_variability || 0) >= 2.0) {
+        risk += 5;
+        reasons.push('HIGH_VARIABILITY');
+    }
+
+    // Low sleep increases risk (when available)
+    if (context.sleep_hours_last_night && context.sleep_hours_last_night < 6) {
+        risk += 6;
+        reasons.push('LOW_SLEEP');
+    }
+
+    return { risk: Math.max(0, Math.min(100, risk)), reasons };
+}
+
+// ============================================
 // CACHING
 // ============================================
 
@@ -727,24 +1179,43 @@ serve(async (req) => {
             .order('logged_at', { ascending: false })
             .limit(50);
 
-        // Calculate user's personalized glucose profile
-        const mealHistory = (recentMeals || []).map(m => ({
+        // ============================================
+        // USER CALIBRATION (Persistent EMA-learned)
+        // ============================================
+        const calibration = await fetchUserCalibration(supabase, user_id);
+
+        console.log('User calibration:', {
+            confidence: calibration.confidence,
+            n_observations: calibration.n_observations,
+            carb_sensitivity: calibration.carb_sensitivity,
+            exercise_effect: calibration.exercise_effect,
+            sleep_penalty: calibration.sleep_penalty,
+        });
+
+        // Calculate 14-day rolling profile
+        const mealHistory = (recentMeals || []).map((m: any) => ({
             logged_at: m.logged_at,
             net_carbs: Math.max((m.carbs_g || 0) - (m.fibre_g || 0), 0),
         }));
 
-        const userProfile = calculateUserGlucoseProfile(
+        const rollingProfile = calculateUserGlucoseProfile(
             glucoseLogs || [],
             mealHistory
         );
 
-        console.log('User profile calculated:', {
+        // Blend calibration with rolling profile (drift-adjusted)
+        const userProfile = blendCalibrationWithDrift(calibration, rollingProfile);
+        const driftWeight = Math.max(0.05, Math.min(0.2, 0.15 * (1 - calibration.confidence)));
+
+        console.log('Blended profile:', {
             data_quality: userProfile.data_quality,
             data_days: userProfile.data_days,
             carb_sensitivity: userProfile.carb_sensitivity,
+            baseline_glucose: userProfile.baseline_glucose,
+            driftWeight,
         });
 
-        // Run baseline predictor with personalized profile
+        // Run baseline predictor with blended profile
         const baseline = runBaselinePredictor(
             meal_draft.items,
             meal_draft.logged_at,
@@ -752,22 +1223,102 @@ serve(async (req) => {
             userProfile
         );
 
-        // Generate LLM explanations
+        // ============================================
+        // SIMILAR MEAL MEMORY
+        // ============================================
+        const mealTokens = buildMealTokens(meal_draft);
+        const similarStats = await fetchSimilarMealStats(supabase, user_id, mealTokens);
+
+        console.log('Similar meal stats:', similarStats ? {
+            k: similarStats.k,
+            avg_peak_delta: similarStats.avg_peak_delta,
+            spike_rate: similarStats.spike_rate,
+        } : 'No similar meals found');
+
+        // Blend baseline with similar meal outcomes
+        const basePeakDelta = baseline.predicted_curve.length > 0
+            ? Math.max(...baseline.predicted_curve.map(p => p.glucose_delta)) - userProfile.baseline_glucose
+            : 2.5;
+        const blended = blendWithSimilarMeals(
+            baseline.spike_risk_pct,
+            basePeakDelta,
+            userProfile.avg_peak_time_min,
+            similarStats
+        );
+
+        // ============================================
+        // CONTEXT SIGNALS
+        // ============================================
+        const mealTime = new Date(meal_draft.logged_at);
+        const [activityContext, glucoseContext] = await Promise.all([
+            fetchActivityContext(supabase, user_id, mealTime),
+            Promise.resolve(fetchGlucoseContext(glucoseLogs || [], mealTime)),
+        ]);
+
+        const contextFeatures: ContextFeatures = {
+            ...activityContext,
+            ...glucoseContext,
+        };
+
+        // Apply context adjustments to risk
+        const { risk: adjustedRisk, reasons: contextReasons } = applyContextAdjustments(
+            blended.risk,
+            contextFeatures
+        );
+
+        console.log('Context applied:', {
+            activity: activityContext,
+            glucose: glucoseContext,
+            risk_before: blended.risk,
+            risk_after: adjustedRisk,
+            context_reasons: contextReasons,
+        });
+
+        // Combine reason codes
+        const allReasonCodes = [...baseline.feature_reason_codes, ...contextReasons];
+
+        // ============================================
+        // LLM EXPLANATIONS
+        // ============================================
         const topItems = meal_draft.items
             .slice(0, 3)
             .map(i => i.display_name);
 
+        // Build enhanced baseline for LLM with similar meal info
+        const enhancedBaseline: BaselineResult = {
+            ...baseline,
+            spike_risk_pct: adjustedRisk,
+            feature_reason_codes: allReasonCodes,
+        };
+
         const { drivers, adjustment_tips } = await generateLLMExplanations(
-            baseline,
+            enhancedBaseline,
             meal_draft.name,
             topItems
         );
 
-        // Build result with personalization debug info
+        // Add context drivers
+        const enhancedDrivers = [...drivers];
+        if (contextReasons.includes('RECENT_ACTIVITY')) {
+            enhancedDrivers.push({ text: 'Recent physical activity will help moderate glucose', reason_code: 'RECENT_ACTIVITY' });
+        }
+        if (contextReasons.includes('RECENT_INACTIVITY')) {
+            enhancedDrivers.push({ text: 'No recent activity – consider a post-meal walk', reason_code: 'RECENT_INACTIVITY' });
+        }
+        if (contextReasons.includes('RECENT_HIGH_BASELINE')) {
+            enhancedDrivers.push({ text: 'Your recent glucose levels have been elevated', reason_code: 'RECENT_HIGH_BASELINE' });
+        }
+        if (contextReasons.includes('HIGH_VARIABILITY')) {
+            enhancedDrivers.push({ text: 'Your glucose has been variable – response may be less predictable', reason_code: 'HIGH_VARIABILITY' });
+        }
+
+        // ============================================
+        // BUILD RESULT
+        // ============================================
         const result: PremealResult = {
-            spike_risk_pct: baseline.spike_risk_pct,
+            spike_risk_pct: adjustedRisk,
             predicted_curve: baseline.predicted_curve,
-            drivers,
+            drivers: enhancedDrivers.slice(0, 5), // Limit to 5 drivers
             adjustment_tips,
             debug: {
                 ...baseline.debug,
@@ -776,6 +1327,37 @@ serve(async (req) => {
                     avg_peak_time: userProfile.avg_peak_time_min,
                     baseline_glucose: userProfile.baseline_glucose,
                     data_days: userProfile.data_days,
+                },
+                // NEW: Similar meal memory debug info
+                similar_meals: similarStats ? {
+                    k: similarStats.k,
+                    avg_peak_delta: similarStats.avg_peak_delta,
+                    avg_peak_time_min: similarStats.avg_peak_time_min,
+                    spike_rate: similarStats.spike_rate,
+                    top_matches: similarStats.matches,
+                } : null,
+                // NEW: Context signals debug info
+                context: {
+                    activity_minutes_last_6h: contextFeatures.activity_minutes_last_6h,
+                    any_activity_last_2h: contextFeatures.any_activity_last_2h,
+                    recent_avg_glucose_24h: contextFeatures.recent_avg_glucose_24h,
+                    recent_variability: contextFeatures.recent_variability,
+                },
+                // NEW: Risk breakdown
+                risk_breakdown: {
+                    base_risk: baseline.spike_risk_pct,
+                    similar_meal_adjustment: blended.risk - baseline.spike_risk_pct,
+                    context_adjustment: adjustedRisk - blended.risk,
+                    final_risk: adjustedRisk,
+                },
+                // NEW: Calibration info
+                calibration: {
+                    confidence: calibration.confidence,
+                    n_observations: calibration.n_observations,
+                    carb_sensitivity: calibration.carb_sensitivity,
+                    exercise_effect: calibration.exercise_effect,
+                    sleep_penalty: calibration.sleep_penalty,
+                    driftWeight,
                 },
             },
         };

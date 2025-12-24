@@ -305,7 +305,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#313135',
         paddingHorizontal: 16,
-        paddingVertical: 14,
+        paddingVertical: 16,
     },
     textInput: {
         fontFamily: fonts.regular,

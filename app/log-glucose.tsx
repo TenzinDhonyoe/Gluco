@@ -165,24 +165,30 @@ export default function LogGlucoseScreen() {
           if (!updateSuccess) {
             console.warn('Failed to update post-meal review with glucose');
           }
-        }
 
-        Alert.alert('Success', 'Glucose level logged successfully', [
-          {
-            text: 'OK',
-            onPress: () => {
-              if (returnTo && reviewId) {
-                // Navigate back to post-meal review with refresh flag
-                router.replace({
-                  pathname: returnTo as any,
-                  params: { reviewId, refresh: 'true' },
-                });
-              } else {
-                router.back();
-              }
-            }
-          },
-        ]);
+          // Navigate to notifications with success feedback for post-meal reviews
+          Alert.alert(
+            'Review Submitted',
+            `Your glucose reading of ${level.toFixed(1)} mmol/L has been logged and compared with the prediction. This data will help improve future recommendations.`,
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  // Go to notifications screen instead of back to review
+                  router.replace('/notifications-list' as any);
+                }
+              },
+            ]
+          );
+        } else {
+          // Regular glucose log (not from post-meal review)
+          Alert.alert('Success', 'Glucose level logged successfully', [
+            {
+              text: 'OK',
+              onPress: () => router.back()
+            },
+          ]);
+        }
       } else {
         Alert.alert('Error', 'Failed to save glucose log. Please try again.');
       }
@@ -192,7 +198,7 @@ export default function LogGlucoseScreen() {
     } finally {
       setIsSaving(false);
     }
-  }, [user, glucoseLevel, tempHour12, tempMinute, tempPeriod, context, reviewId, returnTo]);
+  }, [user, glucoseLevel, tempHour12, tempMinute, tempPeriod, context, reviewId]);
 
   const selectedContextLabel = context
     ? GLUCOSE_CONTEXTS.find((c) => c.value === context)?.label
@@ -504,7 +510,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#313135',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
   },
   glucoseInput: {
     fontFamily: fonts.regular,

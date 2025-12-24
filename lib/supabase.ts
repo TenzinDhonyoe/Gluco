@@ -602,6 +602,40 @@ export async function searchFoods(query: string, pageSize: number = 25): Promise
     }
 }
 
+/**
+ * Search for foods with variants in a single Edge call
+ * Reduces network round trips by batching main query + variants
+ * 
+ * @param query - Main search query
+ * @param variants - Alternative query variants (typo fixes, synonyms)
+ * @param pageSize - Maximum results to return
+ */
+export async function searchFoodsWithVariants(
+    query: string,
+    variants: string[] = [],
+    pageSize: number = 25
+): Promise<NormalizedFood[]> {
+    try {
+        const { data, error } = await supabase.functions.invoke('food-search', {
+            body: {
+                query,
+                pageSize,
+                variants: variants.slice(0, 3), // Limit to 3 variants
+            },
+        });
+
+        if (error) {
+            console.error('Food search with variants error:', error);
+            return [];
+        }
+
+        return data?.results || [];
+    } catch (err) {
+        console.error('Food search with variants failed:', err);
+        return [];
+    }
+}
+
 export async function getFoodDetails(
     provider: 'fdc' | 'off',
     externalId: string

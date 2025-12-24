@@ -8,4 +8,6 @@ export * from './geminiRewrite';
 export * from './normalize';
 export * from './orchestrator';
 export * from './rank';
+export * from './requestManager';
+export * from './telemetry';
 

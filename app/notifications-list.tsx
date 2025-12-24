@@ -46,7 +46,8 @@ export default function NotificationsListScreen() {
     }, [loadReviews]);
 
     const handleBack = () => {
-        router.back();
+        // Always go to Today section, not back through navigation stack
+        router.replace('/(tabs)' as any);
     };
 
     const handleReviewPress = (review: PostMealReview) => {

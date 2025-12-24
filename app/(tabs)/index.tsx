@@ -1664,7 +1664,7 @@ const styles = StyleSheet.create({
         fontFamily: fonts.medium,
         fontSize: 28,
         color: Colors.textPrimary,
-        lineHeight: 28 * 0.95,
+        lineHeight: 28 * 1.15,
     },
     statUnit: {
         fontFamily: fonts.medium,

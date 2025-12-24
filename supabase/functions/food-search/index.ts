@@ -1,5 +1,6 @@
 // supabase/functions/food-search/index.ts
 // Edge Function for searching foods using USDA FoodData Central + Open Food Facts APIs
+// Supports batched variant searches in a single call for reduced network round trips
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
@@ -18,6 +19,9 @@ const NUTRIENT_IDS = {
     SUGAR: [2000, 1063],
     SODIUM: [1093],
 };
+
+// Max concurrent searches per request
+const MAX_CONCURRENCY = 3;
 
 interface NormalizedFood {
     provider: 'fdc' | 'off';
@@ -169,6 +173,88 @@ async function searchOff(query: string, pageSize: number): Promise<NormalizedFoo
     }
 }
 
+// =============== Search Both Providers ===============
+
+async function searchBothProviders(
+    query: string,
+    pageSize: number,
+    fdcApiKey: string | undefined
+): Promise<NormalizedFood[]> {
+    const perProvider = Math.ceil(pageSize / 2);
+
+    const [fdcResults, offResults] = await Promise.all([
+        fdcApiKey ? searchFdc(query, perProvider, fdcApiKey) : Promise.resolve([]),
+        searchOff(query, perProvider),
+    ]);
+
+    return [...fdcResults, ...offResults];
+}
+
+// =============== Deduplication ===============
+
+function dedupeResults(results: NormalizedFood[]): NormalizedFood[] {
+    const seen = new Set<string>();
+    const deduped: NormalizedFood[] = [];
+
+    for (const food of results) {
+        // Create unique key from provider + external_id
+        const key = `${food.provider}-${food.external_id}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            deduped.push(food);
+        }
+    }
+
+    return deduped;
+}
+
+// =============== Concurrent Search with Variants ===============
+
+async function searchWithVariants(
+    mainQuery: string,
+    variants: string[],
+    pageSize: number,
+    fdcApiKey: string | undefined
+): Promise<NormalizedFood[]> {
+    // Build all unique queries to search
+    const allQueries = [mainQuery];
+    for (const variant of variants) {
+        if (variant && variant !== mainQuery && !allQueries.includes(variant)) {
+            allQueries.push(variant);
+        }
+    }
+
+    // Limit total queries
+    const queriesToSearch = allQueries.slice(0, 4);
+
+    // Calculate page size per query (main gets more)
+    const mainSize = Math.ceil(pageSize * 0.6);
+    const variantSize = Math.ceil((pageSize * 0.4) / Math.max(1, queriesToSearch.length - 1));
+
+    // Search with concurrency limit
+    const results: NormalizedFood[] = [];
+
+    for (let i = 0; i < queriesToSearch.length; i += MAX_CONCURRENCY) {
+        const batch = queriesToSearch.slice(i, i + MAX_CONCURRENCY);
+
+        const batchPromises = batch.map((query, batchIndex) => {
+            const size = i === 0 && batchIndex === 0 ? mainSize : variantSize;
+            return searchBothProviders(query, size, fdcApiKey);
+        });
+
+        const batchResults = await Promise.allSettled(batchPromises);
+
+        for (const result of batchResults) {
+            if (result.status === 'fulfilled') {
+                results.push(...result.value);
+            }
+        }
+    }
+
+    // Dedupe results
+    return dedupeResults(results);
+}
+
 // =============== Main Handler ===============
 
 Deno.serve(async (req) => {
@@ -177,7 +263,7 @@ Deno.serve(async (req) => {
     }
 
     try {
-        const { query, pageSize = 25 } = await req.json();
+        const { query, pageSize = 25, variants = [] } = await req.json();
 
         if (!query || typeof query !== 'string') {
             return new Response(
@@ -188,25 +274,25 @@ Deno.serve(async (req) => {
 
         const fdcApiKey = Deno.env.get('FDC_API_KEY');
 
-        // Run both providers in parallel
-        const perProvider = Math.ceil(pageSize / 2);
+        // Check if variants are provided
+        const variantsArray = Array.isArray(variants) ? variants : [];
 
-        const [fdcResults, offResults] = await Promise.all([
-            fdcApiKey ? searchFdc(query, perProvider, fdcApiKey) : Promise.resolve([]),
-            searchOff(query, perProvider),
-        ]);
+        let results: NormalizedFood[];
 
-        // Merge results - FDC first, then OFF
-        const results: NormalizedFood[] = [...fdcResults, ...offResults];
+        if (variantsArray.length > 0) {
+            // Use batched search with variants
+            results = await searchWithVariants(query, variantsArray, pageSize, fdcApiKey);
+        } else {
+            // Single query search (backward compatible)
+            results = await searchBothProviders(query, pageSize, fdcApiKey);
+        }
 
         return new Response(
             JSON.stringify({
                 results,
                 totalHits: results.length,
-                providers: {
-                    fdc: fdcResults.length,
-                    off: offResults.length,
-                },
+                query,
+                variantsUsed: variantsArray.length > 0,
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );

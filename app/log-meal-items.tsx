@@ -1,6 +1,6 @@
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { searchWithOrchestration } from '@/lib/foodSearch';
+import { CONFIG, searchWithProgressiveResults, shouldTriggerSearch } from '@/lib/foodSearch';
 import {
   addFavoriteFood,
   addRecentFood,
@@ -145,13 +145,22 @@ export default function LogMealItemsScreen() {
     }
   };
 
-  // Debounced search with orchestrator
+  // Debounced search with progressive results
+  const lastQueryRef = useRef<string | null>(null);
+
   useEffect(() => {
     // Clear corrected query when input changes
     setCorrectedQuery(null);
 
+    // Early return for short queries
     if (searchQuery.trim().length < 2) {
       setResults([]);
+      lastQueryRef.current = null;
+      return;
+    }
+
+    // Check if this is a meaningful change worth searching
+    if (!shouldTriggerSearch(searchQuery, lastQueryRef.current)) {
       return;
     }
 
@@ -165,26 +174,32 @@ export default function LogMealItemsScreen() {
 
     const timer = setTimeout(async () => {
       setIsSearching(true);
-      try {
-        const searchResult = await searchWithOrchestration(searchQuery, {
-          signal: controller.signal,
-        });
+      lastQueryRef.current = searchQuery;
 
-        // Only update if not aborted
-        if (!controller.signal.aborted) {
-          setResults(searchResult.results);
-          setCorrectedQuery(searchResult.correctedQuery);
-        }
+      try {
+        // Use progressive search with callback for faster perceived performance
+        await searchWithProgressiveResults(searchQuery, {
+          signal: controller.signal,
+          onPartialResults: (searchResult, meta) => {
+            // Only update if not aborted and not stale
+            if (!controller.signal.aborted) {
+              setResults(searchResult.results);
+              setCorrectedQuery(searchResult.correctedQuery);
+
+              // Only hide loading indicator when complete
+              if (meta.isComplete) {
+                setIsSearching(false);
+              }
+            }
+          },
+        });
       } catch (error) {
         if (!controller.signal.aborted) {
           console.error('Search failed:', error);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
           setIsSearching(false);
         }
       }
-    }, 400); // Increased debounce for better UX
+    }, CONFIG.DEBOUNCE_MS);
 
     return () => {
       clearTimeout(timer);

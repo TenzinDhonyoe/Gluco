@@ -1799,10 +1799,378 @@ topGlow: {
 - **Expo Router Docs**: https://docs.expo.dev/router/introduction/
 - **React Native Reanimated**: https://docs.swmansion.com/react-native-reanimated/
 - **Supabase Docs**: https://supabase.com/docs
-- **Figma Design**: https://www.figma.com/design/sgwuK9QGOKALtfLRujPsfL/GlucoApp
+---
+
+## 🧠 User Calibration System (Online Learning)
+
+### Overview
+
+The calibration system maintains per-user glycaemic parameters that update incrementally after each completed post-meal review. This creates personalized predictions that improve over time.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Prediction Flow                               │
+├─────────────────────────────────────────────────────────────────┤
+│  Population Defaults → user_calibration → 14-day drift          │
+│                            ↓                                     │
+│                     similar_meals → context signals              │
+│                            ↓                                     │
+│                    Final Prediction                              │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    Learning Flow                                 │
+├─────────────────────────────────────────────────────────────────┤
+│  Post-meal review completed → calibration-update Edge Function   │
+│                            ↓                                     │
+│  Extract metrics (peak, time, baseline) → Fetch context          │
+│                            ↓                                     │
+│  EMA update → clamp → store in user_calibration                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Calibration Parameters
+
+| Parameter | Range | Default | Description |
+|-----------|-------|---------|-------------|
+| `baseline_glucose` | [4.0, 9.0] | 5.5 | Typical pre-meal glucose (mmol/L) |
+| `carb_sensitivity` | [0.1, 1.2] | 0.4 | mmol/L rise per 10g net carbs |
+| `avg_peak_time_min` | [25, 120] | 45 | Minutes to glucose peak |
+| `exercise_effect` | [0.0, 0.35] | 0.0 | Peak reduction per activity_score unit |
+| `sleep_penalty` | [0.0, 0.45] | 0.0 | Peak increase per sleep_deficit unit |
+| `n_observations` | 0+ | 0 | Total completed reviews |
+| `n_quality_observations` | 0+ | 0 | High-quality reviews (≥4 data points) |
+| `confidence` | [0, 1] | 0 | `1 - exp(-n_quality / 20)` |
+
+### EMA Update Math
+
+**Confidence Formula**:
+```
+confidence = 1 - exp(-n_quality_observations / 20)
+```
+- ~0.63 at 20 observations
+- ~0.86 at 40 observations
+- Approaches 1.0 asymptotically
+
+**Adaptive Learning Rate**:
+```
+α_base = 0.12 (high quality) or 0.06 (low quality)
+α = clamp(α_base × (1 - 0.7 × confidence), 0.02, 0.12)
+```
+- Starts ~12%, drops to ~3.6% as confidence grows
+- Allows fast initial learning, slow drift correction later
+
+**Parameter Updates**:
+```typescript
+baseline_new = (1 - α) × baseline_old + α × baseline_obs
+sensitivity_new = (1 - α) × sensitivity_old + α × sensitivity_obs
+exercise_new = (1 - α_half) × exercise_old + α_half × implied_reduction
+sleep_new = (1 - α_half) × sleep_old + α_half × implied_increase
+```
+
+### Context Scores
+
+**activity_score** (0–1.5):
+- Based on weighted activity minutes in [-2h, +2h] around meal
+- `activity_score = clamp(weighted_minutes / 30, 0, 1.5)`
+- Weights: light=1, moderate=2, intense=3
+
+**sleep_deficit** (0–1.5):
+- Based on previous night's sleep hours
+- `sleep_deficit = clamp((7 - hours) / 3, 0, 1.5)`
+- 7h+ = 0, 4h = 1.0, <4h = 1.5
+
+### Prediction Modifiers
+
+In `premeal-analyze`:
+```typescript
+predicted_peak_delta = carbs10 × carb_sensitivity × time_multiplier
+peak_with_sleep = predicted_peak_delta × (1 + sleep_penalty × sleep_deficit)
+peak_with_exercise = peak_with_sleep × max(0.5, 1 - exercise_effect × activity_score)
+```
 
 ---
 
-**Last Updated**: December 22, 2025
-**Version**: 1.2.0
+## 🔌 All Supabase Edge Functions
+
+### Complete Function List
+
+| Function | Purpose |
+|----------|---------|
+| `premeal-analyze` | AI spike risk prediction with personalization |
+| `calibration-update` | EMA parameter updates after review completion |
+| `personalized-tips` | Generate AI tips for Log screen |
+| `food-search` | Dual-provider food database search (USDA + OFF) |
+| `food-details` | Get detailed nutrition for a specific food |
+| `food-barcode` | Lookup food by UPC/EAN barcode |
+| `food-query-rewrite` | Gemini AI query correction |
+| `label-parse` | Extract nutrition from label photos |
+| `dexcom-exchange-code` | Exchange OAuth code for tokens |
+| `dexcom-refresh-token` | Refresh expired Dexcom tokens |
+| `dexcom-sync-egvs` | Sync glucose readings from Dexcom |
+| `dexcom-status` | Check Dexcom connection status |
+| `dexcom-disconnect` | Revoke Dexcom connection |
+
+### `calibration-update` (NEW)
+
+**Purpose**: Updates user calibration after post-meal review completion.
+
+**Input**:
+```typescript
+{ user_id: string, review_id: string }
+```
+
+**Output**:
+```typescript
+{
+  success: boolean,
+  metrics: {
+    baseline_glucose: number,
+    peak_delta: number,
+    time_to_peak_min: number | null,
+    auc_0_180: number | null,
+    is_quality: boolean
+  },
+  calibration: UserCalibration,
+  context: {
+    activity_score: number,
+    sleep_deficit: number,
+    sleep_hours: number | null
+  }
+}
+```
+
+**Functions**:
+- `extractMetricsFromCurve()` - Calculate baseline, peak, delta, AUC
+- `fetchContextFeatures()` - Get activity and sleep context
+- `updateCalibration()` - Apply EMA updates with clamping
+
+### `premeal-analyze` (Enhanced)
+
+**New Features**:
+- Fetches `user_calibration` for persistent parameters
+- Blends with 14-day rolling profile using drift weight
+- Applies `exercise_effect` and `sleep_penalty` modifiers
+- Returns calibration info in debug output
+
+**Enhanced Output**:
+```typescript
+{
+  spike_risk_pct: number,
+  predicted_curve: CurvePoint[],
+  drivers: Driver[],
+  adjustment_tips: AdjustmentTip[],
+  debug: {
+    // ... existing fields ...
+    calibration: {
+      confidence: number,
+      n_observations: number,
+      carb_sensitivity: number,
+      exercise_effect: number,
+      sleep_penalty: number,
+      driftWeight: number
+    },
+    similar_meals: { k, avg_peak_delta, spike_rate } | null,
+    context: { activity_minutes, recent_avg_glucose },
+    risk_breakdown: {
+      base_risk: number,
+      similar_meal_adjustment: number,
+      context_adjustment: number,
+      final_risk: number
+    }
+  }
+}
+```
+
+### Dexcom Integration Functions
+
+**OAuth Flow**:
+1. User taps "Connect Dexcom" → Opens OAuth URL in browser
+2. Dexcom redirects back with auth code
+3. `dexcom-exchange-code` exchanges code for access/refresh tokens
+4. Tokens stored in `dexcom_connections` table
+
+**Data Sync**:
+- `dexcom-sync-egvs` fetches EGV (Estimated Glucose Value) data
+- Stores in `glucose_logs` with `source: 'dexcom'`
+- Called periodically or on app foreground
+
+---
+
+## 🗄️ Database Tables (Complete)
+
+### Core Tables
+
+| Table | Purpose |
+|-------|---------|
+| `profiles` | User profile and onboarding data |
+| `glucose_logs` | Glucose readings (manual + CGM) |
+| `activity_logs` | Exercise/physical activity logs |
+| `meals` | Meal entries with photo and macros |
+| `meal_items` | Individual food items in meals |
+| `post_meal_reviews` | Prediction vs actual comparisons |
+| `premeal_checks` | Cached pre-meal analysis results |
+
+### Personalization Tables
+
+| Table | Purpose |
+|-------|---------|
+| `user_calibration` | Persistent EMA-updated parameters |
+| `daily_context` | Daily sleep/wellness data |
+| `favorite_foods` | User's favorited foods |
+| `recent_foods` | Recently used foods |
+
+### `user_calibration` (Schema)
+
+```sql
+CREATE TABLE user_calibration (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id),
+  baseline_glucose NUMERIC DEFAULT 5.5,
+  carb_sensitivity NUMERIC DEFAULT 0.4,
+  avg_peak_time_min INTEGER DEFAULT 45,
+  exercise_effect NUMERIC DEFAULT 0.0,
+  sleep_penalty NUMERIC DEFAULT 0.0,
+  n_observations INTEGER DEFAULT 0,
+  n_quality_observations INTEGER DEFAULT 0,
+  confidence NUMERIC DEFAULT 0.0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+### `daily_context` (Schema)
+
+```sql
+CREATE TABLE daily_context (
+  user_id UUID REFERENCES auth.users(id),
+  date DATE NOT NULL,
+  sleep_hours NUMERIC,
+  sleep_quality TEXT, -- 'poor'|'fair'|'good'|'excellent'
+  steps INTEGER,
+  active_minutes INTEGER,
+  resting_hr NUMERIC,
+  hrv_ms NUMERIC,
+  stress_level INTEGER, -- 1-5
+  PRIMARY KEY (user_id, date)
+);
+```
+
+### `post_meal_reviews` (Enhanced)
+
+```sql
+-- New columns for calibration
+baseline_glucose NUMERIC,
+peak_delta NUMERIC,
+time_to_peak_min INTEGER,
+net_carbs_g NUMERIC,
+auc_0_180 NUMERIC,
+meal_tokens TEXT[]  -- For similar meal matching
+```
+
+---
+
+## 🍽️ Similar Meal Memory
+
+### Overview
+
+The system learns from similar past meals by matching meal tokens and blending historical outcomes into predictions.
+
+### Tokenization
+
+```typescript
+function buildMealTokens(mealName: string, items: string[]): string[] {
+  // Normalize, remove stopwords, dedupe
+  // "Butter Chicken with Naan" → ["butter", "chicken", "naan"]
+}
+```
+
+### Similarity Matching
+
+**Jaccard Similarity**:
+```
+similarity = |A ∩ B| / |A ∪ B|
+```
+
+**Scoring**:
+```
+score = jaccard_similarity × (1 + 0.3 × log(token_count))
+```
+
+### Blending
+
+When similar meals found (k ≥ 1):
+```typescript
+similar_weight = clamp(k × 0.15, 0, 0.5)  // Max 50% weight
+blended_risk = (1 - w) × baseline + w × similar_avg
+blended_peak = (1 - w) × predicted + w × similar_peak
+```
+
+---
+
+## 📡 Required Environment Secrets
+
+Set in Supabase Dashboard → Edge Functions → Secrets:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GEMINI_API_KEY` | Yes | Google Gemini API (primary AI) |
+| `OPENAI_API_KEY` | Fallback | OpenAI API (fallback AI) |
+| `SUPABASE_URL` | Auto | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Auto | Service role key |
+| `DEXCOM_CLIENT_ID` | For CGM | Dexcom API client ID |
+| `DEXCOM_CLIENT_SECRET` | For CGM | Dexcom API client secret |
+| `FDC_API_KEY` | For food | USDA FoodData Central API key |
+
+---
+
+## 🚀 Deployment Commands
+
+```bash
+# Deploy all Edge Functions
+supabase functions deploy
+
+# Deploy specific function
+supabase functions deploy premeal-analyze
+supabase functions deploy calibration-update
+
+# Push database migrations
+supabase db push
+
+# Set secrets
+supabase secrets set GEMINI_API_KEY=your_key_here
+
+# View function logs
+supabase functions logs premeal-analyze --follow
+```
+
+---
+
+## 📝 Integration Checklist
+
+### Calling `calibration-update` After Review
+
+Add to `lib/supabase.ts`:
+```typescript
+export async function triggerCalibrationUpdate(
+  userId: string, 
+  reviewId: string
+): Promise<boolean> {
+  const { error } = await supabase.functions.invoke('calibration-update', {
+    body: { user_id: userId, review_id: reviewId },
+  });
+  return !error;
+}
+```
+
+Call after `updatePostMealReviewWithManualGlucose()` completes:
+```typescript
+triggerCalibrationUpdate(user.id, reviewId).catch(console.warn);
+```
+
+---
+
+**Last Updated**: December 23, 2025
+**Version**: 1.3.0 (Added User Calibration System)
 
