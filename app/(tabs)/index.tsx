@@ -6,12 +6,14 @@ import { SegmentedControl } from '@/components/segmented-control';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { FibreRange, getActivityLogsByDateRange, getFibreIntakeSummary, getGlucoseLogsByDateRange, getPendingReviews, getUserProfile, GlucoseLog, PostMealReview } from '@/lib/supabase';
+import { useSleepData, SleepData } from '@/hooks/useSleepData';
+import { useGlucoseTargetRange, useTodayScreenData } from '@/hooks/useTodayScreenData';
+import { GlucoseLog, PostMealReview } from '@/lib/supabase';
+import { getDateRange, getRangeDays, getRangeLabel, getRangeShortLabel, RangeKey } from '@/lib/utils/dateRanges';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Animated,
@@ -31,58 +33,8 @@ import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-type RangeKey = '24h' | '7d' | '14d' | '30d' | '90d';
-
 const TARGET_MIN_MMOL = 3.9;
 const TARGET_MAX_MMOL = 10.0;
-
-function seededRandom(seed: number) {
-    const x = Math.sin(seed) * 10000;
-    return x - Math.floor(x);
-}
-
-function clamp(value: number, min: number, max: number) {
-    return Math.min(Math.max(value, min), max);
-}
-
-function formatAvg(value: number) {
-    return value.toFixed(1);
-}
-
-function getRangeLabel(range: RangeKey) {
-    switch (range) {
-        case '24h':
-            return '24 hour average';
-        case '7d':
-            return '7 day average';
-        case '14d':
-            return '14 day average';
-        case '30d':
-            return '30 day average';
-        case '90d':
-            return '90 day average';
-    }
-}
-
-function getRangeDays(range: RangeKey): number {
-    switch (range) {
-        case '24h': return 1;
-        case '7d': return 7;
-        case '14d': return 14;
-        case '30d': return 30;
-        case '90d': return 90;
-    }
-}
-
-function getRangeShortLabel(range: RangeKey): string {
-    switch (range) {
-        case '24h': return 'Last 24h';
-        case '7d': return 'Last 7d';
-        case '14d': return 'Last 14d';
-        case '30d': return 'Last 30d';
-        case '90d': return 'Last 90d';
-    }
-}
 
 function computeAverage(points: TrendPoint[]) {
     if (points.length === 0) return 0;
@@ -99,6 +51,7 @@ function getStatus(avg: number, min: number = TARGET_MIN_MMOL, max: number = TAR
         bg: isGood ? 'rgba(76, 175, 80, 0.15)' : 'rgba(244, 67, 54, 0.15)',
     };
 }
+
 // Chart data with both raw points and rolling average trend
 interface ChartData {
     rawPoints: TrendPoint[];    // Daily averages (for dots)
@@ -171,85 +124,16 @@ function transformLogsToChartData(logs: GlucoseLog[], range: RangeKey): ChartDat
     return { rawPoints, trendPoints };
 }
 
-// Get date range for data fetching
-function getDateRange(range: RangeKey): { startDate: Date; endDate: Date } {
-    const now = new Date();
-    const endDate = new Date(now);
-    let startDate: Date;
-
-    switch (range) {
-        case '24h':
-            startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-            break;
-        case '7d':
-            startDate = new Date(now);
-            startDate.setDate(now.getDate() - 7);
-            break;
-        case '14d':
-            startDate = new Date(now);
-            startDate.setDate(now.getDate() - 14);
-            break;
-        case '30d':
-            startDate = new Date(now);
-            startDate.setDate(now.getDate() - 30);
-            break;
-        case '90d':
-            startDate = new Date(now);
-            startDate.setDate(now.getDate() - 90);
-            break;
-        default:
-            startDate = new Date(now);
-            startDate.setDate(now.getDate() - 30);
-    }
-
-    return { startDate, endDate };
-}
-
-function GlucoseTrendsCard({ range, onRangeChange }: { range: RangeKey; onRangeChange: (range: RangeKey) => void }) {
-    const { user } = useAuth();
-    const [allLogs, setAllLogs] = React.useState<GlucoseLog[]>([]);
-    const [isInitialLoading, setIsInitialLoading] = React.useState(true);
-    const [targetMin, setTargetMin] = React.useState(TARGET_MIN_MMOL);
-    const [targetMax, setTargetMax] = React.useState(TARGET_MAX_MMOL);
-
-    // Fetch all logs and user's target range
-    const fetchData = useCallback(async () => {
-        if (!user) {
-            setIsInitialLoading(false);
-            return;
-        }
-
-        // Fetch user profile for target range
-        const profile = await getUserProfile(user.id);
-        if (profile) {
-            setTargetMin(profile.target_min ?? TARGET_MIN_MMOL);
-            setTargetMax(profile.target_max ?? TARGET_MAX_MMOL);
-        }
-
-        // Fetch 180 days to support 90d range + previous period comparison
-        const now = new Date();
-        const startDate = new Date(now);
-        startDate.setDate(now.getDate() - 180);
-        const fetchedLogs = await getGlucoseLogsByDateRange(user.id, startDate, now);
-        setAllLogs(fetchedLogs);
-        setIsInitialLoading(false);
-    }, [user]);
-
-    // Fetch on mount
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    // Refresh when screen comes into focus
-    useFocusEffect(
-        useCallback(() => {
-            fetchData();
-        }, [fetchData])
-    );
+// Memoized Glucose Trends Card component
+const GlucoseTrendsCard = React.memo(({ range, allLogs, isLoading }: { 
+    range: RangeKey; 
+    allLogs: GlucoseLog[];
+    isLoading: boolean;
+}) => {
+    const { targetMin, targetMax } = useGlucoseTargetRange();
 
     // Filter logs based on selected range and transform to chart data
-    // Transform logs to chart data with raw points and trend line
-    const chartData = React.useMemo(() => {
+    const chartData = useMemo(() => {
         const { startDate, endDate } = getDateRange(range);
         const filteredLogs = allLogs.filter(log => {
             const logDate = new Date(log.logged_at);
@@ -261,10 +145,10 @@ function GlucoseTrendsCard({ range, onRangeChange }: { range: RangeKey; onRangeC
     const { rawPoints, trendPoints } = chartData;
 
     // Calculate current period average from raw points
-    const avg = React.useMemo(() => computeAverage(rawPoints), [rawPoints]);
+    const avg = useMemo(() => computeAverage(rawPoints), [rawPoints]);
 
     // Calculate delta vs previous period
-    const delta = React.useMemo(() => {
+    const delta = useMemo(() => {
         const days = getRangeDays(range);
         const now = new Date();
 
@@ -285,22 +169,15 @@ function GlucoseTrendsCard({ range, onRangeChange }: { range: RangeKey; onRangeC
         return avg - prevAvg;
     }, [allLogs, range, avg]);
 
-    const status = React.useMemo(() => getStatus(avg, targetMin, targetMax), [avg, targetMin, targetMax]);
+    const status = useMemo(() => getStatus(avg, targetMin, targetMax), [avg, targetMin, targetMax]);
     const hasData = rawPoints.length > 0;
-
-    // Format delta string
-    const deltaString = React.useMemo(() => {
-        if (delta === null || !hasData) return null;
-        const sign = delta >= 0 ? '+' : '';
-        return `${sign}${delta.toFixed(1)} vs prev ${getRangeDays(range)}d`;
-    }, [delta, hasData, range]);
 
     return (
         <View style={styles.trendsCard}>
             <View style={styles.trendsHeaderRow}>
                 <View style={styles.trendsHeaderLeft}>
                     <View style={styles.avgRow}>
-                        {isInitialLoading ? (
+                        {isLoading ? (
                             <ActivityIndicator size="small" color="#878787" />
                         ) : hasData ? (
                             <>
@@ -321,7 +198,7 @@ function GlucoseTrendsCard({ range, onRangeChange }: { range: RangeKey; onRangeC
                     <Text style={styles.avgSubtitle}>{getRangeLabel(range)}</Text>
                 </View>
 
-                {hasData && !isInitialLoading && (
+                {hasData && !isLoading && (
                     <View style={[styles.statusPill, { backgroundColor: status.bg, borderColor: status.color }]}>
                         <View style={[styles.statusDot, { backgroundColor: status.color }]} />
                         <Text style={[styles.statusText, { color: status.color }]}>
@@ -332,7 +209,7 @@ function GlucoseTrendsCard({ range, onRangeChange }: { range: RangeKey; onRangeC
             </View>
 
             <View style={styles.chartBlock}>
-                {isInitialLoading ? (
+                {isLoading ? (
                     <View style={styles.chartLoading}>
                         <ActivityIndicator size="large" color="#3494D9" />
                     </View>
@@ -354,7 +231,7 @@ function GlucoseTrendsCard({ range, onRangeChange }: { range: RangeKey; onRangeC
             </View>
         </View>
     );
-}
+}, (prev, next) => prev.range === next.range && prev.isLoading === next.isLoading && prev.allLogs.length === next.allLogs.length);
 
 // Stat Card Component
 function StatCard({ icon, iconColor, title, value, unit, description }: {
@@ -464,30 +341,26 @@ function CGMConnectionCard() {
 
 // Spike threshold - readings above this are considered a spike (mmol/L)
 const SPIKE_THRESHOLD = 10.0;
-// In Range Stat Card - calculates % of days where glucose was in target range
-function DaysInRangeCard({ range }: { range: RangeKey }) {
-    const { user } = useAuth();
-    const [percentage, setPercentage] = React.useState<number>(0);
-    const [isLoading, setIsLoading] = React.useState(true);
-
-    const fetchInRangePercentage = useCallback(async () => {
-        if (!user) {
-            setIsLoading(false);
-            return;
-        }
-
-        // Fetch user profile for target range
-        const profile = await getUserProfile(user.id);
-        const minTarget = profile?.target_min ?? TARGET_MIN_MMOL;
-        const maxTarget = profile?.target_max ?? TARGET_MAX_MMOL;
-
+// Memoized In Range Stat Card - calculates % of days where glucose was in target range
+const DaysInRangeCard = React.memo(({ range, glucoseLogs }: { 
+    range: RangeKey;
+    glucoseLogs: GlucoseLog[];
+}) => {
+    const { targetMin, targetMax } = useGlucoseTargetRange();
+    
+    const percentage = useMemo(() => {
         const { startDate, endDate } = getDateRange(range);
-        const logs = await getGlucoseLogsByDateRange(user.id, startDate, endDate);
+        const filteredLogs = glucoseLogs.filter(log => {
+            const logDate = new Date(log.logged_at);
+            return logDate >= startDate && logDate <= endDate;
+        });
+
+        if (filteredLogs.length === 0) return 0;
 
         // Group logs by day and check if daily average is in range
         const dailyData: { [dateKey: string]: number[] } = {};
 
-        logs.forEach(log => {
+        filteredLogs.forEach(log => {
             const logDate = new Date(log.logged_at);
             const dateKey = logDate.toISOString().split('T')[0];
             if (!dailyData[dateKey]) dailyData[dateKey] = [];
@@ -501,28 +374,16 @@ function DaysInRangeCard({ range }: { range: RangeKey }) {
         daysWithData.forEach(dateKey => {
             const dayValues = dailyData[dateKey];
             const dayAvg = dayValues.reduce((a, b) => a + b, 0) / dayValues.length;
-            if (dayAvg >= minTarget && dayAvg <= maxTarget) {
+            if (dayAvg >= targetMin && dayAvg <= targetMax) {
                 inRangeCount++;
             }
         });
 
         // Calculate percentage
-        const pct = daysWithData.length > 0
+        return daysWithData.length > 0
             ? Math.round((inRangeCount / daysWithData.length) * 100)
             : 0;
-        setPercentage(pct);
-        setIsLoading(false);
-    }, [user, range]);
-
-    useEffect(() => {
-        fetchInRangePercentage();
-    }, [fetchInRangePercentage]);
-
-    useFocusEffect(
-        useCallback(() => {
-            fetchInRangePercentage();
-        }, [fetchInRangePercentage])
-    );
+    }, [glucoseLogs, range, targetMin, targetMax]);
 
     return (
         <View style={styles.statCard}>
@@ -531,64 +392,41 @@ function DaysInRangeCard({ range }: { range: RangeKey }) {
                 <Text style={[styles.statTitle, { color: Colors.glucoseGood }]}>IN RANGE</Text>
             </View>
             <View style={styles.statValueContainer}>
-                {isLoading ? (
-                    <ActivityIndicator size="small" color={Colors.glucoseGood} />
-                ) : (
-                    <>
-                        <AnimatedInteger
-                            value={percentage}
-                            duration={500}
-                            style={styles.statValue}
-                        />
-                        <Text style={styles.statUnit}>%</Text>
-                    </>
-                )}
+                <AnimatedInteger
+                    value={percentage}
+                    duration={500}
+                    style={styles.statValue}
+                />
+                <Text style={styles.statUnit}>%</Text>
             </View>
             <Text style={styles.statDescription}>{getRangeShortLabel(range)}</Text>
         </View>
     );
-}
+}, (prev, next) => prev.range === next.range && prev.glucoseLogs === next.glucoseLogs);
 
-// Activity Stat Card - shows total activity duration from logged activities
-function ActivityStatCard({ range }: { range: RangeKey }) {
-    const { user } = useAuth();
-    const [totalMinutes, setTotalMinutes] = React.useState<number>(0);
-    const [isLoading, setIsLoading] = React.useState(true);
-
-    const fetchActivityData = useCallback(async () => {
-        if (!user) {
-            setIsLoading(false);
-            return;
-        }
-
+// Memoized Activity Stat Card - shows total activity duration from logged activities
+const ActivityStatCard = React.memo(({ range, activityLogs }: { 
+    range: RangeKey;
+    activityLogs: any[];
+}) => {
+    const totalMinutes = useMemo(() => {
         const { startDate, endDate } = getDateRange(range);
-        const logs = await getActivityLogsByDateRange(user.id, startDate, endDate);
-
-        // Sum up all activity duration in minutes
-        const total = logs.reduce((sum, log) => sum + log.duration_minutes, 0);
-        setTotalMinutes(total);
-        setIsLoading(false);
-    }, [user, range]);
-
-    useEffect(() => {
-        fetchActivityData();
-    }, [fetchActivityData]);
-
-    useFocusEffect(
-        useCallback(() => {
-            fetchActivityData();
-        }, [fetchActivityData])
-    );
+        const filteredLogs = activityLogs.filter(log => {
+            const logDate = new Date(log.logged_at);
+            return logDate >= startDate && logDate <= endDate;
+        });
+        return filteredLogs.reduce((sum, log) => sum + log.duration_minutes, 0);
+    }, [activityLogs, range]);
 
     // Format minutes as hours if over 60
-    const formatDuration = (minutes: number) => {
+    const formatDuration = useCallback((minutes: number) => {
         if (minutes >= 60) {
             const hours = Math.floor(minutes / 60);
             const mins = minutes % 60;
             return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
         }
         return `${minutes}`;
-    };
+    }, []);
 
     return (
         <View style={styles.statCard}>
@@ -597,19 +435,13 @@ function ActivityStatCard({ range }: { range: RangeKey }) {
                 <Text style={[styles.statTitle, { color: '#E55D5D' }]}>ACTIVITY</Text>
             </View>
             <View style={styles.statValueContainer}>
-                {isLoading ? (
-                    <ActivityIndicator size="small" color="#E55D5D" />
-                ) : (
-                    <>
-                        <Text style={styles.statValue}>{formatDuration(totalMinutes)}</Text>
-                        {totalMinutes < 60 && <Text style={styles.statUnit}>mins</Text>}
-                    </>
-                )}
+                <Text style={styles.statValue}>{formatDuration(totalMinutes)}</Text>
+                {totalMinutes < 60 && <Text style={styles.statUnit}>mins</Text>}
             </View>
             <Text style={styles.statDescription}>{getRangeShortLabel(range)}</Text>
         </View>
     );
-}
+}, (prev, next) => prev.range === next.range && prev.activityLogs === next.activityLogs);
 
 // Fibre thresholds based on Canada DV (25g/day target)
 const FIBRE_TARGET = 25;
@@ -631,50 +463,12 @@ function getFibreStatusColor(status: FibreStatus): string {
     }
 }
 
-// Fibre Stat Card - shows fibre intake from logged meals
-function FibreStatCard({ range }: { range: RangeKey }) {
-    const { user } = useAuth();
-    const [avgPerDay, setAvgPerDay] = React.useState<number>(0);
-    const [isLoading, setIsLoading] = React.useState(true);
-
-    // Map RangeKey to FibreRange
-    const getFibreRange = (r: RangeKey): FibreRange => {
-        switch (r) {
-            case '24h': return 'today';
-            case '7d': return 'week';
-            case '14d':
-            case '30d':
-            case '90d': return 'month';
-        }
-    };
-
-    const fetchFibreData = useCallback(async () => {
-        if (!user) {
-            setIsLoading(false);
-            return;
-        }
-
-        const fibreRange = getFibreRange(range);
-        const summary = await getFibreIntakeSummary(user.id, fibreRange);
-
-        if (summary) {
-            setAvgPerDay(summary.avgPerDay);
-        } else {
-            setAvgPerDay(0);
-        }
-        setIsLoading(false);
-    }, [user, range]);
-
-    useEffect(() => {
-        setIsLoading(true);
-        fetchFibreData();
-    }, [fetchFibreData]);
-
-    useFocusEffect(
-        useCallback(() => {
-            fetchFibreData();
-        }, [fetchFibreData])
-    );
+// Memoized Fibre Stat Card - shows fibre intake from logged meals
+const FibreStatCard = React.memo(({ range, fibreSummary }: { 
+    range: RangeKey;
+    fibreSummary: { avgPerDay: number } | null;
+}) => {
+    const avgPerDay = fibreSummary?.avgPerDay ?? 0;
 
     const status = getFibreStatus(avgPerDay);
     const statusColor = getFibreStatusColor(status);
@@ -687,14 +481,8 @@ function FibreStatCard({ range }: { range: RangeKey }) {
                 <Text style={[styles.statTitle, { color: '#4A9B16' }]}>FIBRE INTAKE</Text>
             </View>
             <View style={styles.statValueContainer}>
-                {isLoading ? (
-                    <ActivityIndicator size="small" color="#4A9B16" />
-                ) : (
-                    <>
-                        <Text style={[styles.statValue]}>{avgPerDay.toFixed(1)}</Text>
-                        <Text style={styles.statUnit}>g/day</Text>
-                    </>
-                )}
+                <Text style={[styles.statValue]}>{avgPerDay.toFixed(1)}</Text>
+                <Text style={styles.statUnit}>g/day</Text>
             </View>
             <View style={[styles.fibreStatusPill, { backgroundColor: statusColor + '30' }]}>
                 <View style={[styles.fibreStatusDot, { backgroundColor: statusColor }]} />
@@ -702,82 +490,78 @@ function FibreStatCard({ range }: { range: RangeKey }) {
             </View>
         </View>
     );
+}, (prev, next) => prev.range === next.range && prev.fibreSummary === next.fibreSummary);
+
+// Sleep thresholds based on CDC recommendations (7+ hours for adults)
+const SLEEP_TARGET = 7;
+const SLEEP_LOW_THRESHOLD = 6;
+const SLEEP_ICON_COLOR = '#3494D9'; // Blue color matching the app theme
+
+type SleepStatus = 'poor' | 'fair' | 'good';
+
+function getSleepStatus(avgHours: number): SleepStatus {
+    if (avgHours < SLEEP_LOW_THRESHOLD) return 'poor';
+    if (avgHours < SLEEP_TARGET) return 'fair';
+    return 'good';
 }
 
-// High Exposure threshold for prediabetes (post-meal concern level)
-const HIGH_EXPOSURE_THRESHOLD = 7.8;
+function getSleepStatusColor(status: SleepStatus): string {
+    switch (status) {
+        case 'good': return SLEEP_ICON_COLOR;
+        case 'fair': return '#FF9800';
+        case 'poor': return '#F44336';
+    }
+}
 
-// High Exposure Stat Card - shows % of readings above 7.8 mmol/L
-function HighExposureCard({ range }: { range: RangeKey }) {
-    const { user } = useAuth();
-    const [exposurePercent, setExposurePercent] = React.useState<number>(0);
-    const [isLoading, setIsLoading] = React.useState(true);
+// Memoized Sleep Stat Card - shows average sleep duration from HealthKit
+const SleepStatCard = React.memo(({ range, sleepData }: { 
+    range: RangeKey;
+    sleepData: SleepData | null;
+}) => {
+    const avgHours = sleepData?.avgHoursPerNight ?? 0;
+    const isAuthorized = sleepData?.isAuthorized ?? false;
+    const isAvailable = sleepData?.isAvailable ?? false;
 
-    const fetchExposure = useCallback(async () => {
-        if (!user) {
-            setIsLoading(false);
-            return;
+    const status = getSleepStatus(avgHours);
+    const statusColor = getSleepStatusColor(status);
+
+    // Format hours - show whole number like "5" or decimal like "7.5"
+    const displayValue = isAuthorized && avgHours > 0 
+        ? (avgHours % 1 === 0 ? Math.round(avgHours).toString() : avgHours.toFixed(1))
+        : '--';
+
+    // Handle tap to connect if not authorized
+    const handlePress = () => {
+        if (!isAuthorized && isAvailable) {
+            router.push('/data-sources');
         }
-
-        const { startDate, endDate } = getDateRange(range);
-        const logs = await getGlucoseLogsByDateRange(user.id, startDate, endDate);
-
-        if (logs.length === 0) {
-            setExposurePercent(0);
-            setIsLoading(false);
-            return;
-        }
-
-        // Count readings above 7.8 mmol/L
-        const aboveThreshold = logs.filter(log => log.glucose_level > HIGH_EXPOSURE_THRESHOLD).length;
-        const percent = Math.round((aboveThreshold / logs.length) * 100);
-        setExposurePercent(percent);
-        setIsLoading(false);
-    }, [user, range]);
-
-    useEffect(() => {
-        fetchExposure();
-    }, [fetchExposure]);
-
-    useFocusEffect(
-        useCallback(() => {
-            fetchExposure();
-        }, [fetchExposure])
-    );
-
-    // Color based on exposure level
-    const getExposureColor = (percent: number) => {
-        if (percent <= 15) return Colors.glucoseGood;
-        if (percent <= 30) return '#CAA163'; // Warning/amber
-        return Colors.glucoseHigh;
     };
 
-    const color = getExposureColor(exposurePercent);
-
     return (
-        <View style={styles.statCard}>
+        <TouchableOpacity 
+            style={styles.statCard} 
+            onPress={handlePress} 
+            disabled={isAuthorized}
+            activeOpacity={isAuthorized ? 1 : 0.7}
+        >
             <View style={styles.statHeader}>
-                <Ionicons name="warning" size={32} color={color} />
-                <Text style={[styles.statTitle, { color }]}>ABOVE 7.8</Text>
+                <Ionicons name="moon" size={32} color={SLEEP_ICON_COLOR} />
+                <Text style={[styles.statTitle, { color: SLEEP_ICON_COLOR }]}>SLEEP</Text>
             </View>
             <View style={styles.statValueContainer}>
-                {isLoading ? (
-                    <ActivityIndicator size="small" color={color} />
-                ) : (
-                    <>
-                        <AnimatedInteger
-                            value={exposurePercent}
-                            duration={500}
-                            style={styles.statValue}
-                        />
-                        <Text style={styles.statUnit}>%</Text>
-                    </>
-                )}
+                <Text style={styles.statValue}>{displayValue}</Text>
+                <Text style={styles.statUnit}>hr/night</Text>
             </View>
-            <Text style={styles.statDescription}>{getRangeShortLabel(range)}</Text>
-        </View>
+            <Text style={styles.statDescription}>
+                {!isAvailable 
+                    ? 'iOS only' 
+                    : isAuthorized 
+                        ? getRangeShortLabel(range) 
+                        : 'Tap to connect'}
+            </Text>
+        </TouchableOpacity>
     );
-}
+}, (prev, next) => prev.range === next.range && prev.sleepData === next.sleepData);
 
 // Spike Risk Input Sheet - Bottom sheet for quick meal input
 function SpikeRiskInputSheet({
@@ -1194,110 +978,108 @@ export default function TodayScreen() {
     const { profile, user } = useAuth();
     const [isFabOpen, setIsFabOpen] = useState(false);
     const [range, setRange] = useState<RangeKey>('30d');
-    const [pastMealReviews, setPastMealReviews] = useState<PostMealReview[]>([]);
     const [spikeSheetVisible, setSpikeSheetVisible] = useState(false);
     const overlayOpacity = React.useRef(new Animated.Value(0)).current;
     const fabRef = React.useRef<AnimatedFABRef>(null);
 
-    // Fetch past meal reviews when screen focuses
-    useFocusEffect(
-        useCallback(() => {
-            const fetchReviews = async () => {
-                if (!user?.id) return;
-                const reviews = await getPendingReviews(user.id);
-                // Only show reviews that have been opened (have actual data)
-                const completedReviews = reviews.filter(r => r.status === 'opened' && r.actual_peak !== null);
+    // Use unified data fetching hook - batches all queries
+    const { glucoseLogs, activityLogs, fibreSummary, mealReviews, isLoading } = useTodayScreenData(range);
+    
+    // Fetch sleep data from HealthKit
+    const { data: sleepData } = useSleepData(range);
 
-                // If no real reviews, show mock data for UI demonstration
-                if (completedReviews.length === 0) {
-                    const mockReviews = [
-                        {
-                            id: 'mock-1',
-                            user_id: user.id,
-                            meal_id: 'meal-1',
-                            scheduled_for: new Date().toISOString(),
-                            status: 'opened',
-                            meal_name: 'Butter chicken with butter naan',
-                            meal_time: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(), // 3 hours ago (breakfast time)
-                            predicted_curve: [
-                                { time: 0, value: 5.2 }, { time: 15, value: 5.8 }, { time: 30, value: 6.5 },
-                                { time: 45, value: 7.2 }, { time: 60, value: 7.5 }, { time: 75, value: 7.1 },
-                                { time: 90, value: 6.8 }, { time: 105, value: 6.2 }, { time: 120, value: 5.8 }
-                            ],
-                            actual_curve: [
-                                { time: 0, value: 5.0 }, { time: 15, value: 5.5 }, { time: 30, value: 6.8 },
-                                { time: 45, value: 7.8 }, { time: 60, value: 8.4 }, { time: 75, value: 7.9 },
-                                { time: 90, value: 7.2 }, { time: 105, value: 6.5 }, { time: 120, value: 5.9 }
-                            ],
-                            predicted_peak: 7.5,
-                            actual_peak: 8.4,
-                            status_tag: 'mild_elevation',
-                            summary: 'Peaked at 8.4 mmol/L - smoother than expected',
-                            contributors: [{ title: 'Carb-rich meal', detail: 'The naan bread contributed to a moderate glucose rise.', impact: 'moderate' }],
-                            created_at: new Date().toISOString(),
-                            updated_at: new Date().toISOString(),
-                        },
-                        {
-                            id: 'mock-2',
-                            user_id: user.id,
-                            meal_id: 'meal-2',
-                            scheduled_for: new Date().toISOString(),
-                            status: 'opened',
-                            meal_name: 'Grilled salmon with vegetables',
-                            meal_time: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago (lunch)
-                            predicted_curve: [
-                                { time: 0, value: 5.0 }, { time: 15, value: 5.3 }, { time: 30, value: 5.6 },
-                                { time: 45, value: 5.9 }, { time: 60, value: 6.0 }, { time: 75, value: 5.8 },
-                                { time: 90, value: 5.5 }, { time: 105, value: 5.2 }, { time: 120, value: 5.0 }
-                            ],
-                            actual_curve: [
-                                { time: 0, value: 5.1 }, { time: 15, value: 5.4 }, { time: 30, value: 5.7 },
-                                { time: 45, value: 5.8 }, { time: 60, value: 5.9 }, { time: 75, value: 5.7 },
-                                { time: 90, value: 5.4 }, { time: 105, value: 5.2 }, { time: 120, value: 5.0 }
-                            ],
-                            predicted_peak: 6.0,
-                            actual_peak: 5.9,
-                            status_tag: 'steady',
-                            summary: 'Peaked at 5.9 mmol/L - steady response',
-                            contributors: [{ title: 'High protein, low carb', detail: 'Protein and healthy fats kept glucose stable.', impact: 'positive' }],
-                            created_at: new Date().toISOString(),
-                            updated_at: new Date().toISOString(),
-                        },
-                        {
-                            id: 'mock-3',
-                            user_id: user.id,
-                            meal_id: 'meal-3',
-                            scheduled_for: new Date().toISOString(),
-                            status: 'opened',
-                            meal_name: 'Pasta with marinara sauce',
-                            meal_time: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // Yesterday dinner
-                            predicted_curve: [
-                                { time: 0, value: 5.5 }, { time: 15, value: 6.5 }, { time: 30, value: 8.0 },
-                                { time: 45, value: 9.2 }, { time: 60, value: 9.5 }, { time: 75, value: 8.8 },
-                                { time: 90, value: 7.8 }, { time: 105, value: 6.8 }, { time: 120, value: 6.0 }
-                            ],
-                            actual_curve: [
-                                { time: 0, value: 5.3 }, { time: 15, value: 7.0 }, { time: 30, value: 9.2 },
-                                { time: 45, value: 10.5 }, { time: 60, value: 11.2 }, { time: 75, value: 10.0 },
-                                { time: 90, value: 8.5 }, { time: 105, value: 7.2 }, { time: 120, value: 6.3 }
-                            ],
-                            predicted_peak: 9.5,
-                            actual_peak: 11.2,
-                            status_tag: 'spike',
-                            summary: 'Peaked at 11.2 mmol/L - higher than expected',
-                            contributors: [{ title: 'Refined carbohydrates', detail: 'White pasta caused a significant spike.', impact: 'negative' }],
-                            created_at: new Date().toISOString(),
-                            updated_at: new Date().toISOString(),
-                        },
-                    ];
-                    setPastMealReviews(mockReviews as unknown as PostMealReview[]);
-                } else {
-                    setPastMealReviews(completedReviews.slice(0, 10));
-                }
-            };
-            fetchReviews();
-        }, [user?.id])
-    );
+    // Process meal reviews - show completed ones or mock data
+    const pastMealReviews = useMemo(() => {
+        if (!user?.id) return [];
+        
+        const completedReviews = mealReviews.filter(r => r.status === 'opened' && r.actual_peak !== null);
+        
+        // If no real reviews, show mock data for UI demonstration
+        if (completedReviews.length === 0) {
+            return [
+                {
+                    id: 'mock-1',
+                    user_id: user.id,
+                    meal_id: 'meal-1',
+                    scheduled_for: new Date().toISOString(),
+                    status: 'opened' as const,
+                    meal_name: 'Butter chicken with butter naan',
+                    meal_time: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+                    predicted_curve: [
+                        { time: 0, value: 5.2 }, { time: 15, value: 5.8 }, { time: 30, value: 6.5 },
+                        { time: 45, value: 7.2 }, { time: 60, value: 7.5 }, { time: 75, value: 7.1 },
+                        { time: 90, value: 6.8 }, { time: 105, value: 6.2 }, { time: 120, value: 5.8 }
+                    ],
+                    actual_curve: [
+                        { time: 0, value: 5.0 }, { time: 15, value: 5.5 }, { time: 30, value: 6.8 },
+                        { time: 45, value: 7.8 }, { time: 60, value: 8.4 }, { time: 75, value: 7.9 },
+                        { time: 90, value: 7.2 }, { time: 105, value: 6.5 }, { time: 120, value: 5.9 }
+                    ],
+                    predicted_peak: 7.5,
+                    actual_peak: 8.4,
+                    status_tag: 'mild_elevation' as const,
+                    summary: 'Peaked at 8.4 mmol/L - smoother than expected',
+                    contributors: [{ title: 'Carb-rich meal', detail: 'The naan bread contributed to a moderate glucose rise.', impact: 'moderate' }],
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                },
+                {
+                    id: 'mock-2',
+                    user_id: user.id,
+                    meal_id: 'meal-2',
+                    scheduled_for: new Date().toISOString(),
+                    status: 'opened' as const,
+                    meal_name: 'Grilled salmon with vegetables',
+                    meal_time: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+                    predicted_curve: [
+                        { time: 0, value: 5.0 }, { time: 15, value: 5.3 }, { time: 30, value: 5.6 },
+                        { time: 45, value: 5.9 }, { time: 60, value: 6.0 }, { time: 75, value: 5.8 },
+                        { time: 90, value: 5.5 }, { time: 105, value: 5.2 }, { time: 120, value: 5.0 }
+                    ],
+                    actual_curve: [
+                        { time: 0, value: 5.1 }, { time: 15, value: 5.4 }, { time: 30, value: 5.7 },
+                        { time: 45, value: 5.8 }, { time: 60, value: 5.9 }, { time: 75, value: 5.7 },
+                        { time: 90, value: 5.4 }, { time: 105, value: 5.2 }, { time: 120, value: 5.0 }
+                    ],
+                    predicted_peak: 6.0,
+                    actual_peak: 5.9,
+                    status_tag: 'steady' as const,
+                    summary: 'Peaked at 5.9 mmol/L - steady response',
+                    contributors: [{ title: 'High protein, low carb', detail: 'Protein and healthy fats kept glucose stable.', impact: 'positive' }],
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                },
+                {
+                    id: 'mock-3',
+                    user_id: user.id,
+                    meal_id: 'meal-3',
+                    scheduled_for: new Date().toISOString(),
+                    status: 'opened' as const,
+                    meal_name: 'Pasta with marinara sauce',
+                    meal_time: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+                    predicted_curve: [
+                        { time: 0, value: 5.5 }, { time: 15, value: 6.5 }, { time: 30, value: 8.0 },
+                        { time: 45, value: 9.2 }, { time: 60, value: 9.5 }, { time: 75, value: 8.8 },
+                        { time: 90, value: 7.8 }, { time: 105, value: 6.8 }, { time: 120, value: 6.0 }
+                    ],
+                    actual_curve: [
+                        { time: 0, value: 5.3 }, { time: 15, value: 7.0 }, { time: 30, value: 9.2 },
+                        { time: 45, value: 10.5 }, { time: 60, value: 11.2 }, { time: 75, value: 10.0 },
+                        { time: 90, value: 8.5 }, { time: 105, value: 7.2 }, { time: 120, value: 6.3 }
+                    ],
+                    predicted_peak: 9.5,
+                    actual_peak: 11.2,
+                    status_tag: 'spike' as const,
+                    summary: 'Peaked at 11.2 mmol/L - higher than expected',
+                    contributors: [{ title: 'Refined carbohydrates', detail: 'White pasta caused a significant spike.', impact: 'negative' }],
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                },
+            ] as PostMealReview[];
+        }
+        
+        return completedReviews.slice(0, 10);
+    }, [mealReviews, user?.id]);
 
     // Get user initials from profile
     const getInitials = () => {
@@ -1358,25 +1140,18 @@ export default function TodayScreen() {
                         </View>
 
                         <View style={styles.trendsSection}>
-                            <GlucoseTrendsCard range={range} onRangeChange={setRange} />
+                            <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} />
                         </View>
 
                         {/* Stats Grid */}
                         <View style={styles.statsGrid}>
                             <View style={styles.statsRow}>
-                                <DaysInRangeCard range={range} />
-                                <FibreStatCard range={range} />
+                                <DaysInRangeCard range={range} glucoseLogs={glucoseLogs} />
+                                <FibreStatCard range={range} fibreSummary={fibreSummary} />
                             </View>
                             <View style={styles.statsRow}>
-                                <ActivityStatCard range={range} />
-                                <StatCard
-                                    icon={<Ionicons name="moon" size={32} color="#3494D9" />}
-                                    iconColor="#3494D9"
-                                    title="SLEEP"
-                                    value="6.5"
-                                    unit="h avg"
-                                    description={getRangeShortLabel(range)}
-                                />
+                                <ActivityStatCard range={range} activityLogs={activityLogs} />
+                                <SleepStatCard range={range} sleepData={sleepData} />
                             </View>
                         </View>
 

@@ -1,8 +1,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
+import Constants from 'expo-constants';
 
-const supabaseUrl = 'https://ipodxujhoqbdrgxfphou.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlwb2R4dWpob3FiZHJneGZwaG91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU1NzM3MjMsImV4cCI6MjA4MTE0OTcyM30.WnSQN9CWwSMER8OnPn_j0ms4cTb86G4m6PmV0tN0XZ8';
+// Get Supabase configuration from environment variables or app.json extra config
+// Priority: EXPO_PUBLIC_* env vars > app.json extra > fallback defaults
+const supabaseUrl = 
+    process.env.EXPO_PUBLIC_SUPABASE_URL ||
+    Constants.expoConfig?.extra?.supabaseUrl ||
+    'https://ipodxujhoqbdrgxfphou.supabase.co';
+
+const supabaseAnonKey = 
+    process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+    Constants.expoConfig?.extra?.supabaseAnonKey ||
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlwb2R4dWpob3FiZHJneGZwaG91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU1NzM3MjMsImV4cCI6MjA4MTE0OTcyM30.WnSQN9CWwSMER8OnPn_j0ms4cTb86G4m6PmV0tN0XZ8';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
@@ -520,8 +530,27 @@ export async function getFibreIntakeSummary(
     const endDate = now;
 
     try {
-        // Query meal_items joined with meals to filter by date range
-        // First get meals in range, then get their items
+        // Try using optimized database function first (if migration has been run)
+        const { data: functionResult, error: functionError } = await supabase
+            .rpc('get_fibre_intake_summary', {
+                p_user_id: userId,
+                p_start_date: startDate.toISOString(),
+                p_end_date: endDate.toISOString(),
+            });
+
+        // If function exists and succeeds, use it
+        if (!functionError && functionResult && functionResult.length > 0) {
+            const result = functionResult[0];
+            return {
+                totalFibre: Math.round(Number(result.total_fibre) * 10) / 10,
+                avgPerDay: Math.round(Number(result.avg_per_day) * 10) / 10,
+                startDate: result.start_date,
+                endDate: result.end_date,
+            };
+        }
+
+        // Fallback to 2-query approach if function doesn't exist yet
+        // This ensures backward compatibility before migration is run
         const { data: meals, error: mealsError } = await supabase
             .from('meals')
             .select('id')
