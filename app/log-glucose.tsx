@@ -1,9 +1,10 @@
 import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Colors } from '@/constants/Colors';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { createGlucoseLog, type GlucoseContext, updatePostMealReviewWithManualGlucose } from '@/lib/supabase';
+import { parseGlucoseInput, getGlucoseInputPlaceholder, formatGlucoseWithUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -67,6 +68,7 @@ function ChevronDown() {
 
 export default function LogGlucoseScreen() {
   const { user } = useAuth();
+  const glucoseUnit = useGlucoseUnit();
   const { reviewId, context: paramContext, returnTo } = useLocalSearchParams<{
     reviewId?: string;
     context?: string;
@@ -142,8 +144,9 @@ export default function LogGlucoseScreen() {
       return;
     }
 
-    const level = parseFloat(glucoseLevel);
-    if (isNaN(level) || level <= 0) {
+    // Parse input and convert to mmol/L for storage
+    const levelMmol = parseGlucoseInput(glucoseLevel, glucoseUnit);
+    if (levelMmol === null || levelMmol <= 0) {
       Alert.alert('Invalid Input', 'Please enter a valid glucose level');
       return;
     }
@@ -152,7 +155,7 @@ export default function LogGlucoseScreen() {
     try {
       const selectedTime = fromParts({ hour12: tempHour12, minute: tempMinute, period: tempPeriod });
       const result = await createGlucoseLog(user.id, {
-        glucose_level: level,
+        glucose_level: levelMmol,  // Always store in mmol/L
         unit: 'mmol/L',
         logged_at: selectedTime.toISOString(),
         context: context || null,
@@ -161,7 +164,7 @@ export default function LogGlucoseScreen() {
       if (result) {
         // If coming from post-meal review, update the review with this glucose value
         if (reviewId) {
-          const updateSuccess = await updatePostMealReviewWithManualGlucose(reviewId, level);
+          const updateSuccess = await updatePostMealReviewWithManualGlucose(reviewId, levelMmol);
           if (!updateSuccess) {
             console.warn('Failed to update post-meal review with glucose');
           }
@@ -169,7 +172,7 @@ export default function LogGlucoseScreen() {
           // Navigate to notifications with success feedback for post-meal reviews
           Alert.alert(
             'Review Submitted',
-            `Your glucose reading of ${level.toFixed(1)} mmol/L has been logged and compared with the prediction. This data will help improve future recommendations.`,
+            `Your glucose reading of ${formatGlucoseWithUnit(levelMmol, glucoseUnit)} has been logged and compared with the prediction. This data will help improve future recommendations.`,
             [
               {
                 text: 'OK',
@@ -198,7 +201,7 @@ export default function LogGlucoseScreen() {
     } finally {
       setIsSaving(false);
     }
-  }, [user, glucoseLevel, tempHour12, tempMinute, tempPeriod, context, reviewId]);
+  }, [user, glucoseLevel, glucoseUnit, tempHour12, tempMinute, tempPeriod, context, reviewId]);
 
   const selectedContextLabel = context
     ? GLUCOSE_CONTEXTS.find((c) => c.value === context)?.label
@@ -250,14 +253,14 @@ export default function LogGlucoseScreen() {
                   <TextInput
                     value={glucoseLevel}
                     onChangeText={setGlucoseLevel}
-                    placeholder="Enter Glucose Level"
+                    placeholder={getGlucoseInputPlaceholder(glucoseUnit)}
                     placeholderTextColor="#878787"
                     style={styles.glucoseInput}
                     keyboardType="decimal-pad"
                     returnKeyType="done"
                   />
                 </View>
-                <Text style={styles.unitLabel}>mmol/L</Text>
+                <Text style={styles.unitLabel}>{glucoseUnit}</Text>
               </View>
             </View>
 

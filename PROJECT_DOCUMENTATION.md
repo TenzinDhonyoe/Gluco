@@ -12,8 +12,10 @@
 9. [Design System](#design-system)
 10. [Key Features](#key-features)
 11. [Backend Integration](#backend-integration)
-12. [Current State](#current-state)
-13. [How to Continue Building](#how-to-continue-building)
+12. [Apple HealthKit Integration](#apple-healthkit-integration)
+13. [Performance Optimizations](#performance-optimizations)
+14. [Current State](#current-state)
+15. [How to Continue Building](#how-to-continue-building)
 
 ---
 
@@ -47,6 +49,8 @@
 - **React Native Safe Area Context**: 5.6.0 (safe area handling)
 - **Expo Linear Gradient**: 15.0.8 (gradient effects)
 - **Ionicons**: 15.0.3 (icon library)
+- **React Native Health**: Latest (Apple HealthKit integration for iOS)
+- **Expo Dev Client**: Required for native modules like HealthKit
 
 ### Development Tools
 - ESLint with Expo config
@@ -69,12 +73,13 @@ GlucoFigma/
 │   ├── log-meal-items.tsx       # Meal items search (placeholder)
 │   ├── log-glucose.tsx          # Glucose logging screen
 │   ├── log-activity.tsx         # Activity logging screen
+│   ├── check-spike-risk.tsx     # Pre-meal glucose spike risk analysis
+│   ├── check-exercise-impact.tsx # Exercise impact analysis
 │   └── (tabs)/                  # Tab navigator group
 │       ├── _layout.tsx          # Tab navigator configuration
 │       ├── index.tsx            # Today/Home tab
 │       ├── log.tsx              # Log history tab
-│       ├── insights.tsx         # Insights tab (placeholder)
-│       └── coach.tsx            # Coach tab (placeholder)
+│       └── insights.tsx         # Insights/Analytics tab
 │
 ├── components/                   # Reusable UI components
 │   ├── animated-fab.tsx         # Floating Action Button with animations
@@ -98,15 +103,30 @@ GlucoFigma/
 ├── hooks/
 │   ├── useFonts.ts              # Font loading hook
 │   ├── use-color-scheme.ts      # Color scheme detection
-│   └── use-theme-color.ts       # Theme color utilities
+│   ├── use-theme-color.ts       # Theme color utilities
+│   ├── useTodayScreenData.ts    # Unified data fetching for Today screen
+│   └── useSleepData.ts          # HealthKit sleep data hook
 │
 ├── lib/
-│   └── supabase.ts              # Supabase client & database helpers
+│   ├── supabase.ts              # Supabase client & database helpers
+│   ├── healthkit.ts             # Apple HealthKit integration
+│   └── utils/
+│       └── dateRanges.ts        # Centralized date range utilities
 │
 ├── supabase/                     # Database migration files
 │   ├── setup.sql                # User profiles table
 │   ├── glucose_logs.sql         # Glucose logs table
-│   └── activity_logs.sql        # Activity logs table
+│   ├── activity_logs.sql       # Activity logs table
+│   ├── migrations/
+│   │   ├── 20241224_fibre_intake_function.sql  # Fibre calculation function
+│   │   └── 20241224_add_performance_indexes.sql  # Performance indexes
+│   └── functions/               # Supabase Edge Functions
+│       ├── premeal-analyze/     # Pre-meal glucose spike prediction
+│       ├── exercise-analyze/    # Exercise impact analysis
+│       ├── personalized-tips/   # AI-powered health tips
+│       ├── experiments-suggest/ # Experiment recommendations
+│       ├── experiments-evaluate/ # Experiment results analysis
+│       └── ...                  # Other Edge Functions
 │
 ├── assets/
 │   └── images/                  # App images and icons
@@ -255,8 +275,8 @@ Recently used food items with timestamp for "quick add" functionality.
 
 #### Fibre Intake
 - `getFibreIntakeSummary(userId, range)`: Calculate fibre intake for today/week/month
-  - Queries meals + meal_items within date range
-  - Sums `fibre_g × quantity` for all items
+  - Uses optimized database function `calculate_fibre_intake_summary()` (see Performance Optimizations)
+  - Queries meals + meal_items within date range via efficient JOIN
   - Returns `{ totalFibre, avgPerDay, startDate, endDate }`
 
 ---
@@ -549,7 +569,24 @@ import { fonts } from '@/hooks/useFonts';
 - **Glucose Trend Chart**: Visualizes glucose levels over time
 - **Meal Cards**: Displays recent meals with peak glucose values
 - **FAB**: Floating action button to log meals/glucose/activities
-- **Time Period Filter**: Segmented control for filtering data (Today, Week, Month)
+- **Time Period Filter**: Segmented control for filtering data (7d, 14d, 30d, 90d)
+- **Stats Cards**: Four key metrics displayed:
+  - **Time in Range**: Percentage of glucose readings within target range
+  - **Average Glucose**: Mean glucose level for the selected period
+  - **Sleep**: Average hours per night from Apple HealthKit (iOS only)
+  - **Fibre Intake**: Average daily fibre consumption
+- **Optimized Data Fetching**: Uses `useTodayScreenData` hook to batch all queries
+- **Swipeable Tip Cards**: Interactive card component with two tips:
+  - **Planning your next lunch?** → Opens `SpikeRiskInputSheet` for pre-meal glucose spike prediction
+  - **Planning your next exercise?** → Opens `ExerciseInputSheet` for exercise impact analysis
+  - Features horizontal swipe gestures with `PanResponder`
+  - Animated card shuffle effect with dots indicator
+- **SpikeRiskInputSheet**: Bottom sheet modal for entering meal text
+  - Includes `KeyboardAvoidingView` for proper keyboard handling
+  - Navigates to `/check-spike-risk` with user input
+- **ExerciseInputSheet**: Bottom sheet modal for entering exercise text
+  - Same design pattern as SpikeRiskInputSheet
+  - Navigates to `/check-exercise-impact` with user input
 
 ### 2. Log Tab (`app/(tabs)/log.tsx`)
 - **Personalized Tips**: Section at top with tips for glucose, exercise, sleep, meals
@@ -622,8 +659,47 @@ The Insights screen provides a comprehensive analytics dashboard with three main
 - "Today" label with filter icon
 - Prepared for future date range filtering
 
-#### Experiments Tab
-- Placeholder for future A/B testing insights
+#### Experiments Tab (Fully Implemented)
+
+**Purpose**: Personalized A/B testing system for users to discover what works best for their glucose management through structured experiments.
+
+**Features**:
+
+**a. Header Section**
+- Title: "Find What Works For Your Glucose" with sparkle icon (✨)
+- Description: "Small tests you can try for a few meals. We'll compare them and show your pattern — no rules, just real learning."
+- Styled with consistent dark theme and typography
+
+**b. Active Experiments Section**
+- Displays user's currently active experiments
+- Shows experiment icon, title, status badge ("IN PROGRESS" or "DRAFT")
+- Progress indicator: "X / Y exposures logged" with visual progress bar
+- "View Progress >" button navigates to experiment detail screen
+- Empty state when no active experiments
+
+**c. Suggested For You Section**
+- AI-powered personalized experiment suggestions
+- Fetched via `experiments-suggest` Edge Function
+- Each suggestion shows:
+  - Template icon and title
+  - "HIGH IMPACT" badge (if predicted_impact === 'high')
+  - Subtitle and description
+  - AI-generated reason (e.g., "Fiber can slow glucose absorption")
+  - "Start Experiment" button
+- Loading state with ActivityIndicator
+- Empty state when no suggestions available
+
+**d. Integration Points**:
+- `fetchExperimentsData()`: Fetches suggested experiments and active experiments on mount
+- `handleStartExperiment()`: Creates new user experiment and navigates to detail screen
+- "View All Experiments" link navigates to `/experiments-list` screen
+- Auto-refreshes on screen focus
+
+**Data Flow**:
+1. On mount: Calls `getSuggestedExperiments(userId)` → Edge Function
+2. Fetches active experiments: `getUserExperiments(userId, ['active', 'draft'])`
+3. User taps "Start Experiment" → `startUserExperiment()` → Navigate to `/experiment-detail`
+4. User taps "View Progress" → Navigate to `/experiment-detail?id={experimentId}`
 
 #### Key Components Created
 
@@ -800,6 +876,287 @@ POST /functions/v1/personalized-tips
 
 ---
 
+#### 3. `experiments-suggest` - Personalized Experiment Recommendations
+
+**Location**: `supabase/functions/experiments-suggest/index.ts`
+
+**Purpose**: Analyzes user's glucose patterns, meal history, and behaviors to suggest relevant experiments.
+
+**API**:
+```typescript
+// Request
+POST /functions/v1/experiments-suggest
+{
+  user_id: string
+}
+
+// Response
+{
+  suggestions: SuggestedExperiment[]
+}
+
+// SuggestedExperiment
+{
+  template: ExperimentTemplate,
+  variants: ExperimentVariant[],
+  score: number,                    // Relevance score (0-100)
+  reasons: string[],                // AI-generated reasons
+  recommended_parameters: {},       // Customized protocol params
+  predicted_impact: 'high' | 'moderate' | 'low'
+}
+```
+
+**Features**:
+- Analyzes user's glucose patterns (spikes, time of day, contexts)
+- Examines meal history (frequency, types, outcomes)
+- Reviews activity patterns (post-meal walks, exercise timing)
+- Scores experiment templates based on relevance
+- Generates AI-powered reasons via Gemini
+- Returns top 3-5 personalized suggestions
+- Considers eligibility rules (CGM requirement, meal logging, etc.)
+
+**Scoring Algorithm**:
+- Pattern matching: Higher score if user's patterns match experiment's target
+- Spike frequency: Prioritizes experiments addressing frequent spike contexts
+- Meal diversity: Suggests experiments for meal types user eats often
+- Behavioral gaps: Recommends experiments for untested behaviors
+- Data availability: Only suggests experiments user has enough data for
+
+**AI Integration**:
+- Uses Gemini to generate personalized reasons for each suggestion
+- Explains why the experiment is relevant to the user
+- Provides context-aware explanations
+
+---
+
+#### 4. `experiments-evaluate` - Experiment Results Analysis
+
+**Location**: `supabase/functions/experiments-evaluate/index.ts`
+
+**Purpose**: Evaluates experiment results by comparing variants and generating AI summaries.
+
+**API**:
+```typescript
+// Request
+POST /functions/v1/experiments-evaluate
+{
+  user_experiment_id: string
+}
+
+// Response
+{
+  metrics: Record<string, VariantMetrics>,
+  comparison: ComparisonResult,
+  summary: string | null,          // AI-generated summary
+  suggestions: string[],           // Actionable insights
+  is_final: boolean
+}
+
+// VariantMetrics
+{
+  n_exposures: number,
+  n_with_glucose_data: number,
+  peak_deltas: number[],
+  times_to_peak: number[],
+  median_peak_delta: number | null,
+  mean_peak_delta: number | null,
+  median_time_to_peak: number | null,
+  checkin_scores: {
+    energy: number[],
+    hunger: number[],
+    cravings: number[],
+    difficulty: number[]
+  },
+  avg_energy: number | null,
+  avg_hunger: number | null,
+  avg_cravings: number | null
+}
+
+// ComparisonResult
+{
+  winner: string | null,           // Variant key (e.g., 'A', 'B')
+  delta: number | null,             // Difference in peak_delta
+  confidence: 'high' | 'moderate' | 'low' | 'insufficient',
+  direction: 'better' | 'worse' | 'similar' | 'unknown'
+}
+```
+
+**Features**:
+- Fetches all experiment events (exposures, check-ins)
+- Links exposures to post-meal reviews for glucose data
+- Calculates metrics per variant:
+  - Peak glucose delta (median, mean)
+  - Time to peak (median)
+  - Subjective check-in scores (energy, hunger, cravings)
+- Statistical comparison between variants
+- Confidence assessment based on sample size
+- AI-generated summary explaining results
+- Actionable suggestions based on findings
+
+**Comparison Logic**:
+- Requires minimum exposures per variant (default: 3)
+- Uses median for robustness (less sensitive to outliers)
+- Confidence levels:
+  - High: ≥6 exposures per variant, clear difference
+  - Moderate: ≥4 exposures, noticeable difference
+  - Low: ≥3 exposures, small difference
+  - Insufficient: <3 exposures per variant
+
+**AI Integration**:
+- Uses Gemini to generate natural language summaries
+- Explains which variant performed better and why
+- Provides context-aware insights
+- Suggests next steps based on results
+
+---
+
+#### 5. `exercise-analyze` - Personalized Exercise Impact Analysis
+
+**Location**: `supabase/functions/exercise-analyze/index.ts`
+
+**Purpose**: Analyzes exercise input to estimate calories burned and glucose impact using personalized data from the user's glucose history and calibration.
+
+**API**:
+```typescript
+// Request
+POST /functions/v1/exercise-analyze
+{
+  user_id: string,
+  exercise_text: string  // e.g., "30 min walk after lunch"
+}
+
+// Response
+{
+  exercise: {
+    name: string,             // Parsed exercise name
+    duration_min: number,     // Parsed duration
+    intensity: 'light' | 'moderate' | 'vigorous',
+    met_value: number,        // Metabolic equivalent
+    category: string          // e.g., 'Walking', 'Running'
+  },
+  calories_burned: number,
+  glucose_impact: {
+    reduction_pct: number,    // Expected glucose reduction %
+    timing_benefit: string,   // Contextual timing advice
+    optimal_timing: string,   // Best time to exercise
+    personalized: boolean,    // Whether user data was used
+    based_on_history: boolean // Whether using calibration data
+  },
+  tips: ExerciseTip[],
+  user_stats: {
+    weight_kg: number,
+    age: number,
+    bmi: number | null
+  },
+  personalization: {
+    data_quality: 'none' | 'low' | 'medium' | 'high',
+    glucose_observations: number,
+    activity_observations: number,
+    baseline_glucose: number,
+    exercise_effect: number   // Learned modifier from history
+  }
+}
+```
+
+**Data Sources Fetched**:
+1. **User Profile** (`profiles` table): `birth_date`, `biological_sex`
+2. **User Calibration** (`user_calibration` table): Personalized glucose response parameters
+3. **Glucose Logs** (`glucose_logs` table): Last 7 days for average calculation
+4. **Activity Logs** (`activity_log` table): Count of past activities
+
+### Calorie Calculation Formula
+
+Uses **MET (Metabolic Equivalent of Task)** values:
+
+```
+Calories Burned = MET × Weight (kg) × Duration (hours)
+```
+
+**MET Database** (built-in values for common exercises):
+
+| Exercise | Light | Moderate | Vigorous |
+|----------|-------|----------|----------|
+| Walking  | 2.5   | 3.5      | 5.0      |
+| Running  | 7.0   | 10.0     | 12.5     |
+| Cycling  | 4.0   | 8.0      | 12.0     |
+| Swimming | 4.0   | 6.0      | 10.0     |
+| Weights  | 3.5   | 5.0      | 6.0      |
+| HIIT     | 6.0   | 8.0      | 12.0     |
+| Yoga     | 2.5   | 3.5      | 5.0      |
+
+**Weight Estimation** (when not in profile):
+- Female: 65 kg default
+- Male: 80 kg default
+- Unknown: 70 kg default
+
+### Glucose Impact Calculation
+
+**Step 1: Base Reduction by Intensity**
+```javascript
+switch (intensity) {
+  case 'light':
+    baseReduction = 5 + (duration_min / 60) * 5;    // 5-10%
+    break;
+  case 'moderate':
+    baseReduction = 10 + (duration_min / 60) * 10;  // 10-20%
+    break;
+  case 'vigorous':
+    baseReduction = 15 + (duration_min / 60) * 15;  // 15-30%
+    break;
+}
+```
+
+**Step 2: Personalization Modifier (if calibration data exists)**
+```javascript
+// From user_calibration.exercise_effect (learned from past data)
+if (calibration.exercise_effect !== 0) {
+  baseReduction *= (1 + calibration.exercise_effect);
+}
+```
+
+**Step 3: Baseline Glucose Adjustment**
+```javascript
+// Users with higher baseline see larger reductions
+if (avgGlucose > 7.0 mmol/L) {
+  baseReduction *= 1.2;  // +20% impact
+} else if (avgGlucose < 5.0 mmol/L) {
+  baseReduction *= 0.8;  // -20% impact (already low)
+}
+```
+
+**Step 4: Timing Context Modifier**
+```javascript
+// Post-meal exercise detection from text
+if (/after|post|following/.test(exercise_text)) {
+  baseReduction *= 1.3;  // +30% more effective post-meal
+}
+```
+
+**Step 5: Cap at Reasonable Bounds**
+```javascript
+baseReduction = Math.min(baseReduction, 40);  // Max 40%
+baseReduction = Math.max(baseReduction, 3);   // Min 3%
+```
+
+### Data Quality Levels
+
+Calculated based on available data:
+
+| Level | Criteria |
+|-------|----------|
+| `high` | ≥20 calibration observations AND ≥50 glucose readings |
+| `medium` | ≥5 calibration observations AND ≥10 glucose readings |
+| `low` | Any glucose readings OR calibration data |
+| `none` | No user-specific data available |
+
+**Frontend Integration**:
+- Called from `invokeExerciseAnalyze()` in `lib/supabase.ts`
+- Results displayed in `app/check-exercise-impact.tsx`
+- Shows "Personalized" badge when data is personalized
+- Displays data quality indicator
+
+---
+
 ### Required Environment Variables
 
 Set in Supabase Dashboard → Edge Functions → Secrets:
@@ -819,7 +1176,10 @@ supabase functions deploy
 
 # Deploy specific function
 supabase functions deploy premeal-analyze
+supabase functions deploy exercise-analyze
 supabase functions deploy personalized-tips
+supabase functions deploy experiments-suggest
+supabase functions deploy experiments-evaluate
 
 # Set secrets
 supabase secrets set GEMINI_API_KEY=your_key_here
@@ -849,6 +1209,262 @@ if (result) {
 
 ---
 
+## 🏥 Apple HealthKit Integration
+
+### Overview
+
+The app integrates with Apple HealthKit to fetch sleep data, recognizing that sleep quality is a critical factor in prediabetes reversal. This integration provides users with personalized sleep insights directly from their Apple Health data.
+
+### Setup Requirements
+
+**Native Build Required**: HealthKit requires native modules, so the app must be built with `expo-dev-client` instead of Expo Go.
+
+**Configuration** (`app.json`):
+- HealthKit permissions in `infoPlist`:
+  - `NSHealthShareUsageDescription`: "We need access to your sleep data to provide personalized health insights."
+  - `NSHealthUpdateUsageDescription`: "We need access to update your health data."
+- HealthKit entitlements:
+  - `com.apple.developer.healthkit`
+  - `com.apple.developer.healthkit.background-delivery`
+- `react-native-health` plugin configuration
+
+**Environment Variables** (`app.json`):
+```json
+{
+  "extra": {
+    "supabaseUrl": "your-supabase-url",
+    "supabaseAnonKey": "your-anon-key"
+  }
+}
+```
+
+### Implementation
+
+#### `lib/healthkit.ts`
+
+Core HealthKit integration module with lazy loading to prevent crashes on non-iOS platforms:
+
+**Functions**:
+- `initHealthKit()`: Initializes HealthKit and requests sleep analysis permissions
+- `getSleepData(startDate, endDate)`: Fetches sleep samples and calculates:
+  - Total sleep minutes
+  - Number of nights tracked
+  - Average minutes per night
+- `isHealthKitAvailable()`: Checks if HealthKit is available on the device
+- `requestHealthKitAuthorization()`: Shows iOS permission dialog
+
+**Error Handling**:
+- Gracefully handles module loading failures
+- Returns safe defaults when HealthKit is unavailable
+- Platform-specific checks (iOS only)
+
+**Sleep Sample Processing**:
+- Filters for actual sleep samples (`ASLEEP`, `CORE`, `DEEP`, `REM`)
+- Excludes `INBED` and `AWAKE` states
+- Groups samples by night (adjusts for late-night sleep)
+- Calculates accurate averages
+
+#### `hooks/useSleepData.ts`
+
+React hook for accessing sleep data in components:
+
+**Features**:
+- Fetches sleep data for a given date range
+- Provides authorization status
+- Handles loading and error states
+- Auto-refetches on screen focus
+- Delayed initialization to prevent blocking render
+
+**Return Value**:
+```typescript
+{
+  data: {
+    avgHoursPerNight: number,
+    totalNights: number,
+    totalHours: number,
+    isAuthorized: boolean,
+    isAvailable: boolean
+  },
+  isLoading: boolean,
+  error: Error | null,
+  refetch: () => Promise<void>
+}
+```
+
+**Usage**:
+```typescript
+const { data, isLoading } = useSleepData('7d');
+const avgHours = data?.avgHoursPerNight ?? 0;
+```
+
+### Today Screen Integration
+
+The sleep stat replaces the previous "Above 7.8" metric on the Today screen:
+
+- **SleepStatCard**: Displays average hours per night
+- **Icon**: Moon icon (Ionicons) for visual consistency
+- **Styling**: Matches other stat cards (green title, consistent font sizes)
+- **Fallback**: Shows 0h when HealthKit unavailable or unauthorized
+
+### Platform Support
+
+- **iOS**: Full HealthKit integration
+- **Android**: Not supported (shows 0h, `isAvailable: false`)
+
+### Building with HealthKit
+
+```bash
+# Clean and rebuild native code
+npx expo prebuild --clean --platform ios
+
+# Build and run
+npx expo run:ios
+```
+
+---
+
+## ⚡ Performance Optimizations
+
+### Overview
+
+Several optimizations have been implemented to improve app performance, reduce database round trips, and ensure smooth data loading.
+
+### 1. Unified Data Fetching Hook
+
+**File**: `hooks/useTodayScreenData.ts`
+
+**Purpose**: Consolidates all Today screen data fetching into a single batched operation.
+
+**Benefits**:
+- Reduces multiple sequential database calls to a single parallel batch
+- Ensures data consistency across all stats
+- Prevents race conditions
+- Improves initial load time
+
+**Implementation**:
+```typescript
+const { glucoseLogs, activityLogs, fibreSummary, mealReviews, isLoading } = 
+  useTodayScreenData(range);
+```
+
+**Data Fetched**:
+- Glucose logs (extended range for chart comparisons)
+- Activity logs (for selected range)
+- Fibre intake summary
+- Pending meal reviews
+
+**Features**:
+- Waits for authentication before fetching
+- Refetches on screen focus
+- Handles loading and error states
+
+### 2. Centralized Date Range Utilities
+
+**File**: `lib/utils/dateRanges.ts`
+
+**Purpose**: Eliminates code duplication and ensures consistent date calculations.
+
+**Functions**:
+- `getDateRange(range)`: Returns start/end dates for a range key
+- `getExtendedDateRange(range, multiplier)`: Extended range for historical comparisons
+- `getRangeDays(range)`: Number of days in a range
+- `getRangeLabel(range)`: Human-readable label
+- `getRangeShortLabel(range)`: Short label for UI
+
+**Type**: `RangeKey = '24h' | '7d' | '14d' | '30d' | '90d'`
+
+### 3. Database Function for Fibre Intake
+
+**File**: `supabase/migrations/20241224_fibre_intake_function.sql`
+
+**Purpose**: Moves fibre calculation to the database for better performance.
+
+**Function**: `calculate_fibre_intake_summary(user_id, range)`
+
+**Benefits**:
+- Single database query instead of multiple round trips
+- Efficient JOIN operations
+- Reduced client-side processing
+- Consistent calculations
+
+**Returns**:
+```sql
+{
+  total_fibre_g: numeric,
+  avg_per_day: numeric,
+  start_date: date,
+  end_date: date
+}
+```
+
+### 4. Performance Indexes
+
+**File**: `supabase/migrations/20241224_add_performance_indexes.sql`
+
+**Purpose**: Adds indexes to frequently queried columns.
+
+**Indexes Added**:
+- `glucose_logs(user_id, logged_at DESC)`
+- `activity_logs(user_id, logged_at DESC)`
+- `meals(user_id, logged_at DESC)`
+- `meal_items(meal_id)` for JOIN performance
+- Composite indexes for common query patterns
+
+### 5. React.memo Optimization
+
+**Location**: `app/(tabs)/index.tsx`
+
+**Fix**: Updated comparison functions for all stat cards to include data props, not just `range`.
+
+**Before**:
+```typescript
+React.memo(StatCard, (prev, next) => prev.range === next.range)
+```
+
+**After**:
+```typescript
+React.memo(StatCard, (prev, next) => 
+  prev.range === next.range && 
+  prev.glucoseLogs === next.glucoseLogs
+)
+```
+
+**Impact**: Stats now update correctly on initial load when data arrives.
+
+### 6. Environment Variables
+
+**File**: `lib/supabase.ts`
+
+**Change**: Replaced hardcoded Supabase keys with environment variables from `app.json`.
+
+**Benefits**:
+- Better security practices
+- Easier configuration for different environments
+- No hardcoded secrets in source code
+
+**Configuration**:
+```typescript
+const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl;
+const supabaseAnonKey = Constants.expoConfig?.extra?.supabaseAnonKey;
+```
+
+### Performance Metrics
+
+**Before Optimizations**:
+- Multiple sequential database calls (4-5 round trips)
+- Duplicate date range calculations
+- Client-side fibre aggregation
+- Stats showing 0% on initial load
+
+**After Optimizations**:
+- Single batched database call (parallel queries)
+- Centralized date utilities
+- Database-side fibre calculation
+- Stats update correctly on initial load
+- Faster initial render time
+
+---
+
 ## 📊 Current State
 
 ### ✅ Completed Features
@@ -868,7 +1484,9 @@ if (result) {
    - Glucose trend chart
    - Meal cards display
    - FAB with three actions
-   - Time period filtering
+   - Time period filtering (7d, 14d, 30d, 90d)
+   - Four stat cards: Time in Range, Average Glucose, Sleep (HealthKit), Fibre Intake
+   - Optimized data fetching with batched queries
 
 4. **Log Tab**
    - Tips section
@@ -893,15 +1511,22 @@ if (result) {
    - Input components
    - Time picker
 
-8. **Insights Tab (Weekly Report & Trends)**
+8. **Insights Tab (Weekly Report, Trends & Experiments)**
    - Tabbed interface with animated segmented control
-   - Time of Day comparison chart with zone bands
-   - Weekday vs Weekend comparison meter
-   - Behavioral impacts section
-   - Best/Worst meal comparison cards
-   - Dynamic PieChart SVG component
-   - Peak Comparison bars
-   - Gluco Suggestion Impact comparison
+   - **Weekly Report Tab**:
+     - Time of Day comparison chart with zone bands
+     - Weekday vs Weekend comparison meter
+     - Behavioral impacts section
+     - Best/Worst meal comparison cards with AI-generated drivers
+   - **Trends Tab**:
+     - Dynamic PieChart SVG component
+     - Peak Comparison bars
+     - Gluco Suggestion Impact comparison
+   - **Experiments Tab** (Fully Implemented):
+     - Personalized experiment suggestions via AI
+     - Active experiments with progress tracking
+     - "Start Experiment" functionality
+     - Navigation to experiment detail and list screens
 
 9. **Food Search with Favorites & Recents** (`app/log-meal-items.tsx`)
    - Tabbed interface: ALL, RECENTS, FAVORITES
@@ -972,9 +1597,25 @@ if (result) {
       - Low: < 12.5 g/day (< 50%) - Red (#F44336)
       - Moderate: 12.5 – 24.9 g/day (50-99%) - Orange (#FF9800)
       - High: ≥ 25 g/day (100%+) - Green (#4CAF50)
-    - Updates when time range changes (24h/7d/30d)
-    - Fetches data via `getFibreIntakeSummary()` from meal_items
+    - Updates when time range changes (7d/14d/30d/90d)
+    - Fetches data via optimized database function `calculate_fibre_intake_summary()`
     - Title stays green (#4A9B16), status pill shows threshold color
+
+12. **Apple HealthKit Sleep Integration** (Today Tab - `SleepStatCard`)
+    - Replaces previous "Above 7.8" stat with sleep data
+    - Fetches sleep data from Apple HealthKit (iOS only)
+    - Displays average hours per night for selected date range
+    - Shows authorization status and handles unavailable states gracefully
+    - Uses `react-native-health` with lazy loading for safe module initialization
+    - Requires Expo Dev Client (native build) instead of Expo Go
+
+13. **Performance Optimizations**
+    - Unified data fetching hook (`useTodayScreenData`) batches all Today screen queries
+    - Centralized date range utilities (`lib/utils/dateRanges.ts`)
+    - Database function for fibre intake calculation (reduces round trips)
+    - Performance indexes on frequently queried columns
+    - Fixed React.memo comparison functions for proper stat updates
+    - Environment variables for Supabase configuration
 
 12. **Log History** (`app/(tabs)/log.tsx`)
     - Unified log display combining glucose, activity, and meal entries
@@ -1011,14 +1652,28 @@ if (result) {
     - `LinearGradient` wrapper with `overflow: 'hidden'`
     - Disabled state with 50% opacity when no meal items
 
+16. **Experiments System** (A/B Testing for Glucose Management)
+    - **Database Schema**: 5 tables (`experiment_templates`, `experiment_variants`, `user_experiments`, `user_experiment_events`, `user_experiment_analysis`)
+    - **Edge Functions**:
+      - `experiments-suggest`: AI-powered personalized experiment recommendations
+      - `experiments-evaluate`: Statistical analysis and AI summaries of results
+    - **Screens**:
+      - Experiments tab in Insights (`app/(tabs)/insights.tsx`): Suggestions and active experiments
+      - Experiment Detail (`app/experiment-detail.tsx`): Progress tracking, exposure logging, check-ins, results
+      - Experiments List (`app/experiments-list.tsx`): Overview of all experiments (active, completed, archived)
+    - **Features**:
+      - Personalized suggestions based on user's glucose patterns
+      - Structured A/B testing (meal, habit, timing, portion experiments)
+      - Hybrid results capture (objective glucose + subjective check-ins)
+      - AI-generated summaries and actionable insights
+      - Progress tracking with visual indicators
+      - Link exposures to post-meal reviews for glucose data
+    - **Seeded Templates**: 6 initial experiments (Oatmeal vs Eggs, Rice Portion Swap, Post-Meal Walk, Fiber Preload, Meal Timing, Breakfast Skip)
+    - **UI Improvements**: Fixed text wrapping in Experiments tab description for better readability
+
 ### 🚧 Pending/Incomplete
 
-1. **Insights Tab - Data Integration**
-   - Currently uses placeholder data for Trends and some Weekly Report sections
-   - Peak comparison needs real prediction model
-   - Suggestion impact needs actual user habit tracking
-
-2. **Coach Tab**
+1. **Coach Tab**
    - Placeholder screen only
    - No coaching features
 
@@ -1053,6 +1708,19 @@ if (result) {
    - Run `supabase/setup.sql` (if not already done)
    - Run `supabase/glucose_logs.sql` (if not already done)
    - Run `supabase/activity_logs.sql` (if not already done)
+   - Run `supabase/migrations/20241224_fibre_intake_function.sql` (for fibre optimization)
+   - Run `supabase/migrations/20241224_add_performance_indexes.sql` (for query performance)
+   - Run `supabase/migrations/20241226_experiments.sql` (for Experiments feature)
+
+4. **Build for HealthKit (iOS Only)**:
+   ```bash
+   # Clean and regenerate native code
+   npx expo prebuild --clean --platform ios
+   
+   # Build and run
+   npx expo run:ios
+   ```
+   **Note**: HealthKit requires a native build. Cannot use Expo Go.
 
 ### Adding New Features
 
@@ -1115,6 +1783,81 @@ if (result) {
 - `withSpring()` for bouncy animations
 - `withTiming()` for smooth, linear animations
 - `withSequence()` for chained animations
+
+#### 6. Using Data Fetching Hooks
+
+**Today Screen Data** (`useTodayScreenData`):
+```typescript
+import { useTodayScreenData } from '@/hooks/useTodayScreenData';
+
+function MyComponent() {
+  const { glucoseLogs, activityLogs, fibreSummary, mealReviews, isLoading } = 
+    useTodayScreenData('7d');
+  
+  // All data is batched and fetched in parallel
+  // Automatically refetches on screen focus
+}
+```
+
+**Sleep Data** (`useSleepData`):
+```typescript
+import { useSleepData } from '@/hooks/useSleepData';
+
+function SleepComponent() {
+  const { data, isLoading } = useSleepData('7d');
+  
+  if (!data?.isAvailable) {
+    // HealthKit not available (Android or not properly configured)
+    return <Text>Sleep data unavailable</Text>;
+  }
+  
+  if (!data?.isAuthorized) {
+    // User hasn't granted HealthKit permissions
+    return <Text>Please enable HealthKit permissions</Text>;
+  }
+  
+  return <Text>Avg Sleep: {data.avgHoursPerNight.toFixed(1)}h/night</Text>;
+}
+```
+
+**Date Range Utilities**:
+```typescript
+import { getDateRange, getRangeLabel, RangeKey } from '@/lib/utils/dateRanges';
+
+const range: RangeKey = '7d';
+const { startDate, endDate } = getDateRange(range);
+const label = getRangeLabel(range); // "7 day average"
+```
+
+#### 7. Integrating HealthKit
+
+**Setup**:
+1. Add HealthKit permissions to `app.json` (see HealthKit Integration section)
+2. Install `react-native-health` and `expo-dev-client`
+3. Run `npx expo prebuild --clean --platform ios`
+4. Build with `npx expo run:ios`
+
+**Usage**:
+```typescript
+import { initHealthKit, getSleepData, isHealthKitAvailable } from '@/lib/healthkit';
+
+// Check availability
+if (isHealthKitAvailable()) {
+  // Initialize and request permissions
+  const authorized = await initHealthKit();
+  
+  if (authorized) {
+    // Fetch sleep data
+    const sleepStats = await getSleepData(startDate, endDate);
+    console.log(`Avg sleep: ${sleepStats.avgMinutesPerNight / 60}h`);
+  }
+}
+```
+
+**Error Handling**:
+- Always check `isHealthKitAvailable()` before calling HealthKit functions
+- Handle authorization failures gracefully
+- Provide fallback UI for non-iOS platforms
 
 ### Design Guidelines
 
@@ -1768,6 +2511,8 @@ topGlow: {
 - **`app/check-spike-risk.tsx`**: Check spike risk before eating
 - **`app/pre-meal-check.tsx`**: Pre-meal analysis screen
 - **`app/post-meal-review.tsx`**: Post-meal review screen
+- **`app/experiment-detail.tsx`**: Detailed experiment view with progress tracking and results
+- **`app/experiments-list.tsx`**: Overview of all user experiments (active, completed, archived)
 - **`lib/foodSearch/orchestrator.ts`**: Unified food search
 - **`lib/labelScan.ts`**: Nutrition label scanning
 
@@ -1893,6 +2638,430 @@ peak_with_exercise = peak_with_sleep × max(0.5, 1 - exercise_effect × activity
 
 ---
 
+## 🧪 Experiments System (A/B Testing for Glucose Management)
+
+### Overview
+
+The Experiments system enables users to run structured A/B tests to discover what works best for their glucose management. Users can test different meal options, habits, timing, and portion sizes, with the system automatically comparing outcomes and providing personalized insights.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Experiment Flow                               │
+├─────────────────────────────────────────────────────────────────┤
+│  1. User views suggestions → experiments-suggest Edge Function  │
+│  2. User starts experiment → Creates user_experiments entry      │
+│  3. User logs exposures → user_experiment_events table           │
+│  4. User logs check-ins → Subjective feedback                    │
+│  5. System links to post-meal reviews → Glucose data            │
+│  6. User views results → experiments-evaluate Edge Function     │
+│  7. AI generates summary → Personalized insights                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Database Schema
+
+#### `experiment_templates` Table
+
+Admin-seeded catalog of available experiments.
+
+```sql
+CREATE TABLE experiment_templates (
+    id UUID PRIMARY KEY,
+    slug TEXT UNIQUE NOT NULL,           -- e.g., 'oatmeal-vs-eggs'
+    title TEXT NOT NULL,                 -- e.g., 'Oatmeal vs Eggs'
+    subtitle TEXT,                       -- e.g., 'Breakfast Spike Test'
+    description TEXT,
+    category TEXT NOT NULL,              -- 'meal', 'habit', 'timing', 'portion'
+    protocol JSONB NOT NULL,            -- Duration, exposures, check-in questions
+    eligibility_rules JSONB,            -- Optional constraints
+    icon TEXT DEFAULT '🧪',             -- Emoji for UI
+    is_active BOOLEAN DEFAULT true,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+);
+```
+
+**Protocol Structure**:
+```json
+{
+  "duration_days": 14,
+  "exposures_per_variant": 6,
+  "alternating": true,
+  "meal_type": "breakfast",
+  "checkin_questions": ["How was your energy?", "How hungry were you?"]
+}
+```
+
+**Eligibility Rules**:
+```json
+{
+  "requires_cgm": false,
+  "requires_meal_logging": true,
+  "min_meals_logged": 10
+}
+```
+
+#### `experiment_variants` Table
+
+Defines the A/B arms for each experiment template.
+
+```sql
+CREATE TABLE experiment_variants (
+    id UUID PRIMARY KEY,
+    template_id UUID REFERENCES experiment_templates(id),
+    key TEXT NOT NULL,                   -- 'A', 'B', 'control', 'treatment'
+    name TEXT NOT NULL,                  -- e.g., 'Oatmeal', 'Eggs'
+    description TEXT,
+    parameters JSONB NOT NULL,          -- Variant-specific config
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ,
+    UNIQUE(template_id, key)
+);
+```
+
+**Parameters Example**:
+```json
+{
+  "food": "oatmeal",
+  "portion_pct": 100,
+  "fiber_preload": false
+}
+```
+
+#### `user_experiments` Table
+
+Tracks a user's run of an experiment.
+
+```sql
+CREATE TABLE user_experiments (
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id),
+    template_id UUID REFERENCES experiment_templates(id),
+    status TEXT NOT NULL,                -- 'draft', 'active', 'completed', 'archived'
+    start_at TIMESTAMPTZ,
+    end_at TIMESTAMPTZ,                  -- Planned end date
+    completed_at TIMESTAMPTZ,            -- Actual completion
+    plan JSONB DEFAULT '{}',             -- User customizations
+    primary_metric TEXT DEFAULT 'peak_delta',
+    metric_config JSONB DEFAULT '{}',
+    personalization JSONB DEFAULT '{}',  -- Why recommended, predicted impact
+    exposures_logged INTEGER DEFAULT 0,
+    checkins_logged INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+);
+```
+
+#### `user_experiment_events` Table
+
+Logs all events during an experiment (exposures, check-ins, notes).
+
+```sql
+CREATE TABLE user_experiment_events (
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id),
+    user_experiment_id UUID REFERENCES user_experiments(id),
+    occurred_at TIMESTAMPTZ NOT NULL,
+    type TEXT NOT NULL,                  -- 'exposure', 'checkin', 'note', 'link_meal', 'link_activity'
+    payload JSONB NOT NULL,              -- Variant-specific data
+    created_at TIMESTAMPTZ
+);
+```
+
+**Event Payload Examples**:
+
+**Exposure**:
+```json
+{
+  "variant_id": "uuid",
+  "variant_key": "A",
+  "meal_id": "uuid",                    // Optional: link to meal
+  "notes": "Ate oatmeal at 8am"
+}
+```
+
+**Check-in**:
+```json
+{
+  "variant_id": "uuid",
+  "variant_key": "A",
+  "energy": 4,                          // 1-5 scale
+  "hunger": 2,                          // 1-5 scale
+  "cravings": 3,                        // 1-5 scale
+  "notes": "Felt satisfied"
+}
+```
+
+#### `user_experiment_analysis` Table
+
+Stores computed analysis results for experiments.
+
+```sql
+CREATE TABLE user_experiment_analysis (
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id),
+    user_experiment_id UUID REFERENCES user_experiments(id),
+    computed_at TIMESTAMPTZ DEFAULT now(),
+    metrics JSONB NOT NULL,              -- Per-variant metrics
+    comparison JSONB NOT NULL,           -- Winner, delta, confidence
+    summary TEXT,                        -- AI-generated explanation
+    suggestions TEXT[],                   -- Actionable insights
+    created_at TIMESTAMPTZ
+);
+```
+
+### Experiment Types
+
+#### 1. Meal Experiments
+Compare different food options (e.g., oatmeal vs eggs, white rice vs brown rice).
+
+**Example**: "Oatmeal vs Eggs"
+- Variant A: Oatmeal breakfast
+- Variant B: Eggs breakfast
+- Protocol: 6 exposures per variant, alternating days
+
+#### 2. Habit Experiments
+Test behavioral changes (e.g., post-meal walk, fiber preload).
+
+**Example**: "Post-Meal Walk (15-min)"
+- Variant A: Walk 15 mins after meal
+- Variant B: No walk after meal
+- Protocol: 4 exposures per variant
+
+#### 3. Timing Experiments
+Compare meal timing (e.g., early vs late dinner).
+
+**Example**: "Meal Timing (Early vs Late Dinner)"
+- Variant A: Eat dinner before 7 PM
+- Variant B: Eat dinner after 8 PM
+- Protocol: 6 exposures per variant
+
+#### 4. Portion Experiments
+Test portion size effects (e.g., half vs full plate).
+
+**Example**: "Rice Portion Swap (Half vs Full Plate)"
+- Variant A: Half portion of rice
+- Variant B: Full portion of rice
+- Protocol: 5 exposures per variant
+
+### User Flow
+
+#### Starting an Experiment
+
+1. **View Suggestions** (`app/(tabs)/insights.tsx` - Experiments tab):
+   - User sees personalized suggestions from `experiments-suggest` Edge Function
+   - Each suggestion shows title, description, predicted impact, and AI-generated reasons
+
+2. **Start Experiment**:
+   - User taps "Start Experiment" button
+   - Calls `startUserExperiment(userId, templateId, planOverrides)`
+   - Creates `user_experiments` entry with status 'active'
+   - Navigates to `/experiment-detail?id={experimentId}`
+
+#### Logging Exposures
+
+1. **Log Exposure** (`app/experiment-detail.tsx`):
+   - User selects variant (A or B)
+   - Optionally links to a meal via `meal_id`
+   - Adds notes
+   - Calls `logExperimentEvent()` with type 'exposure'
+   - Updates `exposures_logged` counter
+
+2. **Link to Post-Meal Review**:
+   - If exposure linked to meal, system can fetch glucose data from `post_meal_reviews`
+   - Links actual glucose outcomes to experiment variant
+
+#### Logging Check-ins
+
+1. **Check-in Form** (`app/experiment-detail.tsx`):
+   - User rates subjective metrics:
+     - Energy (1-5 scale)
+     - Hunger (1-5 scale)
+     - Cravings (1-5 scale)
+   - Adds optional notes
+   - Calls `logExperimentEvent()` with type 'checkin'
+   - Updates `checkins_logged` counter
+
+#### Viewing Results
+
+1. **Analysis** (`app/experiment-detail.tsx`):
+   - User taps "View Results" or system auto-analyzes when enough exposures logged
+   - Calls `experiments-evaluate` Edge Function
+   - Displays:
+     - Per-variant metrics (peak delta, time to peak, check-in scores)
+     - Comparison (winner, delta, confidence)
+     - AI-generated summary
+     - Actionable suggestions
+
+2. **Progress Tracking**:
+   - Visual progress bar showing exposures logged vs required
+   - Variant exposure counts
+   - Recent activity feed
+
+### Screens
+
+#### 1. Experiments Tab (`app/(tabs)/insights.tsx`)
+
+**Sections**:
+- Header: "Find What Works For Your Glucose" with description
+- Active Experiments: Cards showing progress
+- Suggested For You: Personalized experiment suggestions
+
+**Key Functions**:
+- `fetchExperimentsData()`: Fetches suggested and active experiments
+- `handleStartExperiment()`: Creates new experiment and navigates
+
+#### 2. Experiment Detail Screen (`app/experiment-detail.tsx`)
+
+**Features**:
+- Experiment header (title, status, progress)
+- Variant exposure counts with progress bars
+- "Log Exposure" button (opens modal to select variant)
+- "Check-in" button (opens form for subjective feedback)
+- Results section (when available):
+  - Per-variant metrics table
+  - Comparison summary
+  - AI-generated insights
+- Recent activity feed
+
+**Modals**:
+- Exposure logging modal: Select variant, link meal, add notes
+- Check-in modal: Rate energy/hunger/cravings, add notes
+
+#### 3. Experiments List Screen (`app/experiments-list.tsx`)
+
+**Features**:
+- Tabbed filtering: Active, Completed, All
+- Experiment cards with:
+  - Status badge (IN PROGRESS, COMPLETED)
+  - Progress percentage
+  - Last updated date
+- "Explore" section: Available templates user hasn't tried
+- Tap card to navigate to detail screen
+
+### API Functions (`lib/supabase.ts`)
+
+#### Template Functions
+
+```typescript
+// Get all active experiment templates
+getExperimentTemplates(): Promise<ExperimentTemplate[]>
+
+// Get variants for a template
+getExperimentVariants(templateId: string): Promise<ExperimentVariant[]>
+```
+
+#### User Experiment Functions
+
+```typescript
+// Get personalized suggestions
+getSuggestedExperiments(userId: string): Promise<SuggestedExperiment[]>
+
+// Start a new experiment
+startUserExperiment(
+  userId: string,
+  templateId: string,
+  planOverrides?: Record<string, any>
+): Promise<UserExperiment | null>
+
+// Update experiment status
+updateUserExperimentStatus(
+  experimentId: string,
+  status: ExperimentStatus
+): Promise<boolean>
+
+// Get user's experiments
+getUserExperiments(
+  userId: string,
+  status?: ExperimentStatus | ExperimentStatus[]
+): Promise<UserExperiment[]>
+
+// Get single experiment
+getUserExperiment(experimentId: string): Promise<UserExperiment | null>
+```
+
+#### Event Functions
+
+```typescript
+// Log an experiment event
+logExperimentEvent(
+  userId: string,
+  userExperimentId: string,
+  type: ExperimentEventType,
+  payload: Record<string, any>
+): Promise<UserExperimentEvent | null>
+
+// Get events for an experiment
+getExperimentEvents(
+  userExperimentId: string,
+  type?: ExperimentEventType
+): Promise<UserExperimentEvent[]>
+```
+
+#### Analysis Functions
+
+```typescript
+// Get experiment analysis (calls Edge Function)
+getExperimentAnalysis(
+  userExperimentId: string
+): Promise<{
+  metrics: Record<string, VariantMetrics>,
+  comparison: ComparisonResult,
+  summary: string | null,
+  suggestions: string[]
+} | null>
+
+// Get latest analysis snapshot
+getLatestExperimentAnalysis(
+  userExperimentId: string
+): Promise<UserExperimentAnalysis | null>
+```
+
+### Seeded Templates
+
+The migration includes 6 initial experiment templates:
+
+1. **Oatmeal vs Eggs** (meal) - Compare carb-heavy vs protein-heavy breakfast
+2. **Rice Portion Swap** (portion) - Test half vs full portion
+3. **Post-Meal Walk** (habit) - 15-minute walk after meals
+4. **Fiber Preload** (habit) - Vegetables first before main meal
+5. **Meal Timing** (timing) - Early vs late dinner
+6. **Breakfast Skip** (habit) - Intermittent fasting test
+
+### Personalization Features
+
+1. **Smart Suggestions**:
+   - Analyzes user's glucose patterns
+   - Identifies frequent spike contexts
+   - Recommends experiments addressing user's specific needs
+
+2. **Customizable Plans**:
+   - Users can adjust protocol parameters (exposures, duration)
+   - System adapts to user's schedule and preferences
+
+3. **Hybrid Results**:
+   - Combines objective glucose data (from post-meal reviews)
+   - With subjective check-ins (energy, hunger, cravings)
+   - Provides comprehensive insights
+
+4. **AI Summaries**:
+   - Gemini generates personalized explanations
+   - Explains which variant worked better and why
+   - Provides actionable next steps
+
+### RLS Policies
+
+All experiment tables have Row Level Security enabled:
+- Users can only view/update their own experiments
+- Templates are publicly readable (admin-seeded)
+- Events are user-scoped
+- Analysis is user-scoped
+
+---
+
 ## 🔌 All Supabase Edge Functions
 
 ### Complete Function List
@@ -1902,6 +3071,9 @@ peak_with_exercise = peak_with_sleep × max(0.5, 1 - exercise_effect × activity
 | `premeal-analyze` | AI spike risk prediction with personalization |
 | `calibration-update` | EMA parameter updates after review completion |
 | `personalized-tips` | Generate AI tips for Log screen |
+| `experiments-suggest` | Personalized experiment recommendations based on user patterns |
+| `experiments-evaluate` | Evaluate experiment results and generate AI summaries |
+| `weekly-meal-comparison` | Generate AI drivers for meal comparison insights |
 | `food-search` | Dual-provider food database search (USDA + OFF) |
 | `food-details` | Get detailed nutrition for a specific food |
 | `food-barcode` | Lookup food by UPC/EAN barcode |
@@ -2022,6 +3194,16 @@ peak_with_exercise = peak_with_sleep × max(0.5, 1 - exercise_effect × activity
 | `favorite_foods` | User's favorited foods |
 | `recent_foods` | Recently used foods |
 
+### Experiments Tables
+
+| Table | Purpose |
+|-------|---------|
+| `experiment_templates` | Admin-seeded catalog of available experiments |
+| `experiment_variants` | A/B arms for each experiment template |
+| `user_experiments` | User's experiment runs with status and progress |
+| `user_experiment_events` | Logged exposures, check-ins, and notes |
+| `user_experiment_analysis` | Computed analysis results and AI summaries |
+
 ### `user_calibration` (Schema)
 
 ```sql
@@ -2134,6 +3316,8 @@ supabase functions deploy
 # Deploy specific function
 supabase functions deploy premeal-analyze
 supabase functions deploy calibration-update
+supabase functions deploy experiments-suggest
+supabase functions deploy experiments-evaluate
 
 # Push database migrations
 supabase db push
@@ -2171,6 +3355,6 @@ triggerCalibrationUpdate(user.id, reviewId).catch(console.warn);
 
 ---
 
-**Last Updated**: December 23, 2025
-**Version**: 1.3.0 (Added User Calibration System)
+**Last Updated**: December 24, 2024
+**Version**: 1.4.0 (Added HealthKit Integration & Performance Optimizations)
 

@@ -10,6 +10,7 @@ import {
   createMeal,
   CreateMealItemInput,
   NormalizedFood,
+  uploadMealPhoto,
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -174,12 +175,19 @@ export default function LogMealScreen() {
 
     setIsSaving(true);
     try {
+      // Upload photo if present
+      let photoUrl: string | null = null;
+      if (imageUri) {
+        photoUrl = await uploadMealPhoto(user.id, imageUri);
+        // Continue even if photo upload fails
+      }
+
       // Create the meal
       const meal = await createMeal(user.id, {
         name: mealName.trim(),
         meal_type: mealType?.toLowerCase() as 'breakfast' | 'lunch' | 'dinner' | 'snack' | null,
         logged_at: mealTime?.toISOString() || new Date().toISOString(),
-        photo_path: null, // TODO: Upload image to storage
+        photo_path: photoUrl,
         notes: null,
       });
 

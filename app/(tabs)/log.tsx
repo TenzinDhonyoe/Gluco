@@ -1,8 +1,9 @@
 import { AnimatedScreen } from '@/components/animated-screen';
 import { Colors } from '@/constants/Colors';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { ActivityLog, getActivityLogs, getGlucoseLogs, getMeals, getPersonalizedTips, GlucoseLog, Meal } from '@/lib/supabase';
+import { formatGlucoseWithUnit, GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,7 +13,9 @@ import {
     Dimensions,
     Image,
     Linking,
+    Modal,
     Platform,
+    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -40,6 +43,8 @@ interface TipCardData {
 
 type LogType = 'activity' | 'meal' | 'glucose';
 
+type FilterType = 'all' | 'meal' | 'activity' | 'glucose';
+
 interface LogEntry {
     id: string;
     type: LogType;
@@ -55,21 +60,21 @@ const TIPS_DATA: TipCardData[] = [
         id: '1',
         category: 'glucose',
         title: 'Glucose',
-        description: 'Loading your personalized insights...',
+        description: 'Gathering your data...',
         image: require('@/assets/images/glucose-tip-bg.png'),
     },
     {
         id: '2',
         category: 'meal',
         title: 'Meal',
-        description: 'Loading your personalized insights...',
+        description: 'Gathering your data...',
         image: require('@/assets/images/meal-tip-bg.png'),
     },
     {
         id: '3',
         category: 'activity',
         title: 'Activity',
-        description: 'Loading your personalized insights...',
+        description: 'Gathering your data...',
         image: require('@/assets/images/activity-tip-bg.png'),
     },
 ];
@@ -94,12 +99,12 @@ function formatLogTime(isoString: string): string {
 }
 
 // Transform glucose log to unified LogEntry format
-function transformGlucoseLog(log: GlucoseLog): LogEntry {
+function transformGlucoseLog(log: GlucoseLog, glucoseUnit: GlucoseUnit): LogEntry {
     return {
         id: `glucose-${log.id}`,
         type: 'glucose',
         label: `Glucose (${formatContextLabel(log.context)})`,
-        description: `${log.glucose_level} ${log.unit}`,
+        description: formatGlucoseWithUnit(log.glucose_level, glucoseUnit),
         time: formatLogTime(log.logged_at),
         logged_at: log.logged_at,
     };
@@ -242,9 +247,6 @@ function TipCard({ data, onPress }: { data: TipCardData; onPress?: () => void })
                     {getCategoryIcon(data.category)}
                     <Text style={styles.tipCardTitle}>{data.title}</Text>
                 </View>
-                {data.metric && (
-                    <Text style={styles.tipCardMetric}>{data.metric}</Text>
-                )}
                 <Text style={styles.tipCardDescription} numberOfLines={3}>
                     {data.description}
                 </Text>
@@ -276,10 +278,29 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
 
 export default function LogScreen() {
     const { user } = useAuth();
+    const glucoseUnit = useGlucoseUnit();
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [tipsData, setTipsData] = useState<TipCardData[]>(TIPS_DATA);
     const [tipsLoading, setTipsLoading] = useState(true);
+    const [filter, setFilter] = useState<FilterType>('all');
+    const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+
+    // Filter options for the dropdown
+    const filterOptions: { value: FilterType; label: string }[] = [
+        { value: 'all', label: 'All' },
+        { value: 'meal', label: 'Meals' },
+        { value: 'activity', label: 'Exercise' },
+        { value: 'glucose', label: 'Glucose' },
+    ];
+
+    // Get the current filter label
+    const currentFilterLabel = filterOptions.find(opt => opt.value === filter)?.label || 'All';
+
+    // Filter logs based on selected filter
+    const filteredLogs = filter === 'all'
+        ? logs
+        : logs.filter(log => log.type === filter);
 
     // Fetch logs and personalized tips when screen comes into focus
     useFocusEffect(
@@ -300,7 +321,7 @@ export default function LogScreen() {
                     ]);
 
                     // Transform to unified format
-                    const transformedGlucose = glucoseLogs.map(transformGlucoseLog);
+                    const transformedGlucose = glucoseLogs.map(log => transformGlucoseLog(log, glucoseUnit));
                     const transformedActivity = activityLogs.map(transformActivityLog);
                     const transformedMeals = mealLogs.map(transformMealLog);
 
@@ -353,7 +374,7 @@ export default function LogScreen() {
 
             fetchLogs();
             fetchTips();
-        }, [user])
+        }, [user, glucoseUnit])
     );
 
     const handleTipPress = (tip: TipCardData) => {
@@ -404,9 +425,17 @@ export default function LogScreen() {
                             {/* Section Header */}
                             <View style={styles.logsSectionHeader}>
                                 <Text style={styles.logsSectionTitle}>RECENT LOGS</Text>
-                                <TouchableOpacity style={styles.filterButton}>
-                                    <Text style={styles.filterText}>All</Text>
-                                    <FilterIcon />
+                                <TouchableOpacity
+                                    style={styles.filterButton}
+                                    onPress={() => setShowFilterDropdown(true)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={styles.filterText}>{currentFilterLabel}</Text>
+                                    <Ionicons
+                                        name="chevron-down"
+                                        size={14}
+                                        color="#878787"
+                                    />
                                 </TouchableOpacity>
                             </View>
 
@@ -425,11 +454,19 @@ export default function LogScreen() {
                                             Start tracking your glucose and activities!
                                         </Text>
                                     </View>
+                                ) : filteredLogs.length === 0 ? (
+                                    <View style={styles.emptyContainer}>
+                                        <Ionicons name="filter-outline" size={32} color="#878787" />
+                                        <Text style={styles.emptyText}>No {currentFilterLabel.toLowerCase()} logs</Text>
+                                        <Text style={styles.emptySubtext}>
+                                            Try a different filter or log some {currentFilterLabel.toLowerCase()}.
+                                        </Text>
+                                    </View>
                                 ) : (
-                                    logs.map((entry, index) => (
+                                    filteredLogs.map((entry, index) => (
                                         <React.Fragment key={entry.id}>
                                             <LogEntryRow entry={entry} />
-                                            {index < logs.length - 1 && (
+                                            {index < filteredLogs.length - 1 && (
                                                 <View style={styles.logDivider} />
                                             )}
                                         </React.Fragment>
@@ -440,6 +477,66 @@ export default function LogScreen() {
 
                     </ScrollView>
                 </SafeAreaView>
+
+                {/* shadcn-inspired Filter Modal */}
+                <Modal
+                    visible={showFilterDropdown}
+                    transparent
+                    animationType="fade"
+                    onRequestClose={() => setShowFilterDropdown(false)}
+                >
+                    <Pressable
+                        style={styles.filterModalOverlay}
+                        onPress={() => setShowFilterDropdown(false)}
+                    >
+                        <Pressable
+                            style={styles.filterModalContent}
+                            onPress={(e) => e.stopPropagation()}
+                        >
+                            <View style={styles.filterModalHeader}>
+                                <Text style={styles.filterModalTitle}>Filter by</Text>
+                                <Pressable
+                                    onPress={() => setShowFilterDropdown(false)}
+                                    style={styles.filterModalCloseBtn}
+                                >
+                                    <Ionicons name="close" size={20} color="#878787" />
+                                </Pressable>
+                            </View>
+                            <View style={styles.filterModalDivider} />
+                            {filterOptions.map((option, index) => (
+                                <Pressable
+                                    key={option.value}
+                                    style={({ pressed }) => [
+                                        styles.filterModalOption,
+                                        pressed && styles.filterModalOptionPressed,
+                                        index === filterOptions.length - 1 && styles.filterModalOptionLast,
+                                    ]}
+                                    onPress={() => {
+                                        setFilter(option.value);
+                                        setShowFilterDropdown(false);
+                                    }}
+                                >
+                                    <View style={styles.filterModalOptionLeft}>
+                                        <View style={styles.filterModalRadio}>
+                                            {filter === option.value && (
+                                                <View style={styles.filterModalRadioInner} />
+                                            )}
+                                        </View>
+                                        <Text style={[
+                                            styles.filterModalOptionText,
+                                            filter === option.value && styles.filterModalOptionTextActive,
+                                        ]}>
+                                            {option.label}
+                                        </Text>
+                                    </View>
+                                    {filter === option.value && (
+                                        <Ionicons name="checkmark-circle" size={20} color="#3494D9" />
+                                    )}
+                                </Pressable>
+                            ))}
+                        </Pressable>
+                    </Pressable>
+                </Modal>
             </View>
         </AnimatedScreen>
     );
@@ -565,6 +662,32 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: Colors.textPrimary,
     },
+    filterDropdown: {
+        backgroundColor: '#2A2D30',
+        borderRadius: 12,
+        marginBottom: 16,
+        overflow: 'hidden',
+    },
+    filterOption: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+        borderBottomWidth: 1,
+        borderBottomColor: '#3F4243',
+    },
+    filterOptionActive: {
+        backgroundColor: 'rgba(52, 148, 217, 0.1)',
+    },
+    filterOptionText: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: '#FFFFFF',
+    },
+    filterOptionTextActive: {
+        color: '#3494D9',
+    },
     logsCard: {
         backgroundColor: '#1a1b1c',
         borderRadius: 16,
@@ -647,5 +770,94 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#878787',
         textAlign: 'center',
+    },
+    // shadcn-inspired Filter Modal styles
+    filterModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 24,
+    },
+    filterModalContent: {
+        width: '100%',
+        maxWidth: 320,
+        backgroundColor: '#1a1b1c',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 16 },
+        shadowOpacity: 0.4,
+        shadowRadius: 24,
+        elevation: 16,
+    },
+    filterModalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+    },
+    filterModalTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
+        color: '#FFFFFF',
+        letterSpacing: 0.3,
+    },
+    filterModalCloseBtn: {
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    filterModalDivider: {
+        height: 1,
+        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    },
+    filterModalOption: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    },
+    filterModalOptionPressed: {
+        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    },
+    filterModalOptionLast: {
+        borderBottomWidth: 0,
+    },
+    filterModalOptionLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 14,
+    },
+    filterModalRadio: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        borderWidth: 2,
+        borderColor: '#3F4243',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    filterModalRadioInner: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: '#3494D9',
+    },
+    filterModalOptionText: {
+        fontFamily: fonts.medium,
+        fontSize: 15,
+        color: '#AAAAAA',
+    },
+    filterModalOptionTextActive: {
+        color: '#FFFFFF',
     },
 });

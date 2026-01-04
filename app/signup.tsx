@@ -43,7 +43,7 @@ export default function SignUpScreen() {
         setIsLoading(true);
         try {
             const { error } = await signUp(email.trim(), password);
-            
+
             if (error) {
                 Alert.alert('Sign Up Error', error.message);
                 return;
@@ -90,139 +90,139 @@ export default function SignUpScreen() {
                 resizeMode="cover"
             >
                 <SafeAreaView style={styles.safeArea}>
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    style={styles.keyboardView}
-                >
-                    <ScrollView
-                        contentContainerStyle={styles.scrollContent}
-                        showsVerticalScrollIndicator={false}
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                        style={styles.keyboardView}
                     >
-                        {/* Back Button */}
-                        <TouchableOpacity
-                            style={styles.backButton}
-                            onPress={handleBack}
-                            activeOpacity={0.7}
+                        <ScrollView
+                            contentContainerStyle={styles.scrollContent}
+                            showsVerticalScrollIndicator={false}
                         >
-                            <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                        </TouchableOpacity>
-
-                        {/* Header Section */}
-                        <View style={styles.headerSection}>
-                            <Text style={styles.signUpLabel}>SIGN UP</Text>
-                            <Text style={styles.headerText}>
-                                Create your account so we can start learning how your body responds to food, movement, and sleep.
-                            </Text>
-                        </View>
-
-                        {/* Form Container */}
-                        <View style={styles.formContainer}>
-                            {/* Email Input */}
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.inputLabel}>Email</Text>
-                                <Input
-                                    value={email}
-                                    onChangeText={setEmail}
-                                    placeholder="Email"
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                />
-                            </View>
-
-                            {/* Password Input */}
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.inputLabel}>Password</Text>
-                                <Input
-                                    value={password}
-                                    onChangeText={setPassword}
-                                    placeholder="Password"
-                                    secureTextEntry={!showPassword}
-                                    autoCapitalize="none"
-                                    right={(
-                                        <TouchableOpacity
-                                            style={styles.eyeButton}
-                                            onPress={() => setShowPassword(!showPassword)}
-                                        >
-                                            <Ionicons
-                                                name={showPassword ? "eye-off-outline" : "eye-outline"}
-                                                size={22}
-                                                color="#878787"
-                                            />
-                                        </TouchableOpacity>
-                                    )}
-                                />
-                            </View>
-                        </View>
-
-                        {/* Agreement and Button Section */}
-                        <View style={styles.agreementSection}>
-                            {/* Agreement Checkbox */}
+                            {/* Back Button */}
                             <TouchableOpacity
-                                style={styles.checkboxContainer}
-                                onPress={() => setAgreeToTerms(!agreeToTerms)}
+                                style={styles.backButton}
+                                onPress={handleBack}
                                 activeOpacity={0.7}
                             >
-                                <View style={[styles.checkbox, agreeToTerms && styles.checkboxChecked]}>
-                                    {agreeToTerms && (
-                                        <Ionicons name="checkmark" size={14} color={Colors.textPrimary} />
-                                    )}
-                                </View>
-                                <Text style={styles.checkboxText}>
-                                    I agree to the Privacy Policy & Terms of Service
-                                </Text>
+                                <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
                             </TouchableOpacity>
 
-                            {/* Continue Button */}
-                            <Button
-                                onPress={handleContinue}
-                                disabled={!isFormValid}
-                                loading={isLoading}
-                                variant="primary"
-                                style={styles.continueButton}
-                            >
-                                Continue
-                            </Button>
-
-                            {/* Divider */}
-                            <View style={styles.dividerContainer}>
-                                <View style={styles.dividerDashed} />
-                                <Text style={styles.dividerText}>Or Sign in with</Text>
-                                <View style={styles.dividerDashed} />
+                            {/* Header Section */}
+                            <View style={styles.headerSection}>
+                                <Text style={styles.signUpLabel}>SIGN UP</Text>
+                                <Text style={styles.headerText}>
+                                    Create your account so we can start learning how your body responds to food, movement, and sleep.
+                                </Text>
                             </View>
 
-                            {/* Social Sign In Icons */}
-                            <View style={styles.socialIconsContainer}>
-                                <TouchableOpacity
-                                    style={styles.socialIconButton}
-                                    onPress={handleGoogleSignIn}
-                                    activeOpacity={0.8}
-                                >
-                                    <Image
-                                        source={require('../assets/images/google-logo.png')}
-                                        style={styles.socialIcon}
-                                        resizeMode="contain"
+                            {/* Form Container */}
+                            <View style={styles.formContainer}>
+                                {/* Email Input */}
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.inputLabel}>Email</Text>
+                                    <Input
+                                        value={email}
+                                        onChangeText={setEmail}
+                                        placeholder="Email"
+                                        keyboardType="email-address"
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
                                     />
-                                </TouchableOpacity>
+                                </View>
 
-                                <TouchableOpacity
-                                    style={styles.socialIconButton}
-                                    onPress={handleAppleSignIn}
-                                    activeOpacity={0.8}
-                                >
-                                    <Ionicons name="logo-apple" size={48} color={Colors.textPrimary} />
-                                </TouchableOpacity>
+                                {/* Password Input */}
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.inputLabel}>Password</Text>
+                                    <Input
+                                        value={password}
+                                        onChangeText={setPassword}
+                                        placeholder="Password"
+                                        secureTextEntry={!showPassword}
+                                        autoCapitalize="none"
+                                        right={(
+                                            <TouchableOpacity
+                                                style={styles.eyeButton}
+                                                onPress={() => setShowPassword(!showPassword)}
+                                            >
+                                                <Ionicons
+                                                    name={showPassword ? "eye-off-outline" : "eye-outline"}
+                                                    size={22}
+                                                    color="#878787"
+                                                />
+                                            </TouchableOpacity>
+                                        )}
+                                    />
+                                </View>
                             </View>
 
-                            {/* Sign In Link */}
-                            <Text style={styles.signInText}>
-                                Already have an account?{' '}
-                                <Text style={styles.signInLink} onPress={handleSignIn}>Sign in</Text>
-                            </Text>
-                        </View>
-                    </ScrollView>
-                </KeyboardAvoidingView>
-            </SafeAreaView>
+                            {/* Agreement and Button Section */}
+                            <View style={styles.agreementSection}>
+                                {/* Agreement Checkbox */}
+                                <TouchableOpacity
+                                    style={styles.checkboxContainer}
+                                    onPress={() => setAgreeToTerms(!agreeToTerms)}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={[styles.checkbox, agreeToTerms && styles.checkboxChecked]}>
+                                        {agreeToTerms && (
+                                            <Ionicons name="checkmark" size={14} color={Colors.textPrimary} />
+                                        )}
+                                    </View>
+                                    <Text style={styles.checkboxText}>
+                                        I agree to the Privacy Policy & Terms of Service
+                                    </Text>
+                                </TouchableOpacity>
+
+                                {/* Continue Button */}
+                                <Button
+                                    onPress={handleContinue}
+                                    disabled={!isFormValid}
+                                    loading={isLoading}
+                                    variant="primary"
+                                    style={styles.continueButton}
+                                >
+                                    Continue
+                                </Button>
+
+                                {/* Divider */}
+                                <View style={styles.dividerContainer}>
+                                    <View style={styles.dividerDashed} />
+                                    <Text style={styles.dividerText}>Or Sign in with</Text>
+                                    <View style={styles.dividerDashed} />
+                                </View>
+
+                                {/* Social Sign In Icons (Coming Soon) */}
+                                <View style={styles.socialIconsContainer}>
+                                    <TouchableOpacity
+                                        style={[styles.socialIconButton, { opacity: 0.4 }]}
+                                        onPress={handleGoogleSignIn}
+                                        activeOpacity={0.8}
+                                    >
+                                        <Image
+                                            source={require('../assets/images/google-logo.png')}
+                                            style={styles.socialIcon}
+                                            resizeMode="contain"
+                                        />
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={[styles.socialIconButton, { opacity: 0.4 }]}
+                                        onPress={handleAppleSignIn}
+                                        activeOpacity={0.8}
+                                    >
+                                        <Ionicons name="logo-apple" size={48} color={Colors.textPrimary} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Sign In Link */}
+                                <Text style={styles.signInText}>
+                                    Already have an account?{' '}
+                                    <Text style={styles.signInLink} onPress={handleSignIn}>Sign in</Text>
+                                </Text>
+                            </View>
+                        </ScrollView>
+                    </KeyboardAvoidingView>
+                </SafeAreaView>
             </ImageBackground>
         </View>
     );

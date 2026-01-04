@@ -1,18 +1,33 @@
 import { AnimatedScreen } from '@/components/animated-screen';
+import { MealResponseMiniChart } from '@/components/meal-response-mini-chart';
 import { SegmentedControl } from '@/components/segmented-control';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { getGlucoseLogsByDateRange } from '@/lib/supabase';
+import {
+    getGlucoseLogsByDateRange,
+    getPostMealReviewsByDateRange,
+    getSuggestedExperiments,
+    getUserExperiments,
+    invokeWeeklyMealComparisonDrivers,
+    PostMealReview,
+    startUserExperiment,
+    SuggestedExperiment,
+    UserExperiment,
+} from '@/lib/supabase';
+import { formatGlucoseWithUnit, GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Dimensions,
     ScrollView,
     StyleSheet,
     Text,
+    TouchableOpacity,
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -118,60 +133,56 @@ function PieChart({ data, size = 120 }: {
 
 // Time of Day Bar Chart Component - matches Figma design exactly
 function TimeOfDayChart({ data }: { data: { period: string; avgValue: number }[] }) {
-    const chartHeight = 150;
-    const barWidth = 32;
+    const chartHeight = 168;
+    const barWidth = 56;
 
-    // Glucose zones (mmol/L)
-    const ZONE_MIN = 3;
-    const ZONE_MAX = 12;
-    const STEADY_MAX = 6.5;
-    const MILD_MAX = 8.5;
-
-    const range = ZONE_MAX - ZONE_MIN;
-
-    // Calculate zone heights (proportional)
-    const steadyZoneHeight = ((STEADY_MAX - ZONE_MIN) / range) * chartHeight;
-    const mildZoneHeight = ((MILD_MAX - STEADY_MAX) / range) * chartHeight;
-    const spikeZoneHeight = ((ZONE_MAX - MILD_MAX) / range) * chartHeight;
+    // Glucose zones - each zone is 56px height (168 / 3)
+    const zoneHeight = 56;
 
     // Time labels matching the design
     const timeLabels = ['07:00 AM', '12:00 PM', '04:00 PM', '07:00 PM', '10:00 PM'];
 
-    // Calculate bar heights from average values
+    // Calculate bar heights from average values (zones: 0-6.5 steady, 6.5-8.5 mild, 8.5-12 spike)
     const getBarHeight = (value: number) => {
+        // Map glucose value to chart height (3-12 mmol/L range)
+        const ZONE_MIN = 3;
+        const ZONE_MAX = 12;
         const clampedValue = Math.min(Math.max(value, ZONE_MIN), ZONE_MAX);
-        return ((clampedValue - ZONE_MIN) / range) * chartHeight;
+        return ((clampedValue - ZONE_MIN) / (ZONE_MAX - ZONE_MIN)) * chartHeight;
     };
 
-    // Ensure we have 5 data points (pad with defaults if needed)
+    // Map 4 data points to 4 bars (morning, noon, afternoon, evening)
     const chartData = [
         data[0] || { period: 'morning', avgValue: 5 },
-        data[1] || { period: 'noon', avgValue: 7 },
-        data[2] || { period: 'afternoon', avgValue: 8 },
+        data[1] || { period: 'noon', avgValue: 9 },
+        data[2] || { period: 'afternoon', avgValue: 7 },
         data[3] || { period: 'evening', avgValue: 6.5 },
-        data[4] || { period: 'night', avgValue: 6 },
     ];
 
     return (
         <View style={styles.chartWrapper}>
             <View style={styles.chartContainer}>
-                {/* Y-axis labels - horizontal */}
+                {/* Y-axis labels - rotated text */}
                 <View style={[styles.chartYAxis, { height: chartHeight }]}>
-                    <Text style={styles.chartYLabel}>Spike</Text>
-                    <View style={styles.chartYLabelMulti}>
+                    <View style={styles.chartYLabelRow}>
+                        <Text style={styles.chartYLabel}>Spike</Text>
+                    </View>
+                    <View style={styles.chartYLabelRow}>
                         <Text style={styles.chartYLabel}>Mild</Text>
                         <Text style={styles.chartYLabel}>Elevation</Text>
                     </View>
-                    <Text style={styles.chartYLabel}>Steady</Text>
+                    <View style={styles.chartYLabelRow}>
+                        <Text style={styles.chartYLabel}>Steady</Text>
+                    </View>
                 </View>
 
                 {/* Chart area with zone bands and bars */}
                 <View style={[styles.chartArea, { height: chartHeight }]}>
                     {/* Zone background bands - stacked from top to bottom */}
                     <View style={styles.zoneBandsContainer}>
-                        <View style={[styles.zoneBand, { height: spikeZoneHeight, backgroundColor: '#5C3D3D' }]} />
-                        <View style={[styles.zoneBand, { height: mildZoneHeight, backgroundColor: '#5A4637' }]} />
-                        <View style={[styles.zoneBand, { height: steadyZoneHeight, backgroundColor: '#3D4B37' }]} />
+                        <View style={[styles.zoneBand, { height: zoneHeight, backgroundColor: 'rgba(188, 47, 48, 0.15)', borderColor: 'rgba(204, 204, 204, 0.1)', borderWidth: 1 }]} />
+                        <View style={[styles.zoneBand, { height: zoneHeight, backgroundColor: 'rgba(255, 119, 35, 0.15)', borderColor: 'rgba(204, 204, 204, 0.1)', borderWidth: 1 }]} />
+                        <View style={[styles.zoneBand, { height: zoneHeight, backgroundColor: 'rgba(74, 155, 22, 0.15)', borderColor: 'rgba(204, 204, 204, 0.1)', borderWidth: 1 }]} />
                     </View>
 
                     {/* Bars overlay - positioned at the bottom, growing upward */}
@@ -187,6 +198,11 @@ function TimeOfDayChart({ data }: { data: { period: string; avgValue: number }[]
                                             {
                                                 height: barHeight,
                                                 width: barWidth,
+                                                backgroundColor: '#0E9CFF',
+                                                borderTopLeftRadius: 8,
+                                                borderTopRightRadius: 8,
+                                                borderWidth: 0.5,
+                                                borderColor: '#111111',
                                             },
                                         ]}
                                     />
@@ -292,70 +308,174 @@ function BehavioralImpactItem({ title, percentage, color }: { title: string; per
     );
 }
 
-// Best/Worst Meal Card
-function MealComparisonCard({ type, mealName, date, time, peakValue, isActual }: {
-    type: 'best' | 'worst';
-    mealName: string;
-    date: string;
-    time: string;
-    peakValue: number;
-    isActual?: boolean;
+// Meal Comparison Card - shows actual spike data with AI drivers
+function MealComparisonCard({
+    review,
+    spikeDelta,
+    drivers,
+    driversLoading,
+    glucoseUnit,
+    type,
+}: {
+    review: PostMealReview;
+    spikeDelta: number;
+    drivers: string[];
+    driversLoading: boolean;
+    glucoseUnit: GlucoseUnit;
+    type: 'highest' | 'lowest';
 }) {
-    const isBest = type === 'best';
+    const isHighest = type === 'highest';
+
+    // Parse meal time
+    const mealDate = review.meal_time ? new Date(review.meal_time) : null;
+
+    // Format time (e.g., "08:10 AM")
+    const formattedTime = mealDate
+        ? mealDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+        : '';
+
+    // Format date (e.g., "16-11-2025")
+    const formattedDate = mealDate
+        ? `${mealDate.getDate().toString().padStart(2, '0')}-${(mealDate.getMonth() + 1).toString().padStart(2, '0')}-${mealDate.getFullYear()}`
+        : '';
+
+    // Determine badge based on status_tag or spike magnitude
+    const getBadgeInfo = () => {
+        if (review.status_tag === 'steady') {
+            return { bg: 'rgba(99, 181, 27, 0.15)', border: '#63B51B', color: '#63B51B', label: 'Steady' };
+        } else if (review.status_tag === 'mild_elevation') {
+            return { bg: 'rgba(99, 181, 27, 0.15)', border: '#63B51B', color: '#63B51B', label: 'Mild Elevation' };
+        } else if (review.status_tag === 'spike') {
+            return { bg: 'rgba(244, 67, 54, 0.15)', border: '#F44336', color: '#F44336', label: 'Spike' };
+        }
+        // Fallback based on spike delta
+        if (spikeDelta < 2) {
+            return { bg: 'rgba(99, 181, 27, 0.15)', border: '#63B51B', color: '#63B51B', label: 'Steady' };
+        } else if (spikeDelta < 3.5) {
+            return { bg: 'rgba(99, 181, 27, 0.15)', border: '#63B51B', color: '#63B51B', label: 'Mild Elevation' };
+        }
+        return { bg: 'rgba(244, 67, 54, 0.15)', border: '#F44336', color: '#F44336', label: 'Spike' };
+    };
+
+    const badge = getBadgeInfo();
+
+    // Generate peak description based on predicted vs actual
+    const getPeakDescription = () => {
+        const peakValue = review.actual_peak ? formatGlucoseWithUnit(review.actual_peak, glucoseUnit) : '—';
+        const predictedPeak = review.predicted_peak;
+
+        if (predictedPeak && review.actual_peak) {
+            if (review.actual_peak < predictedPeak - 0.5) {
+                return `Peaked at ${peakValue} - smoother than expected`;
+            } else if (review.actual_peak > predictedPeak + 0.5) {
+                return `Peaked at ${peakValue} - higher than expected`;
+            }
+            return `Peaked at ${peakValue} - as expected`;
+        }
+        return `Peaked at ${peakValue}`;
+    };
 
     return (
-        <View style={styles.mealCard}>
-            <Text style={styles.mealName}>{mealName}</Text>
-            <Text style={styles.mealDateTime}>{time} • {date}</Text>
-
-            {/* Mini chart placeholder */}
-            <View style={styles.mealChartPlaceholder}>
-                <View style={styles.mealChartLegend}>
-                    <View style={styles.mealChartLegendItem}>
-                        <View style={[styles.legendLine, { backgroundColor: '#3494D9' }]} />
-                        <Text style={styles.mealChartLegendText}>Actual</Text>
-                    </View>
-                    <View style={styles.mealChartLegendItem}>
-                        <View style={[styles.legendLine, { backgroundColor: '#878787', borderStyle: 'dashed' }]} />
-                        <Text style={styles.mealChartLegendText}>Predicted</Text>
-                    </View>
+        <View style={styles.mealCardContent}>
+            {/* Meal info */}
+            <View style={styles.mealInfoSection}>
+                <Text style={styles.mealName}>{review.meal_name || 'Unknown Meal'}</Text>
+                <View style={styles.mealDateTimeRow}>
+                    <Text style={styles.mealDateTime}>{formattedTime}</Text>
+                    <View style={styles.mealDateTimeDot} />
+                    <Text style={styles.mealDateTime}>{formattedDate}</Text>
                 </View>
             </View>
 
-            <View style={[styles.mealElevationBadge, { backgroundColor: isBest ? 'rgba(76, 175, 80, 0.15)' : 'rgba(244, 67, 54, 0.15)' }]}>
-                <Text style={[styles.mealElevationText, { color: isBest ? '#4CAF50' : '#F44336' }]}>
-                    {isBest ? 'Mild Elevation' : 'Spike'}
-                </Text>
+            {/* Chart section */}
+            <View style={styles.mealChartSection}>
+                <MealResponseMiniChart
+                    actualCurve={review.actual_curve}
+                    predictedCurve={review.predicted_curve}
+                    mealTime={mealDate}
+                    glucoseUnit={glucoseUnit}
+                />
+
+                {/* Badge and peak text */}
+                <View style={styles.mealStatusSection}>
+                    <View style={[styles.mealElevationBadge, { backgroundColor: badge.bg, borderColor: badge.border }]}>
+                        <Text style={[styles.mealElevationText, { color: badge.color }]}>
+                            {badge.label}
+                        </Text>
+                    </View>
+                    <Text style={styles.mealPeakText}>{getPeakDescription()}</Text>
+                </View>
             </View>
 
-            <Text style={styles.mealPeakText}>
-                Peaked at {peakValue} mmol/L - {isBest ? 'smoother than expected' : 'higher than expected'}
-            </Text>
-
+            {/* Top Drivers */}
             <View style={styles.mealTopDrivers}>
                 <Text style={styles.mealTopDriversTitle}>Top Drivers:</Text>
-                <View style={styles.mealDriverItem}>
-                    <View style={styles.mealDriverBullet} />
-                    <Text style={styles.mealDriverText}>Lorem ipsum dolor sit amet consectetur.</Text>
-                </View>
-                <View style={styles.mealDriverItem}>
-                    <View style={styles.mealDriverBullet} />
-                    <Text style={styles.mealDriverText}>Lorem ipsum dolor sit amet consectetur.</Text>
-                </View>
-                <View style={styles.mealDriverItem}>
-                    <View style={styles.mealDriverBullet} />
-                    <Text style={styles.mealDriverText}>Lorem ipsum dolor sit amet consectetur.</Text>
+                <View style={styles.mealDriversList}>
+                    {driversLoading ? (
+                        <View style={styles.mealDriverItem}>
+                            <ActivityIndicator size="small" color="#3494D9" />
+                            <Text style={[styles.mealDriverText, { marginLeft: 8 }]}>Generating insights...</Text>
+                        </View>
+                    ) : drivers.length > 0 ? (
+                        drivers.map((driver, index) => (
+                            <View key={index} style={styles.mealDriverItem}>
+                                <View style={styles.mealDriverBullet} />
+                                <Text style={styles.mealDriverText}>{driver}</Text>
+                            </View>
+                        ))
+                    ) : (
+                        <View style={styles.mealDriverItem}>
+                            <View style={styles.mealDriverBullet} />
+                            <Text style={styles.mealDriverText}>
+                                {isHighest ? 'Meal composition led to elevated response' : 'Well-balanced meal kept glucose steady'}
+                            </Text>
+                        </View>
+                    )}
                 </View>
             </View>
         </View>
     );
 }
 
+// Empty state for Meal Comparison section
+function MealComparisonEmpty() {
+    return (
+        <View style={styles.mealComparisonEmpty}>
+            <Ionicons name="nutrition-outline" size={48} color="#4A4A4A" />
+            <Text style={styles.mealComparisonEmptyTitle}>No Meal Data Yet</Text>
+            <Text style={styles.mealComparisonEmptyText}>
+                Log meals and complete post-meal reviews to see your highest and lowest spike comparisons here.
+            </Text>
+        </View>
+    );
+}
+
+// Helper to compute spike delta from a review
+function computeSpikeDelta(review: PostMealReview): number {
+    // Prefer stored peak_delta if available
+    if (review.peak_delta !== null && review.peak_delta !== undefined) {
+        return review.peak_delta;
+    }
+    // Fallback: compute from actual_curve and baseline_glucose
+    if (review.actual_curve && review.actual_curve.length > 0) {
+        const peakValue = Math.max(...review.actual_curve.map(p => p.value));
+        const baseline = review.baseline_glucose ?? review.actual_curve[0]?.value ?? 5.5;
+        return peakValue - baseline;
+    }
+    // Last resort: use actual_peak with default baseline
+    if (review.actual_peak !== null) {
+        const baseline = review.baseline_glucose ?? 5.5;
+        return review.actual_peak - baseline;
+    }
+    return 0;
+}
+
 export default function InsightsScreen() {
     const { user } = useAuth();
+    const glucoseUnit = useGlucoseUnit();
     const [activeTab, setActiveTab] = useState<TabKey>('weekly');
     const [isLoading, setIsLoading] = useState(true);
-    const [mealTab, setMealTab] = useState<'best' | 'worst'>('best');
+    const [mealTab, setMealTab] = useState<'highest' | 'lowest'>('highest');
 
     // Computed data states
     const [timeOfDayData, setTimeOfDayData] = useState<{ period: string; avgValue: number }[]>([]);
@@ -366,6 +486,21 @@ export default function InsightsScreen() {
         postMealWalks: 58,
         consistentMealTimes: 28,
     });
+
+    // Meal Comparison states
+    const [highestSpikeReview, setHighestSpikeReview] = useState<PostMealReview | null>(null);
+    const [lowestSpikeReview, setLowestSpikeReview] = useState<PostMealReview | null>(null);
+    const [mealComparisonDrivers, setMealComparisonDrivers] = useState<{
+        highest: { drivers: string[] };
+        lowest: { drivers: string[] };
+    } | null>(null);
+    const [driversLoading, setDriversLoading] = useState(false);
+
+    // Experiments states
+    const [suggestedExperiments, setSuggestedExperiments] = useState<SuggestedExperiment[]>([]);
+    const [activeExperiments, setActiveExperiments] = useState<UserExperiment[]>([]);
+    const [experimentsLoading, setExperimentsLoading] = useState(false);
+    const [startingExperiment, setStartingExperiment] = useState<string | null>(null);
 
     // Insights text
     const [timeOfDayInsight, setTimeOfDayInsight] = useState('Mornings had the steadiest responses. Evenings showed the highest rises.');
@@ -460,6 +595,43 @@ export default function InsightsScreen() {
                 `${steadiestPeriod.charAt(0).toUpperCase() + steadiestPeriod.slice(1)}s had the steadiest responses. ${spikiestPeriod.charAt(0).toUpperCase() + spikiestPeriod.slice(1)}s showed the highest rises.`
             );
 
+            // Fetch post-meal reviews for Meal Comparison section
+            const reviews = await getPostMealReviewsByDateRange(user.id, startDate, endDate);
+
+            if (reviews.length > 0) {
+                // Compute spike delta for each review and find highest/lowest
+                const reviewsWithDelta = reviews.map(r => ({
+                    review: r,
+                    spikeDelta: computeSpikeDelta(r),
+                }));
+
+                // Sort by spike delta (highest first)
+                reviewsWithDelta.sort((a, b) => b.spikeDelta - a.spikeDelta);
+
+                const highest = reviewsWithDelta[0]?.review || null;
+                const lowest = reviewsWithDelta[reviewsWithDelta.length - 1]?.review || null;
+
+                setHighestSpikeReview(highest);
+                setLowestSpikeReview(lowest);
+
+                // Fetch AI drivers if we have both meals
+                if (highest && lowest) {
+                    setDriversLoading(true);
+                    try {
+                        const drivers = await invokeWeeklyMealComparisonDrivers(user.id, highest, lowest);
+                        setMealComparisonDrivers(drivers);
+                    } catch (driverError) {
+                        console.error('Error fetching meal comparison drivers:', driverError);
+                    } finally {
+                        setDriversLoading(false);
+                    }
+                }
+            } else {
+                setHighestSpikeReview(null);
+                setLowestSpikeReview(null);
+                setMealComparisonDrivers(null);
+            }
+
         } catch (error) {
             console.error('Error fetching weekly data:', error);
         } finally {
@@ -472,6 +644,78 @@ export default function InsightsScreen() {
             fetchWeeklyData();
         }, [fetchWeeklyData])
     );
+
+    // Fetch experiments data
+    const fetchExperimentsData = useCallback(async () => {
+        if (!user) return;
+
+        setExperimentsLoading(true);
+        try {
+            // Fetch user's active experiments
+            const active = await getUserExperiments(user.id, ['draft', 'active']);
+            setActiveExperiments(active);
+
+            // Fetch suggested experiments
+            const suggestions = await getSuggestedExperiments(user.id, 6);
+            if (suggestions?.suggestions) {
+                setSuggestedExperiments(suggestions.suggestions);
+            }
+        } catch (error) {
+            console.error('Error fetching experiments:', error);
+        } finally {
+            setExperimentsLoading(false);
+        }
+    }, [user]);
+
+    // Fetch experiments when tab changes to experiments
+    useFocusEffect(
+        useCallback(() => {
+            if (activeTab === 'experiments') {
+                fetchExperimentsData();
+            }
+        }, [activeTab, fetchExperimentsData])
+    );
+
+    // Handle starting an experiment
+    const handleStartExperiment = async (suggestion: SuggestedExperiment) => {
+        if (!user) return;
+
+        setStartingExperiment(suggestion.template.id);
+        try {
+            const experiment = await startUserExperiment(
+                user.id,
+                suggestion.template.id,
+                suggestion.recommended_parameters,
+                {
+                    reasons: suggestion.reasons,
+                    predicted_impact: suggestion.predicted_impact,
+                }
+            );
+
+            if (experiment) {
+                Alert.alert(
+                    'Experiment Started! 🧪',
+                    `You've started "${suggestion.template.title}". Log your meals and check in regularly to see your results.`,
+                    [
+                        {
+                            text: 'View Details',
+                            onPress: () => router.push(`/experiment-detail?id=${experiment.id}` as any),
+                        },
+                        { text: 'Got it', style: 'cancel' },
+                    ]
+                );
+                // Refresh experiments list
+                fetchExperimentsData();
+            } else {
+                Alert.alert('Error', 'Failed to start experiment. Please try again.');
+            }
+        } catch (error) {
+            console.error('Error starting experiment:', error);
+            Alert.alert('Error', 'Something went wrong. Please try again.');
+        } finally {
+            setStartingExperiment(null);
+        }
+    };
 
     const renderWeeklyReport = () => (
         <ScrollView
@@ -517,71 +761,85 @@ export default function InsightsScreen() {
                 <BehavioralImpactItem
                     title="Sleep"
                     percentage={behavioralStats.sleep}
-                    color="#3494D9"
+                    color="#0E9CFF"
                 />
                 <BehavioralImpactItem
                     title="Post Meal Walks"
                     percentage={behavioralStats.postMealWalks}
-                    color="#3494D9"
+                    color="#0E9CFF"
                 />
                 <BehavioralImpactItem
                     title="Consistent Meal Times"
                     percentage={behavioralStats.consistentMealTimes}
-                    color="#3494D9"
+                    color="#0E9CFF"
                 />
             </View>
 
-            {/* Best & Worst Meal */}
-            <View style={styles.card}>
-                <Text style={styles.cardTitle}>Best & Worst Meal Comparison</Text>
+            {/* Best & Worst Meal Comparison */}
+            <View style={styles.mealComparisonSection}>
+                <Text style={styles.mealComparisonTitle}>Best & Worst Meal Comparison</Text>
+                <View style={styles.mealComparisonCard}>
+                    {isLoading ? (
+                        <ActivityIndicator size="large" color="#3494D9" style={{ marginVertical: 40 }} />
+                    ) : !highestSpikeReview && !lowestSpikeReview ? (
+                        <MealComparisonEmpty />
+                    ) : (
+                        <>
+                            {/* Meal tabs */}
+                            <View style={styles.mealTabs}>
+                                <View
+                                    style={[
+                                        styles.mealTabItem,
+                                        mealTab === 'highest' && styles.mealTabItemActive,
+                                    ]}
+                                    onTouchEnd={() => setMealTab('highest')}
+                                >
+                                    <Text style={[styles.mealTabText, mealTab === 'highest' && styles.mealTabTextActive]}>
+                                        BEST MEAL
+                                    </Text>
+                                </View>
+                                <View
+                                    style={[
+                                        styles.mealTabItem,
+                                        mealTab === 'lowest' && styles.mealTabItemActive,
+                                    ]}
+                                    onTouchEnd={() => setMealTab('lowest')}
+                                >
+                                    <Text style={[styles.mealTabText, mealTab === 'lowest' && styles.mealTabTextActive]}>
+                                        WORST MEAL
+                                    </Text>
+                                </View>
+                            </View>
 
-                {/* Meal tabs */}
-                <View style={styles.mealTabs}>
-                    <View
-                        style={[
-                            styles.mealTabItem,
-                            mealTab === 'best' && styles.mealTabItemActive,
-                        ]}
-                        onTouchEnd={() => setMealTab('best')}
-                    >
-                        <Text style={[styles.mealTabText, mealTab === 'best' && styles.mealTabTextActive]}>
-                            BEST MEAL
-                        </Text>
-                    </View>
-                    <View
-                        style={[
-                            styles.mealTabItem,
-                            mealTab === 'worst' && styles.mealTabItemActive,
-                        ]}
-                        onTouchEnd={() => setMealTab('worst')}
-                    >
-                        <Text style={[styles.mealTabText, mealTab === 'worst' && styles.mealTabTextActive]}>
-                            WORST MEAL
-                        </Text>
-                    </View>
+                            {/* Best meal = lowest spike, Worst meal = highest spike */}
+                            {mealTab === 'highest' && lowestSpikeReview ? (
+                                <MealComparisonCard
+                                    review={lowestSpikeReview}
+                                    spikeDelta={computeSpikeDelta(lowestSpikeReview)}
+                                    drivers={mealComparisonDrivers?.lowest?.drivers || []}
+                                    driversLoading={driversLoading}
+                                    glucoseUnit={glucoseUnit}
+                                    type="lowest"
+                                />
+                            ) : mealTab === 'lowest' && highestSpikeReview ? (
+                                <MealComparisonCard
+                                    review={highestSpikeReview}
+                                    spikeDelta={computeSpikeDelta(highestSpikeReview)}
+                                    drivers={mealComparisonDrivers?.highest?.drivers || []}
+                                    driversLoading={driversLoading}
+                                    glucoseUnit={glucoseUnit}
+                                    type="highest"
+                                />
+                            ) : (
+                                <MealComparisonEmpty />
+                            )}
+                        </>
+                    )}
                 </View>
-
-                {mealTab === 'best' ? (
-                    <MealComparisonCard
-                        type="best"
-                        mealName="Oatmeal with Banana"
-                        date="16-11-2025"
-                        time="06:10 AM"
-                        peakValue={7.4}
-                    />
-                ) : (
-                    <MealComparisonCard
-                        type="worst"
-                        mealName="White Rice with Curry"
-                        date="14-11-2025"
-                        time="07:30 PM"
-                        peakValue={11.2}
-                    />
-                )}
             </View>
 
             {/* Bottom spacing for tab bar */}
-            <View style={{ height: 120 }} />
+            <View style={{ height: 160 }} />
         </ScrollView>
     );
 
@@ -597,11 +855,13 @@ export default function InsightsScreen() {
             </View>
 
             {/* Meal Impacts Card */}
-            <View style={styles.card}>
-                <Text style={styles.cardTitle}>Meal Impacts</Text>
-                <Text style={styles.cardDescription}>
-                    Shows the percentage of meals that aligned with steady patterns versus meals that were followed by mild or strong elevations.
-                </Text>
+            <View style={styles.trendsCard}>
+                <View style={styles.trendsCardHeader}>
+                    <Text style={styles.trendsCardTitle}>Meal Impacts</Text>
+                    <Text style={styles.trendsCardDescription}>
+                        Shows the percentage of meals that aligned with steady patterns versus meals that were followed by mild or strong elevations.
+                    </Text>
+                </View>
 
                 <View style={styles.mealImpactsContent}>
                     {/* Legend */}
@@ -623,7 +883,7 @@ export default function InsightsScreen() {
                     {/* Dynamic Pie Chart */}
                     <View style={styles.pieChartContainer}>
                         <PieChart
-                            size={120}
+                            size={130}
                             data={[
                                 { value: 55, color: '#4CAF50', label: 'Steady' },
                                 { value: 30, color: '#FF9800', label: 'Mild' },
@@ -635,93 +895,101 @@ export default function InsightsScreen() {
             </View>
 
             {/* Peak Comparison Card */}
-            <View style={styles.card}>
-                <Text style={styles.cardTitle}>Peak Comparison</Text>
-                <Text style={styles.cardDescription}>
-                    Shows how your average glucose rise differed from what the model expected using averages.
-                </Text>
-
-                {/* Predicted Peak */}
-                <View style={styles.peakRow}>
-                    <Text style={styles.peakLabel}>Predicted Peak</Text>
-                    <View style={styles.peakBarContainer}>
-                        <View style={[styles.peakBar, { width: '80%' }]} />
-                    </View>
-                    <Text style={styles.peakValue}>8.9 mmol/L</Text>
+            <View style={styles.trendsCard}>
+                <View style={styles.trendsCardHeader}>
+                    <Text style={styles.trendsCardTitle}>Peak Comparison</Text>
+                    <Text style={styles.trendsCardDescription}>
+                        Shows how your average glucose rise differed from what the model expected using averages.
+                    </Text>
                 </View>
 
-                {/* Actual Peak */}
-                <View style={styles.peakRow}>
-                    <Text style={styles.peakLabel}>Actual Peak</Text>
-                    <View style={styles.peakBarContainer}>
-                        <View style={[styles.peakBar, { width: '65%' }]} />
+                <View style={styles.peakComparisonContent}>
+                    {/* Predicted Peak */}
+                    <View style={styles.trendBarRow}>
+                        <Text style={styles.trendBarLabel}>Predicted Peak</Text>
+                        <View style={styles.trendBarContainer}>
+                            <View style={[styles.trendBar, { width: '100%' }]} />
+                        </View>
+                        <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(8.9, glucoseUnit)}</Text>
                     </View>
-                    <Text style={styles.peakValue}>7.4 mmol/L</Text>
+
+                    {/* Actual Peak */}
+                    <View style={styles.trendBarRow}>
+                        <Text style={styles.trendBarLabel}>Actual Peak</Text>
+                        <View style={styles.trendBarContainer}>
+                            <View style={[styles.trendBar, { width: '75%' }]} />
+                        </View>
+                        <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(7.4, glucoseUnit)}</Text>
+                    </View>
                 </View>
 
-                <Text style={styles.peakInsight}>
+                <Text style={styles.trendsInsightText}>
                     Your actual responses were 18% gentler than expected. Best tweak was adding fibers before lunch.
                 </Text>
             </View>
 
             {/* Gluco Suggestion Impact Card */}
-            <View style={styles.card}>
-                <Text style={styles.cardTitle}>Gluco Suggestion Impact</Text>
-                <Text style={styles.cardDescription}>
-                    Compares how similar meals responded when you followed a Gluco suggestion versus when you didn't.
-                </Text>
-
-                {/* With More Fiber vs With Same Fiber */}
-                <View style={styles.suggestionComparison}>
-                    <View style={styles.suggestionRow}>
-                        <Text style={styles.suggestionLabel}>With More Fiber</Text>
-                        <View style={styles.suggestionBarContainer}>
-                            <View style={[styles.suggestionBar, { width: '70%' }]} />
-                        </View>
-                        <Text style={styles.suggestionValue}>7.1 mmol/L</Text>
-                    </View>
-                    <View style={styles.suggestionRow}>
-                        <Text style={styles.suggestionLabel}>With Same Fiber</Text>
-                        <View style={styles.suggestionBarContainer}>
-                            <View style={[styles.suggestionBarGrey, { width: '90%' }]} />
-                        </View>
-                        <Text style={styles.suggestionValue}>8.9 mmol/L</Text>
-                    </View>
+            <View style={styles.trendsCard}>
+                <View style={styles.trendsCardHeader}>
+                    <Text style={styles.trendsCardTitle}>Gluco Suggestion Impact</Text>
+                    <Text style={styles.trendsCardDescription}>
+                        Compares how similar meals responded when you followed a Gluco suggestion versus when you didn't.
+                    </Text>
                 </View>
 
-                {/* With Walk vs No Walk */}
-                <View style={styles.suggestionComparison}>
-                    <View style={styles.suggestionRow}>
-                        <Text style={styles.suggestionLabel}>With Walk</Text>
-                        <View style={styles.suggestionBarContainer}>
-                            <View style={[styles.suggestionBar, { width: '55%' }]} />
+                <View style={styles.suggestionImpactContent}>
+                    {/* With More Fiber vs With Same Fiber */}
+                    <View style={styles.suggestionGroup}>
+                        <View style={styles.trendBarRow}>
+                            <Text style={styles.trendBarLabel}>With More Fiber</Text>
+                            <View style={styles.trendBarContainer}>
+                                <View style={[styles.trendBar, { width: '75%' }]} />
+                            </View>
+                            <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(7.1, glucoseUnit)}</Text>
                         </View>
-                        <Text style={styles.suggestionValue}>6.8 mmol/L</Text>
-                    </View>
-                    <View style={styles.suggestionRow}>
-                        <Text style={styles.suggestionLabel}>No Walk</Text>
-                        <View style={styles.suggestionBarContainer}>
-                            <View style={[styles.suggestionBarGrey, { width: '85%' }]} />
+                        <View style={styles.trendBarRow}>
+                            <Text style={styles.trendBarLabel}>With Same Fiber</Text>
+                            <View style={styles.trendBarContainer}>
+                                <View style={[styles.trendBar, { width: '95%' }]} />
+                            </View>
+                            <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(8.9, glucoseUnit)}</Text>
                         </View>
-                        <Text style={styles.suggestionValue}>9.2 mmol/L</Text>
                     </View>
-                </View>
 
-                {/* Half Portion vs Full Portion */}
-                <View style={styles.suggestionComparison}>
-                    <View style={styles.suggestionRow}>
-                        <Text style={styles.suggestionLabel}>Half Portion</Text>
-                        <View style={styles.suggestionBarContainer}>
-                            <View style={[styles.suggestionBar, { width: '60%' }]} />
+                    {/* With Walk vs No Walk */}
+                    <View style={styles.suggestionGroup}>
+                        <View style={styles.trendBarRow}>
+                            <Text style={styles.trendBarLabel}>With Walk</Text>
+                            <View style={styles.trendBarContainer}>
+                                <View style={[styles.trendBar, { width: '60%' }]} />
+                            </View>
+                            <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(6.8, glucoseUnit)}</Text>
                         </View>
-                        <Text style={styles.suggestionValue}>7.3 mmol/L</Text>
+                        <View style={styles.trendBarRow}>
+                            <Text style={styles.trendBarLabel}>No Walk</Text>
+                            <View style={styles.trendBarContainer}>
+                                <View style={[styles.trendBar, { width: '95%' }]} />
+                            </View>
+                            <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(9.2, glucoseUnit)}</Text>
+                        </View>
                     </View>
-                    <View style={styles.suggestionRow}>
-                        <Text style={styles.suggestionLabel}>Full Portion</Text>
-                        <View style={styles.suggestionBarContainer}>
-                            <View style={[styles.suggestionBarGrey, { width: '95%' }]} />
+
+                    {/* Half Portion vs Full Portion */}
+                    <View style={styles.suggestionGroup}>
+                        <View style={styles.trendBarRow}>
+                            <Text style={styles.trendBarLabel}>Half Portion</Text>
+                            <View style={styles.trendBarContainer}>
+                                <View style={[styles.trendBar, { width: '80%' }]} />
+                            </View>
+                            <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(7.3, glucoseUnit)}</Text>
                         </View>
-                        <Text style={styles.suggestionValue}>9.8 mmol/L</Text>
+                        <View style={styles.trendBarRow}>
+                            <Text style={styles.trendBarLabel}>Full Portion</Text>
+                            <View style={styles.trendBarContainer}>
+                                <View style={[styles.trendBar, { width: '95%' }]} />
+                            </View>
+                            <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(9.8, glucoseUnit)}</Text>
+                        </View>
                     </View>
                 </View>
 
@@ -733,16 +1001,161 @@ export default function InsightsScreen() {
             </View>
 
             {/* Bottom spacing for tab bar */}
-            <View style={{ height: 120 }} />
+            <View style={{ height: 160 }} />
         </ScrollView>
     );
 
     const renderExperiments = () => (
-        <View style={styles.placeholderContent}>
-            <Ionicons name="flask-outline" size={48} color="#878787" />
-            <Text style={styles.placeholderText}>Experiments</Text>
-            <Text style={styles.placeholderSubtext}>Coming soon...</Text>
-        </View>
+        <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+        >
+            {/* Header Section */}
+            <View style={styles.experimentsHeader}>
+                <View style={styles.experimentsTitleRow}>
+                    <Text style={styles.experimentsSparkle}>✨</Text>
+                    <Text style={styles.experimentsTitle}>Find What Works For You</Text>
+                </View>
+                <View style={styles.experimentsDescriptionContainer}>
+                    <Text style={styles.experimentsDescription}>
+                        Small tests you can try for a few meals. We'll compare them and show your pattern. No rules, just real learning.
+                    </Text>
+                </View>
+            </View>
+
+            {/* Active Experiments Section */}
+            {activeExperiments.length > 0 && (
+                <>
+                    <Text style={styles.experimentsSectionTitle}>Your Active Experiments</Text>
+                    <View style={styles.experimentsCardList}>
+                        {activeExperiments.map((exp) => (
+                            <TouchableOpacity
+                                key={exp.id}
+                                style={styles.experimentCard}
+                                onPress={() => router.push(`/experiment-detail?id=${exp.id}` as any)}
+                                activeOpacity={0.7}
+                            >
+                                <View style={styles.experimentCardContent}>
+                                    <View style={styles.experimentCardHeader}>
+                                        <Text style={styles.experimentCardIcon}>
+                                            {exp.experiment_templates?.icon || '🧪'}
+                                        </Text>
+                                        <View style={styles.experimentCardBadge}>
+                                            <Text style={styles.experimentCardBadgeText}>
+                                                {exp.status === 'active' ? 'IN PROGRESS' : 'DRAFT'}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                    <Text style={styles.experimentCardTitle}>
+                                        {exp.experiment_templates?.title || 'Experiment'}
+                                    </Text>
+                                    <Text style={styles.experimentCardDescription}>
+                                        {exp.exposures_logged} / {(exp.experiment_templates?.protocol?.exposures_per_variant || 5) * 2} exposures logged
+                                    </Text>
+                                    <View style={styles.experimentProgressBar}>
+                                        <View
+                                            style={[
+                                                styles.experimentProgressFill,
+                                                {
+                                                    width: `${Math.min(100, (exp.exposures_logged / ((exp.experiment_templates?.protocol?.exposures_per_variant || 5) * 2)) * 100)}%`,
+                                                },
+                                            ]}
+                                        />
+                                    </View>
+                                </View>
+                                <View style={styles.experimentButtonSecondary}>
+                                    <Text style={styles.experimentButtonSecondaryText}>View Progress</Text>
+                                    <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
+                                </View>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                </>
+            )}
+
+            {/* Suggested For You Section */}
+            <Text style={styles.experimentsSectionTitle}>Suggested For You</Text>
+
+            {experimentsLoading ? (
+                <ActivityIndicator size="large" color="#3494D9" style={{ marginVertical: 40 }} />
+            ) : suggestedExperiments.length > 0 ? (
+                <View style={styles.experimentsCardList}>
+                    {suggestedExperiments.map((suggestion) => (
+                        <View key={suggestion.template.id} style={styles.experimentCard}>
+                            <View style={styles.experimentCardContent}>
+                                <View style={styles.experimentCardHeader}>
+                                    <Text style={styles.experimentCardIcon}>
+                                        {suggestion.template.icon || '🧪'}
+                                    </Text>
+                                    {suggestion.predicted_impact === 'high' && (
+                                        <View style={[styles.experimentCardBadge, styles.experimentCardBadgeHigh]}>
+                                            <Text style={styles.experimentCardBadgeText}>HIGH IMPACT</Text>
+                                        </View>
+                                    )}
+                                </View>
+                                <Text style={styles.experimentCardTitle}>
+                                    {suggestion.template.title}
+                                </Text>
+                                <Text style={styles.experimentCardSubtitle}>
+                                    {suggestion.template.subtitle}
+                                </Text>
+                                <Text style={styles.experimentCardDescription}>
+                                    {suggestion.template.description}
+                                </Text>
+                                {suggestion.reasons.length > 0 && (
+                                    <View style={styles.experimentReasons}>
+                                        <Text style={styles.experimentReasonsTitle}>Why this for you:</Text>
+                                        {suggestion.reasons.slice(0, 2).map((reason, idx) => (
+                                            <View key={idx} style={styles.experimentReasonRow}>
+                                                <View style={styles.experimentReasonDot} />
+                                                <Text style={styles.experimentReasonText}>{reason}</Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
+                            </View>
+                            <TouchableOpacity
+                                style={[
+                                    styles.experimentButton,
+                                    startingExperiment === suggestion.template.id && styles.experimentButtonDisabled,
+                                ]}
+                                onPress={() => handleStartExperiment(suggestion)}
+                                disabled={startingExperiment === suggestion.template.id}
+                                activeOpacity={0.7}
+                            >
+                                {startingExperiment === suggestion.template.id ? (
+                                    <ActivityIndicator size="small" color="#FFFFFF" />
+                                ) : (
+                                    <Text style={styles.experimentButtonText}>Start Experiment</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    ))}
+                </View>
+            ) : (
+                <View style={styles.experimentCard}>
+                    <View style={styles.experimentCardContent}>
+                        <Text style={styles.experimentCardTitle}>No suggestions yet</Text>
+                        <Text style={styles.experimentCardDescription}>
+                            Log more meals and glucose readings to get personalized experiment suggestions.
+                        </Text>
+                    </View>
+                </View>
+            )}
+
+            {/* View All Experiments Link */}
+            <TouchableOpacity
+                style={styles.viewAllExperimentsButton}
+                onPress={() => router.push('/experiments-list' as any)}
+                activeOpacity={0.7}
+            >
+                <Text style={styles.viewAllExperimentsText}>View All Experiments</Text>
+                <Ionicons name="chevron-forward" size={18} color="#3494D9" />
+            </TouchableOpacity>
+
+            {/* Bottom spacing for tab bar */}
+            <View style={{ height: 160 }} />
+        </ScrollView>
     );
 
     return (
@@ -820,23 +1233,23 @@ const styles = StyleSheet.create({
     sectionDescription: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
-        lineHeight: 20,
+        color: '#FFFFFF',
+        lineHeight: 16.8,
         marginBottom: 20,
     },
     card: {
-        backgroundColor: '#1A1D1F',
+        backgroundColor: '#313135',
         borderRadius: 16,
-        borderWidth: 1,
-        borderColor: '#2A2D30',
         padding: 16,
         marginBottom: 16,
+        overflow: 'hidden',
     },
     cardTitle: {
-        fontFamily: fonts.semiBold,
+        fontFamily: fonts.medium,
         fontSize: 16,
         color: '#FFFFFF',
-        marginBottom: 16,
+        marginBottom: 24,
+        lineHeight: 19.2,
     },
     // Time of Day Chart
     chartWrapper: {
@@ -855,7 +1268,12 @@ const styles = StyleSheet.create({
         fontFamily: fonts.medium,
         fontSize: 12,
         color: '#E7E8E9',
-        textAlign: 'right',
+        textAlign: 'center',
+    },
+    chartYLabelRow: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     chartYLabelMulti: {
         alignItems: 'flex-end',
@@ -929,7 +1347,7 @@ const styles = StyleSheet.create({
     },
     bar: {
         borderRadius: 2,
-        backgroundColor: '#3494D9',
+        backgroundColor: '#0E9CFF',
     },
     chartXLabelCombined: {
         fontFamily: fonts.medium,
@@ -976,14 +1394,14 @@ const styles = StyleSheet.create({
         paddingHorizontal: 4,
     },
     comparisonCellBg: {
-        height: 12,
+        height: 16,
         backgroundColor: '#22282C',
         borderRadius: 4,
         overflow: 'hidden',
     },
     comparisonCellFill: {
         height: '100%',
-        backgroundColor: '#3494D9',
+        backgroundColor: '#0E9CFF',
         borderRadius: 4,
     },
     // Keep old styles for backwards compatibility
@@ -1047,8 +1465,8 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     impactBarBg: {
-        height: 8,
-        backgroundColor: '#2A2D30',
+        height: 16,
+        backgroundColor: '#22282C',
         borderRadius: 4,
         overflow: 'hidden',
     },
@@ -1056,117 +1474,144 @@ const styles = StyleSheet.create({
         height: '100%',
         borderRadius: 4,
     },
-    // Meal Comparison
+    // Meal Comparison - Matching Figma design
+    mealComparisonSection: {
+        gap: 0,
+    },
+    mealComparisonTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 16,
+        color: '#FFFFFF',
+        marginBottom: 12,
+        lineHeight: 19.2,
+    },
+    mealComparisonCard: {
+        backgroundColor: '#313135',
+        borderRadius: 16,
+        padding: 16,
+        overflow: 'hidden',
+    },
     mealTabs: {
         flexDirection: 'row',
-        marginBottom: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: '#2A2D30',
+        marginBottom: 8,
+        gap: 0,
     },
     mealTabItem: {
-        paddingVertical: 12,
+        paddingVertical: 10,
         paddingHorizontal: 16,
-        borderBottomWidth: 2,
-        borderBottomColor: 'transparent',
+        borderRadius: 6,
     },
     mealTabItemActive: {
-        borderBottomColor: '#3494D9',
+        backgroundColor: '#1B1B1C',
     },
     mealTabText: {
-        fontFamily: fonts.medium,
+        fontFamily: fonts.semiBold,
         fontSize: 12,
         color: '#878787',
         letterSpacing: 0.5,
     },
     mealTabTextActive: {
-        color: '#3494D9',
+        color: '#FFFFFF',
     },
-    mealCard: {
-        marginTop: 8,
+    mealCardContent: {
+        gap: 12,
+    },
+    mealInfoSection: {
+        gap: 4,
     },
     mealName: {
-        fontFamily: fonts.semiBold,
-        fontSize: 16,
+        fontFamily: fonts.medium,
+        fontSize: 18,
         color: '#FFFFFF',
-        marginBottom: 4,
+    },
+    mealDateTimeRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
     },
     mealDateTime: {
         fontFamily: fonts.regular,
-        fontSize: 12,
-        color: '#878787',
-        marginBottom: 16,
+        fontSize: 14,
+        color: '#FFFFFF',
     },
-    mealChartPlaceholder: {
-        height: 100,
-        backgroundColor: '#22282c',
-        borderRadius: 8,
-        marginBottom: 12,
-        justifyContent: 'flex-end',
-        padding: 12,
+    mealDateTimeDot: {
+        width: 5,
+        height: 5,
+        borderRadius: 2.5,
+        backgroundColor: '#878787',
     },
-    mealChartLegend: {
-        flexDirection: 'row',
-        gap: 16,
+    mealChartSection: {
+        gap: 12,
     },
-    mealChartLegendItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
+    mealStatusSection: {
         gap: 6,
-    },
-    legendLine: {
-        width: 16,
-        height: 2,
-        borderRadius: 1,
-    },
-    mealChartLegendText: {
-        fontFamily: fonts.regular,
-        fontSize: 10,
-        color: '#878787',
     },
     mealElevationBadge: {
         alignSelf: 'flex-start',
         paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 12,
-        marginBottom: 12,
+        paddingVertical: 4,
+        borderRadius: 28,
+        borderWidth: 0.25,
     },
     mealElevationText: {
-        fontFamily: fonts.medium,
+        fontFamily: fonts.bold,
         fontSize: 12,
+        textAlign: 'center',
     },
     mealPeakText: {
         fontFamily: fonts.regular,
         fontSize: 14,
         color: '#FFFFFF',
-        marginBottom: 16,
+        lineHeight: 16.8,
     },
     mealTopDrivers: {
-        marginTop: 8,
+        gap: 6,
     },
     mealTopDriversTitle: {
         fontFamily: fonts.medium,
         fontSize: 14,
         color: '#FFFFFF',
-        marginBottom: 8,
+        lineHeight: 16.8,
+    },
+    mealDriversList: {
+        gap: 6,
     },
     mealDriverItem: {
         flexDirection: 'row',
-        alignItems: 'flex-start',
-        marginBottom: 8,
+        alignItems: 'center',
+        gap: 8,
     },
     mealDriverBullet: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
+        width: 8,
+        height: 8,
+        borderRadius: 4,
         backgroundColor: '#FFFFFF',
-        marginTop: 6,
-        marginRight: 10,
     },
     mealDriverText: {
         flex: 1,
         fontFamily: fonts.regular,
         fontSize: 14,
         color: '#FFFFFF',
+        lineHeight: 16.8,
+    },
+    mealComparisonEmpty: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 32,
+        paddingHorizontal: 16,
+    },
+    mealComparisonEmptyTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
+        color: '#FFFFFF',
+        marginTop: 12,
+        marginBottom: 8,
+    },
+    mealComparisonEmptyText: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#878787',
+        textAlign: 'center',
         lineHeight: 20,
     },
     // Placeholder content
@@ -1198,7 +1643,29 @@ const styles = StyleSheet.create({
     trendsDateText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#E7E8E9',
+        color: '#FFFFFF',
+    },
+    trendsCard: {
+        backgroundColor: '#313135',
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 16,
+        gap: 24,
+    },
+    trendsCardHeader: {
+        gap: 8,
+    },
+    trendsCardTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 16,
+        color: '#FFFFFF',
+        lineHeight: 19.2,
+    },
+    trendsCardDescription: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#FFFFFF',
+        lineHeight: 16.8,
     },
     cardDescription: {
         fontFamily: fonts.regular,
@@ -1211,32 +1678,79 @@ const styles = StyleSheet.create({
     mealImpactsContent: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginTop: 8,
     },
     mealImpactsLegend: {
         flex: 1,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        gap: 4,
     },
     legendItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 12,
+        gap: 8,
     },
     legendDotLarge: {
-        width: 10,
-        height: 10,
-        borderRadius: 5,
-        marginRight: 10,
+        width: 12,
+        height: 12,
+        borderRadius: 6,
     },
     legendLabel: {
-        fontFamily: fonts.regular,
+        fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: '#E7E8E9',
     },
     pieChartContainer: {
-        width: 130,
+        flex: 1,
         height: 130,
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    // Trend bar rows (Peak Comparison, Suggestion Impact)
+    peakComparisonContent: {
+        gap: 16,
+    },
+    suggestionImpactContent: {
+        gap: 32,
+    },
+    suggestionGroup: {
+        gap: 16,
+    },
+    trendBarRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    trendBarLabel: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: '#FFFFFF',
+        width: 110,
+    },
+    trendBarContainer: {
+        flex: 1,
+        height: 16,
+        borderRadius: 4,
+        overflow: 'hidden',
+        justifyContent: 'center',
+    },
+    trendBar: {
+        height: 16,
+        backgroundColor: '#0E9CFF',
+        borderRadius: 4,
+    },
+    trendBarValue: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: '#FFFFFF',
+        width: 90,
+        textAlign: 'right',
+    },
+    trendsInsightText: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#FFFFFF',
+        lineHeight: 16.8,
     },
     pieChart: {
         width: 90,
@@ -1274,85 +1788,6 @@ const styles = StyleSheet.create({
     pieSegmentSpike: {
         backgroundColor: '#F44336',
     },
-    // Peak Comparison
-    peakRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    peakLabel: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-        width: 100,
-    },
-    peakBarContainer: {
-        flex: 1,
-        height: 10,
-        backgroundColor: '#22282C',
-        borderRadius: 5,
-        marginHorizontal: 12,
-        overflow: 'hidden',
-    },
-    peakBar: {
-        height: '100%',
-        backgroundColor: '#3494D9',
-        borderRadius: 5,
-    },
-    peakValue: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-        width: 80,
-        textAlign: 'right',
-    },
-    peakInsight: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#AAAAAA',
-        lineHeight: 20,
-        marginTop: 8,
-    },
-    // Suggestion Impact
-    suggestionComparison: {
-        marginBottom: 16,
-    },
-    suggestionRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 8,
-    },
-    suggestionLabel: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-        width: 110,
-    },
-    suggestionBarContainer: {
-        flex: 1,
-        height: 10,
-        backgroundColor: '#22282C',
-        borderRadius: 5,
-        marginHorizontal: 12,
-        overflow: 'hidden',
-    },
-    suggestionBar: {
-        height: '100%',
-        backgroundColor: '#3494D9',
-        borderRadius: 5,
-    },
-    suggestionBarGrey: {
-        height: '100%',
-        backgroundColor: '#555555',
-        borderRadius: 5,
-    },
-    suggestionValue: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-        width: 75,
-        textAlign: 'right',
-    },
     seeMoreRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1363,5 +1798,194 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#FFFFFF',
         marginRight: 8,
+    },
+    // Experiments section styles
+    experimentsHeader: {
+        gap: 8,
+        marginBottom: 16,
+    },
+    experimentsTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    experimentsSparkle: {
+        fontSize: 28,
+    },
+    experimentsTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 16,
+        color: '#FFFFFF',
+        lineHeight: 19.2,
+    },
+    experimentsDescriptionContainer: {
+        width: '100%',
+    },
+    experimentsDescription: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#AAAAAA',
+        lineHeight: 20,
+    },
+    experimentsSectionTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 16,
+        color: '#FFFFFF',
+        lineHeight: 19.2,
+        marginTop: 24,
+        marginBottom: 12,
+    },
+    experimentsCardList: {
+        gap: 24,
+    },
+    experimentCard: {
+        backgroundColor: '#22282C',
+        borderRadius: 16,
+        padding: 16,
+        gap: 24,
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    experimentCardContent: {
+        gap: 16,
+    },
+    experimentCardTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 16,
+        color: '#FFFFFF',
+        lineHeight: 15.2,
+    },
+    experimentCardDescription: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#FFFFFF',
+        lineHeight: 16.8,
+    },
+    experimentButton: {
+        backgroundColor: '#3F4243',
+        borderRadius: 8,
+        paddingVertical: 16,
+        paddingHorizontal: 100,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    experimentButtonText: {
+        fontFamily: fonts.medium,
+        fontSize: 15,
+        color: '#F2F2F2',
+        lineHeight: 14.25,
+    },
+    experimentButtonDisabled: {
+        opacity: 0.6,
+    },
+    experimentCardHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 8,
+    },
+    experimentCardIcon: {
+        fontSize: 20,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#2A2D30',
+        textAlign: 'center',
+        lineHeight: 40,
+        overflow: 'hidden',
+    },
+    experimentCardBadge: {
+        backgroundColor: '#3494D9',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 4,
+    },
+    experimentCardBadgeHigh: {
+        backgroundColor: '#4CAF50',
+    },
+    experimentCardBadgeText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 10,
+        color: '#FFFFFF',
+        letterSpacing: 0.5,
+    },
+    experimentCardSubtitle: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: '#878787',
+        marginBottom: 4,
+    },
+    experimentReasons: {
+        marginTop: 12,
+        gap: 6,
+    },
+    experimentReasonsTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 12,
+        color: '#878787',
+        marginBottom: 4,
+    },
+    experimentReasonRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+    },
+    experimentReasonDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#3494D9',
+        marginTop: 5,
+    },
+    experimentReasonText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: '#AAAAAA',
+        flex: 1,
+        lineHeight: 18,
+    },
+    experimentProgressBar: {
+        height: 6,
+        backgroundColor: '#3F4243',
+        borderRadius: 3,
+        marginTop: 12,
+        overflow: 'hidden',
+    },
+    experimentProgressFill: {
+        height: '100%',
+        backgroundColor: '#3494D9',
+        borderRadius: 3,
+    },
+    experimentButtonSecondary: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        backgroundColor: 'transparent',
+        borderTopWidth: 1,
+        borderTopColor: '#3F4243',
+    },
+    experimentButtonSecondaryText: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: '#FFFFFF',
+    },
+    viewAllExperimentsButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        paddingVertical: 16,
+        marginTop: 8,
+    },
+    viewAllExperimentsText: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: '#3494D9',
     },
 });

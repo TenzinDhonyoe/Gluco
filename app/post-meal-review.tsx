@@ -8,7 +8,7 @@
  * 2. Non-CGM User: Shows predicted only with Connect CGM / Manual Log options
  */
 
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import {
     computeActualGlucoseCurve,
@@ -19,6 +19,7 @@ import {
     supabase,
     updatePostMealReviewStatus,
 } from '@/lib/supabase';
+import { formatGlucose, formatGlucoseWithUnit, convertFromMmol } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -46,6 +47,7 @@ const MOOD_OPTIONS = ['😫', '😕', '😐', '🙂', '😊'];
 export default function PostMealReviewScreen() {
     const { reviewId, mockData, refresh } = useLocalSearchParams<{ reviewId: string; mockData?: string; refresh?: string }>();
     const { user } = useAuth();
+    const glucoseUnit = useGlucoseUnit();
 
     const [loading, setLoading] = useState(true);
     const [review, setReview] = useState<PostMealReview | null>(null);
@@ -332,7 +334,7 @@ export default function PostMealReviewScreen() {
             <View style={styles.chartContainer}>
                 {/* Legend */}
                 <View style={styles.chartLegend}>
-                    <Text style={styles.yAxisLabel}>mmol/L</Text>
+                    <Text style={styles.yAxisLabel}>{glucoseUnit}</Text>
                     <View style={styles.legendItems}>
                         {showActual && actualCurve.length > 0 && (
                             <View style={styles.legendItem}>
@@ -393,7 +395,7 @@ export default function PostMealReviewScreen() {
                             fill="#878787"
                             textAnchor="end"
                         >
-                            {val}
+                            {formatGlucose(val, glucoseUnit)}
                         </SvgText>
                     ))}
 
@@ -455,7 +457,7 @@ export default function PostMealReviewScreen() {
                                 fill={showActual && actualCurve.length > 0 ? "#878787" : "#FFFFFF"}
                                 textAnchor="middle"
                             >
-                                {predictedPeakPoint.value.toFixed(1)}
+                                {formatGlucose(predictedPeakPoint.value, glucoseUnit)}
                             </SvgText>
                         </>
                     )}
@@ -476,7 +478,7 @@ export default function PostMealReviewScreen() {
                                 textAnchor="middle"
                                 fontWeight="600"
                             >
-                                {actualPeakPoint.value.toFixed(1)}
+                                {formatGlucose(actualPeakPoint.value, glucoseUnit)}
                             </SvgText>
                         </>
                     )}
@@ -678,7 +680,7 @@ export default function PostMealReviewScreen() {
 
                     {/* Summary */}
                     <Text style={styles.summary}>
-                        Peaked at {actualPeak?.toFixed(1) || '—'} mmol/L - {
+                        Peaked at {actualPeak ? formatGlucoseWithUnit(actualPeak, glucoseUnit) : '—'} - {
                             review?.status_tag === 'steady' ? 'smoother than expected' :
                                 review?.status_tag === 'mild_elevation' ? 'smoother than expected' :
                                     'higher than expected'

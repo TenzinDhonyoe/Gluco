@@ -1,6 +1,7 @@
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { getUserProfile, UserProfile } from '@/lib/supabase';
+import { parseGlucoseInput, formatGlucoseWithUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -18,12 +19,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function LabsHealthInfoScreen() {
     const { user } = useAuth();
+    const glucoseUnit = useGlucoseUnit();
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Local state for lab values (would be stored in profile in production)
+    // Local state for lab values (stored internally in mmol/L)
     const [a1c, setA1c] = useState<string | null>(null);
-    const [fastingGlucose, setFastingGlucose] = useState<string | null>(null);
+    const [fastingGlucoseMmol, setFastingGlucoseMmol] = useState<number | null>(null);
     const [medications, setMedications] = useState<string[]>([]);
 
     // Load user profile
@@ -80,17 +82,28 @@ export default function LabsHealthInfoScreen() {
     };
 
     const handleEditFastingGlucose = () => {
+        // Get current display value in user's preferred unit
+        const currentDisplayValue = fastingGlucoseMmol !== null 
+            ? formatGlucoseWithUnit(fastingGlucoseMmol, glucoseUnit).replace(` ${glucoseUnit}`, '')
+            : '';
+        
         Alert.prompt(
             'Fasting Glucose',
-            'Enter your fasting glucose level (mmol/L)',
+            `Enter your fasting glucose level (${glucoseUnit})`,
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
                     text: 'Save',
                     onPress: (value: string | undefined) => {
                         if (value) {
-                            setFastingGlucose(value + ' mmol/L');
-                            Alert.alert('Saved', 'Fasting glucose value updated successfully.');
+                            // Parse input and convert to mmol/L for storage
+                            const mmolValue = parseGlucoseInput(value, glucoseUnit);
+                            if (mmolValue !== null) {
+                                setFastingGlucoseMmol(mmolValue);
+                                Alert.alert('Saved', 'Fasting glucose value updated successfully.');
+                            } else {
+                                Alert.alert('Invalid', 'Please enter a valid number.');
+                            }
                         }
                     },
                 },
@@ -98,13 +111,13 @@ export default function LabsHealthInfoScreen() {
                     text: 'Remove',
                     style: 'destructive',
                     onPress: () => {
-                        setFastingGlucose(null);
+                        setFastingGlucoseMmol(null);
                         Alert.alert('Removed', 'Fasting glucose value has been removed.');
                     },
                 },
             ],
             'plain-text',
-            fastingGlucose?.replace(' mmol/L', '') || ''
+            currentDisplayValue
         );
     };
 
@@ -221,7 +234,7 @@ export default function LabsHealthInfoScreen() {
                         <View style={styles.divider} />
                         <HealthRow
                             label="Fasting Glucose"
-                            value={fastingGlucose}
+                            value={fastingGlucoseMmol !== null ? formatGlucoseWithUnit(fastingGlucoseMmol, glucoseUnit) : null}
                             onPress={handleEditFastingGlucose}
                         />
                         <View style={styles.divider} />

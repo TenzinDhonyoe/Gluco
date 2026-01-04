@@ -44,7 +44,7 @@ export default function SettingsScreen() {
         { label: 'Account & Privacy', onPress: () => router.push('/account-privacy' as never) },
         { label: 'Data Sources', onPress: () => router.push('/data-sources' as never) },
         { label: 'Customization', onPress: () => router.push('/customization') },
-        { label: 'Notifications', onPress: () => { } },
+        { label: 'Notifications', onPress: () => router.push('/notification-settings' as never) },
         { label: 'Lab & Health Info', onPress: () => router.push('/labs-health-info' as never) },
     ];
 

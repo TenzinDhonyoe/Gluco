@@ -15,7 +15,7 @@ import Animated, {
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const TAB_BAR_MARGIN = 16;
-const TAB_COUNT = 4;
+const TAB_COUNT = 3;
 const INDICATOR_WIDTH = 24;
 
 // Animated Tab Icon Component with bounce effect
@@ -35,7 +35,7 @@ function AnimatedTabIcon({
     const didMountRef = React.useRef(false);
 
     useEffect(() => {
-        // Avoid the “big” animation on initial app load
+        // Avoid the "big" animation on initial app load
         if (!didMountRef.current) {
             didMountRef.current = true;
             scale.value = 1;
@@ -160,20 +160,6 @@ function TabLayoutInner() {
                         <AnimatedTabIcon
                             name="stats-chart"
                             outlineName="stats-chart-outline"
-                            color={color}
-                            focused={focused}
-                        />
-                    ),
-                }}
-            />
-            <Tabs.Screen
-                name="coach"
-                options={{
-                    title: 'Coach',
-                    tabBarIcon: ({ color, focused }) => (
-                        <AnimatedTabIcon
-                            name="ellipse"
-                            outlineName="ellipse-outline"
                             color={color}
                             focused={focused}
                         />

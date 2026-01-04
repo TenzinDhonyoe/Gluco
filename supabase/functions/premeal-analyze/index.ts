@@ -938,7 +938,7 @@ function generateFallbackExplanations(baseline: BaselineResult): { drivers: Driv
 
     // Generate drivers from reason codes
     if (feature_reason_codes.includes('HIGH_NET_CARBS')) {
-        drivers.push({ text: `High net carbs (${debug.net_carbs}g) will cause a significant glucose rise`, reason_code: 'HIGH_NET_CARBS' });
+        drivers.push({ text: `Higher net carbs (${debug.net_carbs}g) often leads to a stronger meal response`, reason_code: 'HIGH_NET_CARBS' });
     }
     if (feature_reason_codes.includes('MODERATE_NET_CARBS')) {
         drivers.push({ text: `Moderate net carbs (${debug.net_carbs}g) may cause a mild glucose rise`, reason_code: 'MODERATE_NET_CARBS' });
@@ -947,10 +947,10 @@ function generateFallbackExplanations(baseline: BaselineResult): { drivers: Driv
         drivers.push({ text: `Low fiber (${debug.fibre_g}g) means faster carb absorption`, reason_code: 'LOW_FIBRE' });
     }
     if (feature_reason_codes.includes('LATE_MEAL')) {
-        drivers.push({ text: `Late ${debug.time_bucket} meals tend to cause higher spikes`, reason_code: 'LATE_MEAL' });
+        drivers.push({ text: `Later ${debug.time_bucket} meals may affect your response`, reason_code: 'LATE_MEAL' });
     }
     if (feature_reason_codes.includes('RECENT_SPIKES')) {
-        drivers.push({ text: `Your recent post-meal readings have been elevated`, reason_code: 'RECENT_SPIKES' });
+        drivers.push({ text: `Your recent after-meal readings have been elevated`, reason_code: 'RECENT_SPIKES' });
     }
     if (feature_reason_codes.includes('GOOD_PROTEIN')) {
         drivers.push({ text: `Good protein content (${debug.protein_g}g) helps moderate the response`, reason_code: 'GOOD_PROTEIN' });
@@ -970,7 +970,7 @@ function generateFallbackExplanations(baseline: BaselineResult): { drivers: Driv
         tips.push({ title: 'Consider a smaller portion', detail: 'Reducing portion size lowers total carbs', risk_reduction_pct: 15, action_type: 'PORTION_DOWN' });
     }
     if (debug.protein_g < 15) {
-        tips.push({ title: 'Add protein', detail: 'Protein slows digestion and reduces spikes', risk_reduction_pct: 10, action_type: 'ADD_PROTEIN' });
+        tips.push({ title: 'Add protein', detail: 'Protein slows digestion and supports steadier energy', risk_reduction_pct: 10, action_type: 'ADD_PROTEIN' });
     }
 
     return { drivers, adjustment_tips: tips.slice(0, 4) };
@@ -1046,6 +1046,102 @@ function fetchGlucoseContext(
         recent_variability: Math.round(stdDev * 10) / 10,
         recent_high_count: highCount,
     };
+}
+
+// ============================================
+// DAILY CONTEXT (HealthKit Data) FETCHING
+// ============================================
+
+interface DailyContextData {
+    sleep_hours: number | null;
+    steps: number | null;
+    active_minutes: number | null;
+    resting_hr: number | null;
+    hrv_ms: number | null;
+}
+
+async function fetchDailyContext(
+    supabase: any,
+    userId: string,
+    mealDate: Date
+): Promise<DailyContextData | null> {
+    try {
+        const dateStr = mealDate.toISOString().split('T')[0];
+        const yesterdayStr = new Date(mealDate.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+        // Try today first, fallback to yesterday
+        let { data } = await supabase
+            .from('daily_context')
+            .select('sleep_hours, steps, active_minutes, resting_hr, hrv_ms')
+            .eq('user_id', userId)
+            .eq('date', dateStr)
+            .single();
+
+        if (!data) {
+            const yesterday = await supabase
+                .from('daily_context')
+                .select('sleep_hours, steps, active_minutes, resting_hr, hrv_ms')
+                .eq('user_id', userId)
+                .eq('date', yesterdayStr)
+                .single();
+            data = yesterday.data;
+        }
+
+        return data || null;
+    } catch (error) {
+        console.warn('Failed to fetch daily context:', error);
+        return null;
+    }
+}
+
+/**
+ * Generate behavioral drivers based on daily context (sleep, activity)
+ * Uses non-medical, behavior-focused language
+ */
+function getDailyContextDrivers(context: DailyContextData | null): Driver[] {
+    if (!context) return [];
+
+    const drivers: Driver[] = [];
+
+    // Sleep-based behavioral drivers (non-medical language)
+    if (context.sleep_hours !== null) {
+        if (context.sleep_hours < 6) {
+            drivers.push({
+                text: 'Lower sleep last night may make meals feel harder to handle',
+                reason_code: 'LOW_SLEEP_CONTEXT'
+            });
+        } else if (context.sleep_hours >= 8) {
+            drivers.push({
+                text: 'Good rest last night supports better meal responses',
+                reason_code: 'GOOD_SLEEP_CONTEXT'
+            });
+        }
+    }
+
+    // Activity-based behavioral drivers (non-medical language)
+    if (context.active_minutes !== null) {
+        if (context.active_minutes >= 30) {
+            drivers.push({
+                text: 'Being more active today may help your body respond better',
+                reason_code: 'HIGH_ACTIVITY_CONTEXT'
+            });
+        } else if (context.active_minutes < 10) {
+            drivers.push({
+                text: 'Less movement today may affect how your body handles meals',
+                reason_code: 'LOW_ACTIVITY_CONTEXT'
+            });
+        }
+    }
+
+    // Steps-based context
+    if (context.steps !== null && context.steps >= 8000) {
+        drivers.push({
+            text: 'Great step count today supports healthy responses',
+            reason_code: 'HIGH_STEPS_CONTEXT'
+        });
+    }
+
+    return drivers;
 }
 
 function applyContextAdjustments(

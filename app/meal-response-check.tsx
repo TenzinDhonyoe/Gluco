@@ -1,8 +1,9 @@
 /**
- * Check Spike Risk Screen
- * Allows users to type what they plan to eat and get spike risk analysis
+ * Meal Response Check Screen
+ * Allows users to type what they plan to eat and get meal response analysis
  */
 
+import { Disclaimer } from '@/components/ui/Disclaimer';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { searchWithOrchestration } from '@/lib/foodSearch/orchestrator';
@@ -49,8 +50,8 @@ interface AnalysisResult {
     predicted_curve: PremealCurvePoint[];
 }
 
-// Spike Risk Gauge Component (reused from pre-meal-check)
-function SpikeRiskGauge({ risk }: { risk: number }) {
+// Meal Response Gauge Component (reused from pre-meal-check)
+function MealResponseGauge({ risk }: { risk: number }) {
     const size = 80;
     const strokeWidth = 8;
     const radius = (size - strokeWidth) / 2;
@@ -66,7 +67,7 @@ function SpikeRiskGauge({ risk }: { risk: number }) {
     const getLabel = () => {
         if (risk < 50) return 'Low';
         if (risk < 75) return 'Moderate';
-        return 'High';
+        return 'Higher';
     };
 
     return (
@@ -421,7 +422,7 @@ function estimateMatchConfidence(query: string, result: NormalizedFood): number 
     return Math.round(overlap * 70);
 }
 
-export default function CheckSpikeRiskScreen() {
+export default function MealResponseCheckScreen() {
     const { user } = useAuth();
     const { initialText } = useLocalSearchParams<{ initialText?: string }>();
     const [inputText, setInputText] = useState('');
@@ -616,7 +617,7 @@ export default function CheckSpikeRiskScreen() {
                     <TouchableOpacity onPress={handleClose} style={styles.closeButton} activeOpacity={0.7}>
                         <Ionicons name="close" size={20} color="#E7E8E9" />
                     </TouchableOpacity>
-                    <Text style={styles.headerTitle}>CHECK SPIKE RISK</Text>
+                    <Text style={styles.headerTitle}>MEAL RESPONSE CHECK</Text>
                     <View style={styles.headerSpacer} />
                 </View>
 
@@ -638,9 +639,9 @@ export default function CheckSpikeRiskScreen() {
                             <View style={styles.resultCard}>
                                 {/* Spike Risk */}
                                 <View style={styles.riskSection}>
-                                    <SpikeRiskGauge risk={analysisResult.spike_risk_pct} />
+                                    <MealResponseGauge risk={analysisResult.spike_risk_pct} />
                                     <View style={styles.riskInfo}>
-                                        <Text style={styles.riskTitle}>Spike Risk</Text>
+                                        <Text style={styles.riskTitle}>Meal Response</Text>
                                         <Text style={styles.riskDescription}>
                                             Based on your planned meal
                                         </Text>
@@ -671,7 +672,7 @@ export default function CheckSpikeRiskScreen() {
                             {/* Drivers */}
                             {analysisResult.drivers.length > 0 && (
                                 <View style={styles.section}>
-                                    <Text style={styles.sectionTitle}>What's affecting your spike</Text>
+                                    <Text style={styles.sectionTitle}>What may affect your response</Text>
                                     {analysisResult.drivers.map((driver, i) => (
                                         <View key={i} style={styles.driverItem}>
                                             <Ionicons
@@ -688,7 +689,7 @@ export default function CheckSpikeRiskScreen() {
                             {/* Tips */}
                             {analysisResult.adjustment_tips.length > 0 && (
                                 <View style={styles.section}>
-                                    <Text style={styles.sectionTitle}>Tips to reduce spike</Text>
+                                    <Text style={styles.sectionTitle}>Tips for a better response</Text>
                                     {analysisResult.adjustment_tips.map((tip, i) => (
                                         <View key={i} style={styles.tipCard}>
                                             <Ionicons name="bulb-outline" size={20} color="#CAA163" />
@@ -700,6 +701,9 @@ export default function CheckSpikeRiskScreen() {
                                     ))}
                                 </View>
                             )}
+
+                            {/* Disclaimer */}
+                            <Disclaimer variant="short" style={{ marginTop: 16 }} />
 
                             {/* Try Again Button */}
                             <TouchableOpacity

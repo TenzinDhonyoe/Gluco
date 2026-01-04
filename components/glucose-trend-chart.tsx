@@ -1,10 +1,15 @@
 import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
+import { GlucoseUnit, formatGlucose } from '@/lib/utils/glucoseUnits';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, LayoutChangeEvent, PanResponder, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, ClipPath, Defs, G, Line, Path, Rect } from 'react-native-svg';
+import { LayoutChangeEvent, PanResponder, StyleSheet, Text, View } from 'react-native';
+import Animated, { Easing, useAnimatedProps, useSharedValue, withTiming } from 'react-native-reanimated';
+import Svg, { ClipPath, Defs, G, Line, Path, Rect, Circle as SvgCircle } from 'react-native-svg';
 
-// Create animated path component
+// Create animated circle component
+const AnimatedCircle = Animated.createAnimatedComponent(SvgCircle);
+
+// Create animated path component with reanimated
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 export type GlucosePoint = {
@@ -20,6 +25,7 @@ type Props = {
   height?: number;
   targetLow?: number;         // Custom target range minimum (mmol/L)
   targetHigh?: number;        // Custom target range maximum (mmol/L)
+  glucoseUnit?: GlucoseUnit;  // User's preferred display unit
   activeIndex?: number;
   onActiveIndexChange?: (index: number) => void;
 };
@@ -43,6 +49,7 @@ export function GlucoseTrendChart({
   height = 200,
   targetLow = DEFAULT_TARGET_LOW,
   targetHigh = DEFAULT_TARGET_HIGH,
+  glucoseUnit = 'mmol/L',
   activeIndex,
   onActiveIndexChange,
 }: Props) {
@@ -51,26 +58,22 @@ export function GlucoseTrendChart({
   const [isTouching, setIsTouching] = useState(false);
   const active = activeIndex ?? internalActive;
   const lastEmitted = useRef<number | null>(null);
-  const prevDataRef = useRef<string>('');
+  const prevPathRef = useRef<string>('');
+  const prevPointsRef = useRef<{ x: number; y: number }[]>([]);
 
-  // Animation for line drawing effect
-  const lineAnim = useRef(new Animated.Value(0)).current;
+  // Use reanimated shared values for smooth path transitions
+  const pathProgress = useSharedValue(0);
+  const lineOpacity = useSharedValue(1);
+  const dotsOpacity = useSharedValue(1);
 
-  useEffect(() => {
-    // Create a signature of current data to detect changes
-    const dataSignature = trendData.map((d: GlucosePoint) => d.value.toFixed(1)).join(',');
+  // Define animated props at component level (not inside loops or render)
+  const lineAnimatedProps = useAnimatedProps(() => ({
+    opacity: lineOpacity.value,
+  }));
 
-    // Trigger animation when data actually changes (not just length)
-    if (prevDataRef.current !== dataSignature && trendData.length > 0) {
-      prevDataRef.current = dataSignature;
-      lineAnim.setValue(0);
-      Animated.timing(lineAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [trendData, lineAnim]);
+  const dotsAnimatedProps = useAnimatedProps(() => ({
+    opacity: dotsOpacity.value,
+  }));
 
   const chartH = height - PAD_TOP - PAD_BOTTOM;
   const chartW = Math.max(0, w - PAD_LEFT - PAD_RIGHT);
@@ -127,6 +130,64 @@ export function GlucoseTrendChart({
     };
   }, [rawData, trendData, chartH, chartW, targetLow, targetHigh]);
 
+  // Animate path transition when data changes
+  useEffect(() => {
+    if (trendPoints.length === 0) {
+      lineOpacity.value = withTiming(0, { 
+        duration: 200,
+        easing: Easing.out(Easing.ease),
+      });
+      dotsOpacity.value = withTiming(0, { 
+        duration: 200,
+        easing: Easing.out(Easing.ease),
+      });
+      return;
+    }
+
+    // Check if path actually changed
+    const currentPath = trendPathD;
+    if (prevPathRef.current === currentPath) {
+      return;
+    }
+
+    // If we have previous points, animate transition smoothly
+    if (prevPointsRef.current.length > 0 && prevPathRef.current) {
+      // Smooth transition: fade slightly then fade back in with easing
+      lineOpacity.value = withTiming(0.5, { 
+        duration: 200,
+        easing: Easing.inOut(Easing.ease),
+      }, () => {
+        prevPathRef.current = currentPath;
+        prevPointsRef.current = trendPoints;
+        lineOpacity.value = withTiming(1, { 
+          duration: 500,
+          easing: Easing.out(Easing.ease),
+        });
+      });
+      dotsOpacity.value = withTiming(0.5, { 
+        duration: 200,
+        easing: Easing.inOut(Easing.ease),
+      }, () => {
+        dotsOpacity.value = withTiming(1, { 
+          duration: 500,
+          easing: Easing.out(Easing.ease),
+        });
+      });
+    } else {
+      // First render - just fade in smoothly
+      prevPathRef.current = currentPath;
+      prevPointsRef.current = trendPoints;
+      lineOpacity.value = withTiming(1, { 
+        duration: 500,
+        easing: Easing.out(Easing.ease),
+      });
+      dotsOpacity.value = withTiming(1, { 
+        duration: 500,
+        easing: Easing.out(Easing.ease),
+      });
+    }
+  }, [trendPathD, trendPoints, lineOpacity, dotsOpacity]);
+
   const updateActiveFromX = (x: number) => {
     if (!rawData.length || chartW <= 0) return;
     const clamped = Math.max(PAD_LEFT, Math.min(PAD_LEFT + chartW, x));
@@ -169,8 +230,17 @@ export function GlucoseTrendChart({
   const activeRawData = active != null ? rawData[active] : null;
   const showIndicator = isTouching && !!activePt && !!activeRawData && w > 0;
 
-  // Y-axis values to display
-  const yLabels = [12, 10, 8, 6, 4];
+  // Y-axis values to display (in mmol/L - will be converted for display)
+  const yLabelsMmol = [12, 10, 8, 6, 4];
+  
+  // Format Y-axis labels based on unit
+  const yLabels = useMemo(() => 
+    yLabelsMmol.map(val => ({
+      mmol: val,
+      display: formatGlucose(val, glucoseUnit),
+    })),
+    [glucoseUnit]
+  );
 
   return (
     <View style={[styles.container, { height }]} onLayout={onLayout} {...panResponder.panHandlers}>
@@ -212,11 +282,11 @@ export function GlucoseTrendChart({
                 />
 
                 {/* Subtle horizontal grid lines */}
-                {yLabels.map((val) => {
-                  const y = PAD_TOP + ((GLUCOSE_MAX - val) / (GLUCOSE_MAX - GLUCOSE_MIN)) * chartH;
+                {yLabels.map(({ mmol }) => {
+                  const y = PAD_TOP + ((GLUCOSE_MAX - mmol) / (GLUCOSE_MAX - GLUCOSE_MIN)) * chartH;
                   return (
                     <Line
-                      key={val}
+                      key={mmol}
                       x1={PAD_LEFT}
                       y1={y}
                       x2={PAD_LEFT + chartW}
@@ -248,18 +318,19 @@ export function GlucoseTrendChart({
                 />
               </G>
 
-              {/* Layer A: Faint dots for raw daily readings */}
+              {/* Layer A: Faint dots for raw daily readings with smooth transitions */}
               {rawPoints.map((pt, idx) => (
-                <Circle
+                <AnimatedCircle
                   key={`raw-${idx}`}
                   cx={pt.x}
                   cy={pt.y}
                   r={4}
                   fill="rgba(52, 148, 217, 0.4)"
+                  animatedProps={dotsAnimatedProps}
                 />
               ))}
 
-              {/* Layer B: Animated trend line (rolling average) */}
+              {/* Layer B: Animated trend line (rolling average) with smooth transitions */}
               <AnimatedPath
                 d={trendPathD}
                 stroke="#3494D9"
@@ -267,7 +338,7 @@ export function GlucoseTrendChart({
                 fill="none"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                opacity={lineAnim}
+                animatedProps={lineAnimatedProps}
               />
 
               {/* Active point indicator - only shown when touching */}
@@ -281,8 +352,8 @@ export function GlucoseTrendChart({
                     stroke="rgba(255,255,255,0.15)"
                     strokeWidth={1}
                   />
-                  <Circle cx={activePt.x} cy={activePt.y} r={6} fill="#fff" />
-                  <Circle cx={activePt.x} cy={activePt.y} r={4} fill="#3494D9" />
+                  <SvgCircle cx={activePt.x} cy={activePt.y} r={6} fill="#fff" />
+                  <SvgCircle cx={activePt.x} cy={activePt.y} r={4} fill="#3494D9" />
                 </>
               )}
             </Svg>
@@ -290,11 +361,11 @@ export function GlucoseTrendChart({
 
           {/* Y-axis labels */}
           <View style={styles.yAxis} pointerEvents="none">
-            {yLabels.map((val) => {
-              const y = PAD_TOP + ((GLUCOSE_MAX - val) / (GLUCOSE_MAX - GLUCOSE_MIN)) * chartH;
+            {yLabels.map(({ mmol, display }) => {
+              const y = PAD_TOP + ((GLUCOSE_MAX - mmol) / (GLUCOSE_MAX - GLUCOSE_MIN)) * chartH;
               return (
-                <Text key={val} style={[styles.yLabel, { top: y - 6 }]}>
-                  {val}
+                <Text key={mmol} style={[styles.yLabel, { top: y - 6 }]}>
+                  {display}
                 </Text>
               );
             })}
@@ -360,7 +431,7 @@ export function GlucoseTrendChart({
                 { left: Math.min(Math.max(PAD_LEFT, activePt.x - 40), w - 88) },
               ]}
             >
-              <Text style={styles.tooltipValue}>{activeRawData.value.toFixed(1)}</Text>
+              <Text style={styles.tooltipValue}>{formatGlucose(activeRawData.value, glucoseUnit)}</Text>
               <Text style={styles.tooltipLabel}>{activeRawData.label}</Text>
             </View>
           )}

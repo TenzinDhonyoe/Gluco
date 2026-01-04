@@ -1,7 +1,9 @@
+import { Disclaimer } from '@/components/ui/Disclaimer';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { updateUserProfile } from '@/lib/supabase';
+import { requestHealthKitAuthorization } from '@/lib/healthkit';
+import { TrackingMode, updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
@@ -33,6 +35,8 @@ const GOALS = [
 
 export default function Onboarding5Screen() {
     const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
+    const [hasCGM, setHasCGM] = useState<boolean | null>(null);
+    const [manualGlucose, setManualGlucose] = useState<boolean | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const scrollViewRef = React.useRef<ScrollView>(null);
     const { user, refreshProfile } = useAuth();
@@ -40,12 +44,30 @@ export default function Onboarding5Screen() {
     const totalSteps = 5;
     const maxSelections = 3;
 
+    // Determine tracking mode based on selections
+    const getTrackingMode = (): TrackingMode => {
+        if (hasCGM === true) return 'glucose_tracking';
+        if (manualGlucose === true) return 'glucose_tracking';
+        return 'wearables_only';
+    };
+
     const handleContinue = async () => {
         setIsLoading(true);
         try {
+            const trackingMode = getTrackingMode();
+
+            // Request HealthKit permissions for wearables_only mode
+            if (trackingMode === 'wearables_only') {
+                // Non-blocking: continue even if denied
+                await requestHealthKitAuthorization().catch(() => { });
+            }
+
             if (user) {
                 await updateUserProfile(user.id, {
                     goals: selectedGoals,
+                    tracking_mode: trackingMode,
+                    has_cgm: hasCGM === true,
+                    manual_glucose_enabled: manualGlucose === true,
                     onboarding_completed: true,
                 });
                 // Refresh profile to update context
@@ -80,7 +102,7 @@ export default function Onboarding5Screen() {
         });
     };
 
-    const canContinue = selectedGoals.length > 0;
+    const canContinue = selectedGoals.length > 0 && hasCGM !== null && (hasCGM === true || manualGlucose !== null);
 
     return (
         <View style={styles.container}>
@@ -128,8 +150,67 @@ export default function Onboarding5Screen() {
 
                             {/* Content Section */}
                             <View style={styles.content}>
-                                {/* Title Section */}
+                                {/* Tracking Mode Section */}
                                 <View style={styles.titleSection}>
+                                    <Text style={styles.titleLabel}>HOW DO YOU TRACK?</Text>
+                                    <Text style={styles.description}>
+                                        We'll personalize your experience based on your tracking preferences.
+                                    </Text>
+                                </View>
+
+                                {/* CGM Toggle */}
+                                <View style={styles.goalsListContainer}>
+                                    <Text style={styles.toggleQuestion}>Do you use a CGM?</Text>
+                                    <View style={styles.toggleRow}>
+                                        <TouchableOpacity
+                                            style={[styles.toggleButton, hasCGM === true && styles.toggleButtonSelected]}
+                                            onPress={() => setHasCGM(true)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[styles.toggleButtonText, hasCGM === true && styles.toggleButtonTextSelected]}>Yes</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.toggleButton, hasCGM === false && styles.toggleButtonSelected]}
+                                            onPress={() => setHasCGM(false)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[styles.toggleButtonText, hasCGM === false && styles.toggleButtonTextSelected]}>No</Text>
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    {/* Manual Glucose Toggle - Only show if no CGM */}
+                                    {hasCGM === false && (
+                                        <>
+                                            <Text style={[styles.toggleQuestion, { marginTop: 20 }]}>
+                                                Do you plan to log glucose manually?
+                                            </Text>
+                                            <View style={styles.toggleRow}>
+                                                <TouchableOpacity
+                                                    style={[styles.toggleButton, manualGlucose === true && styles.toggleButtonSelected]}
+                                                    onPress={() => setManualGlucose(true)}
+                                                    activeOpacity={0.7}
+                                                >
+                                                    <Text style={[styles.toggleButtonText, manualGlucose === true && styles.toggleButtonTextSelected]}>Yes</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={[styles.toggleButton, manualGlucose === false && styles.toggleButtonSelected]}
+                                                    onPress={() => setManualGlucose(false)}
+                                                    activeOpacity={0.7}
+                                                >
+                                                    <Text style={[styles.toggleButtonText, manualGlucose === false && styles.toggleButtonTextSelected]}>No</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                            {manualGlucose === false && (
+                                                <Text style={styles.helperText}>
+                                                    We'll use Apple Health to track your activity instead.
+                                                </Text>
+                                            )}
+                                        </>
+                                    )}
+                                </View>
+
+                                {/* Title Section */}
+                                <View style={[styles.titleSection, { marginTop: 24 }]}>
                                     <Text style={styles.titleLabel}>WHAT ARE YOUR PRIMARY GOALS?</Text>
                                     <View style={styles.descriptionContainer}>
                                         <Text style={styles.description}>
@@ -173,6 +254,9 @@ export default function Onboarding5Screen() {
                                 </View>
                             </View>
                         </ScrollView>
+
+                        {/* Disclaimer */}
+                        <Disclaimer variant="short" style={{ marginHorizontal: 16, marginBottom: 12 }} />
 
                         {/* Continue Button - Fixed at Bottom */}
                         <View style={styles.buttonContainer}>
@@ -337,6 +421,46 @@ const styles = StyleSheet.create({
         lineHeight: 15 * 0.95, // 0.95 line-height
         letterSpacing: 0,
         color: Colors.textPrimary, // White
+    },
+    // Tracking mode toggle styles
+    toggleQuestion: {
+        fontFamily: fonts.medium,
+        fontSize: 16,
+        color: Colors.textPrimary,
+        marginBottom: 12,
+    },
+    toggleRow: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    toggleButton: {
+        flex: 1,
+        paddingVertical: 14,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+        backgroundColor: '#1b1b1c',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'transparent',
+    },
+    toggleButtonSelected: {
+        backgroundColor: '#285E2A',
+        borderColor: '#448D47',
+    },
+    toggleButtonText: {
+        fontFamily: fonts.medium,
+        fontSize: 15,
+        color: '#878787',
+    },
+    toggleButtonTextSelected: {
+        color: Colors.textPrimary,
+    },
+    helperText: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#878787',
+        marginTop: 12,
+        fontStyle: 'italic',
     },
 });
 

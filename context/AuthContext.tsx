@@ -1,6 +1,9 @@
-import { supabase, UserProfile, getUserProfile } from '@/lib/supabase';
+import { getUserProfile, GlucoseUnit, supabase, UserProfile } from '@/lib/supabase';
 import { Session, User } from '@supabase/supabase-js';
 import React, { createContext, useContext, useEffect, useState } from 'react';
+
+// Default glucose unit when user hasn't set a preference
+const DEFAULT_GLUCOSE_UNIT: GlucoseUnit = 'mmol/L';
 
 interface AuthContextType {
     user: User | null;
@@ -11,6 +14,7 @@ interface AuthContextType {
     signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
     signOut: () => Promise<void>;
     refreshProfile: () => Promise<void>;
+    resetPassword: (email: string) => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -133,6 +137,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    const resetPassword = async (email: string): Promise<{ error: Error | null }> => {
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: 'glucofigma://reset-password',
+            });
+
+            if (error) {
+                return { error };
+            }
+
+            return { error: null };
+        } catch (error) {
+            return { error: error as Error };
+        }
+    };
+
     return (
         <AuthContext.Provider
             value={{
@@ -144,6 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 signIn,
                 signOut,
                 refreshProfile,
+                resetPassword,
             }}
         >
             {children}
@@ -157,5 +178,14 @@ export function useAuth() {
         throw new Error('useAuth must be used within an AuthProvider');
     }
     return context;
+}
+
+/**
+ * Hook to get the user's preferred glucose unit
+ * Returns mmol/L as the safe default if profile is not loaded or unit not set
+ */
+export function useGlucoseUnit(): GlucoseUnit {
+    const { profile } = useAuth();
+    return profile?.glucose_unit ?? DEFAULT_GLUCOSE_UNIT;
 }
 

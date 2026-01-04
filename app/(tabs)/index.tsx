@@ -4,12 +4,14 @@ import { AnimatedScreen } from '@/components/animated-screen';
 import { GlucoseTrendChart, type TrendPoint } from '@/components/glucose-trend-chart';
 import { SegmentedControl } from '@/components/segmented-control';
 import { Colors } from '@/constants/Colors';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
+import { useDailyContext } from '@/hooks/useDailyContext';
 import { fonts } from '@/hooks/useFonts';
-import { useSleepData, SleepData } from '@/hooks/useSleepData';
+import { SleepData, useSleepData } from '@/hooks/useSleepData';
 import { useGlucoseTargetRange, useTodayScreenData } from '@/hooks/useTodayScreenData';
 import { GlucoseLog, PostMealReview } from '@/lib/supabase';
 import { getDateRange, getRangeDays, getRangeLabel, getRangeShortLabel, RangeKey } from '@/lib/utils/dateRanges';
+import { convertFromMmol, formatGlucose, formatGlucoseWithUnit, formatTargetRange, GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -18,7 +20,9 @@ import {
     ActivityIndicator,
     Animated,
     Dimensions,
+    KeyboardAvoidingView,
     Modal,
+    PanResponder,
     Platform,
     Pressable,
     ScrollView,
@@ -125,12 +129,17 @@ function transformLogsToChartData(logs: GlucoseLog[], range: RangeKey): ChartDat
 }
 
 // Memoized Glucose Trends Card component
-const GlucoseTrendsCard = React.memo(({ range, allLogs, isLoading }: { 
-    range: RangeKey; 
+const GlucoseTrendsCard = React.memo(({ range, allLogs, isLoading, glucoseUnit }: {
+    range: RangeKey;
     allLogs: GlucoseLog[];
     isLoading: boolean;
+    glucoseUnit: GlucoseUnit;
 }) => {
     const { targetMin, targetMax } = useGlucoseTargetRange();
+
+    // Keep track of the last valid average to show during loading
+    const lastAvgRef = React.useRef<number>(0);
+    const hasEverHadData = React.useRef<boolean>(false);
 
     // Filter logs based on selected range and transform to chart data
     const chartData = useMemo(() => {
@@ -146,6 +155,16 @@ const GlucoseTrendsCard = React.memo(({ range, allLogs, isLoading }: {
 
     // Calculate current period average from raw points
     const avg = useMemo(() => computeAverage(rawPoints), [rawPoints]);
+
+    // Update the last valid average when we have new data
+    const hasData = rawPoints.length > 0;
+    if (hasData && avg > 0) {
+        lastAvgRef.current = avg;
+        hasEverHadData.current = true;
+    }
+
+    // Use the current avg if we have data, otherwise use the last known value
+    const displayAvg = hasData ? avg : lastAvgRef.current;
 
     // Calculate delta vs previous period
     const delta = useMemo(() => {
@@ -170,28 +189,29 @@ const GlucoseTrendsCard = React.memo(({ range, allLogs, isLoading }: {
     }, [allLogs, range, avg]);
 
     const status = useMemo(() => getStatus(avg, targetMin, targetMax), [avg, targetMin, targetMax]);
-    const hasData = rawPoints.length > 0;
+
+    // Format the average for display - convert to user's unit
+    const displayAvgFormatted = convertFromMmol(displayAvg, glucoseUnit);
 
     return (
         <View style={styles.trendsCard}>
             <View style={styles.trendsHeaderRow}>
                 <View style={styles.trendsHeaderLeft}>
                     <View style={styles.avgRow}>
-                        {isLoading ? (
-                            <ActivityIndicator size="small" color="#878787" />
-                        ) : hasData ? (
+                        {hasEverHadData.current || hasData ? (
                             <>
                                 <AnimatedNumber
-                                    value={avg}
-                                    duration={600}
+                                    value={displayAvgFormatted}
+                                    duration={800}
                                     style={styles.avgValue}
+                                    formatValue={(v) => glucoseUnit === 'mg/dL' ? Math.round(v).toString() : v.toFixed(1)}
                                 />
-                                <Text style={styles.avgUnit}>mmol/L</Text>
+                                <Text style={styles.avgUnit}>{glucoseUnit}</Text>
                             </>
                         ) : (
                             <>
                                 <Text style={styles.avgValue}>--</Text>
-                                <Text style={styles.avgUnit}>mmol/L</Text>
+                                <Text style={styles.avgUnit}>{glucoseUnit}</Text>
                             </>
                         )}
                     </View>
@@ -202,36 +222,33 @@ const GlucoseTrendsCard = React.memo(({ range, allLogs, isLoading }: {
                     <View style={[styles.statusPill, { backgroundColor: status.bg, borderColor: status.color }]}>
                         <View style={[styles.statusDot, { backgroundColor: status.color }]} />
                         <Text style={[styles.statusText, { color: status.color }]}>
-                            {status.label} ({targetMin}–{targetMax})
+                            {status.label} ({formatTargetRange(targetMin, targetMax, glucoseUnit)})
                         </Text>
                     </View>
                 )}
             </View>
 
             <View style={styles.chartBlock}>
-                {isLoading ? (
-                    <View style={styles.chartLoading}>
-                        <ActivityIndicator size="large" color="#3494D9" />
-                    </View>
-                ) : hasData ? (
+                {hasData ? (
                     <GlucoseTrendChart
                         rawData={rawPoints}
                         trendData={trendPoints}
                         height={200}
                         targetLow={targetMin}
                         targetHigh={targetMax}
+                        glucoseUnit={glucoseUnit}
                     />
-                ) : (
+                ) : !isLoading ? (
                     <View style={styles.chartEmpty}>
                         <Ionicons name="analytics-outline" size={40} color="#878787" />
                         <Text style={styles.chartEmptyText}>No glucose data for this period</Text>
                         <Text style={styles.chartEmptySubtext}>Log your glucose levels to see trends</Text>
                     </View>
-                )}
+                ) : null}
             </View>
         </View>
     );
-}, (prev, next) => prev.range === next.range && prev.isLoading === next.isLoading && prev.allLogs.length === next.allLogs.length);
+}, (prev, next) => prev.range === next.range && prev.isLoading === next.isLoading && prev.allLogs.length === next.allLogs.length && prev.glucoseUnit === next.glucoseUnit);
 
 // Stat Card Component
 function StatCard({ icon, iconColor, title, value, unit, description }: {
@@ -342,12 +359,12 @@ function CGMConnectionCard() {
 // Spike threshold - readings above this are considered a spike (mmol/L)
 const SPIKE_THRESHOLD = 10.0;
 // Memoized In Range Stat Card - calculates % of days where glucose was in target range
-const DaysInRangeCard = React.memo(({ range, glucoseLogs }: { 
+const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
     range: RangeKey;
     glucoseLogs: GlucoseLog[];
 }) => {
     const { targetMin, targetMax } = useGlucoseTargetRange();
-    
+
     const percentage = useMemo(() => {
         const { startDate, endDate } = getDateRange(range);
         const filteredLogs = glucoseLogs.filter(log => {
@@ -405,7 +422,7 @@ const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
 }, (prev, next) => prev.range === next.range && prev.glucoseLogs === next.glucoseLogs);
 
 // Memoized Activity Stat Card - shows total activity duration from logged activities
-const ActivityStatCard = React.memo(({ range, activityLogs }: { 
+const ActivityStatCard = React.memo(({ range, activityLogs }: {
     range: RangeKey;
     activityLogs: any[];
 }) => {
@@ -464,7 +481,7 @@ function getFibreStatusColor(status: FibreStatus): string {
 }
 
 // Memoized Fibre Stat Card - shows fibre intake from logged meals
-const FibreStatCard = React.memo(({ range, fibreSummary }: { 
+const FibreStatCard = React.memo(({ range, fibreSummary }: {
     range: RangeKey;
     fibreSummary: { avgPerDay: number } | null;
 }) => {
@@ -514,7 +531,7 @@ function getSleepStatusColor(status: SleepStatus): string {
 }
 
 // Memoized Sleep Stat Card - shows average sleep duration from HealthKit
-const SleepStatCard = React.memo(({ range, sleepData }: { 
+const SleepStatCard = React.memo(({ range, sleepData }: {
     range: RangeKey;
     sleepData: SleepData | null;
 }) => {
@@ -526,7 +543,7 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
     const statusColor = getSleepStatusColor(status);
 
     // Format hours - show whole number like "5" or decimal like "7.5"
-    const displayValue = isAuthorized && avgHours > 0 
+    const displayValue = isAuthorized && avgHours > 0
         ? (avgHours % 1 === 0 ? Math.round(avgHours).toString() : avgHours.toFixed(1))
         : '--';
 
@@ -538,9 +555,9 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
     };
 
     return (
-        <TouchableOpacity 
-            style={styles.statCard} 
-            onPress={handlePress} 
+        <TouchableOpacity
+            style={styles.statCard}
+            onPress={handlePress}
             disabled={isAuthorized}
             activeOpacity={isAuthorized ? 1 : 0.7}
         >
@@ -553,17 +570,125 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
                 <Text style={styles.statUnit}>hr/night</Text>
             </View>
             <Text style={styles.statDescription}>
-                {!isAvailable 
-                    ? 'iOS only' 
-                    : isAuthorized 
-                        ? getRangeShortLabel(range) 
+                {!isAvailable
+                    ? 'iOS only'
+                    : isAuthorized
+                        ? getRangeShortLabel(range)
                         : 'Tap to connect'}
             </Text>
         </TouchableOpacity>
     );
 }, (prev, next) => prev.range === next.range && prev.sleepData === next.sleepData);
 
-// Spike Risk Input Sheet - Bottom sheet for quick meal input
+// Steps Stat Card - for wearables_only mode (Apple Health)
+const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }: {
+    avgSteps: number | null;
+    isAuthorized: boolean;
+    isAvailable: boolean;
+    range: RangeKey;
+}) => {
+    const displayValue = isAuthorized && avgSteps !== null
+        ? avgSteps.toLocaleString()
+        : '—';
+
+    const handlePress = () => {
+        if (!isAuthorized && isAvailable) {
+            router.push('/data-sources');
+        }
+    };
+
+    return (
+        <TouchableOpacity
+            style={styles.statCard}
+            onPress={handlePress}
+            disabled={isAuthorized}
+            activeOpacity={isAuthorized ? 1 : 0.7}
+        >
+            <View style={styles.statHeader}>
+                <Ionicons name="footsteps" size={32} color="#4A90D9" />
+                <Text style={[styles.statTitle, { color: '#4A90D9' }]}>STEPS</Text>
+            </View>
+            <View style={styles.statValueContainer}>
+                <Text style={styles.statValue}>{displayValue}</Text>
+                <Text style={styles.statUnit}>/day</Text>
+            </View>
+            <Text style={styles.statDescription}>
+                {!isAvailable
+                    ? 'Not available'
+                    : isAuthorized
+                        ? getRangeShortLabel(range)
+                        : 'Not connected'}
+            </Text>
+            <Text style={styles.dataSourceLabel}>Apple Health</Text>
+        </TouchableOpacity>
+    );
+});
+
+// Active Minutes Stat Card - for wearables_only mode (Apple Health)
+const ActiveMinutesStatCard = React.memo(({ avgMinutes, isAuthorized, isAvailable, range }: {
+    avgMinutes: number | null;
+    isAuthorized: boolean;
+    isAvailable: boolean;
+    range: RangeKey;
+}) => {
+    const displayValue = isAuthorized && avgMinutes !== null
+        ? Math.round(avgMinutes).toString()
+        : '—';
+
+    const handlePress = () => {
+        if (!isAuthorized && isAvailable) {
+            router.push('/data-sources');
+        }
+    };
+
+    return (
+        <TouchableOpacity
+            style={styles.statCard}
+            onPress={handlePress}
+            disabled={isAuthorized}
+            activeOpacity={isAuthorized ? 1 : 0.7}
+        >
+            <View style={styles.statHeader}>
+                <Ionicons name="flame" size={32} color="#FF6B35" />
+                <Text style={[styles.statTitle, { color: '#FF6B35' }]}>ACTIVE</Text>
+            </View>
+            <View style={styles.statValueContainer}>
+                <Text style={styles.statValue}>{displayValue}</Text>
+                <Text style={styles.statUnit}>min/day</Text>
+            </View>
+            <Text style={styles.statDescription}>
+                {!isAvailable
+                    ? 'Not available'
+                    : isAuthorized
+                        ? getRangeShortLabel(range)
+                        : 'Not connected'}
+            </Text>
+            <Text style={styles.dataSourceLabel}>Apple Health</Text>
+        </TouchableOpacity>
+    );
+});
+
+// Connect Apple Health CTA Card
+const ConnectHealthCTA = () => {
+    const handlePress = async () => {
+        const { requestHealthKitAuthorization } = await import('@/lib/healthkit');
+        await requestHealthKitAuthorization();
+    };
+
+    return (
+        <TouchableOpacity style={styles.connectHealthCard} onPress={handlePress} activeOpacity={0.7}>
+            <Ionicons name="heart-circle" size={28} color="#FF375F" />
+            <View style={styles.connectHealthContent}>
+                <Text style={styles.connectHealthTitle}>Connect Apple Health</Text>
+                <Text style={styles.connectHealthSubtitle}>Track steps, activity, and sleep</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#878787" />
+        </TouchableOpacity>
+    );
+};
+
+
+// Meal Response Input Sheet - Bottom sheet for quick meal input
 function SpikeRiskInputSheet({
     visible,
     onClose,
@@ -614,44 +739,49 @@ function SpikeRiskInputSheet({
             animationType="fade"
             onRequestClose={handleClose}
         >
-            <Pressable style={spikeSheetStyles.overlay} onPress={handleClose}>
-                <Animated.View
-                    style={[
-                        spikeSheetStyles.sheet,
-                        { transform: [{ translateY: slideAnim }] }
-                    ]}
-                >
-                    <Pressable onPress={() => { }}>
-                        <View style={spikeSheetStyles.handle} />
-                        <Text style={spikeSheetStyles.title}>Check spike risk</Text>
-                        <Text style={spikeSheetStyles.subtitle}>
-                            What are you planning to eat?
-                        </Text>
-                        <TextInput
-                            style={spikeSheetStyles.input}
-                            placeholder="e.g., butter chicken with naan and rice"
-                            placeholderTextColor="#878787"
-                            value={inputText}
-                            onChangeText={setInputText}
-                            multiline
-                            numberOfLines={3}
-                            textAlignVertical="top"
-                            autoFocus
-                        />
-                        <TouchableOpacity
-                            style={[
-                                spikeSheetStyles.analyzeButton,
-                                !inputText.trim() && spikeSheetStyles.analyzeButtonDisabled,
-                            ]}
-                            onPress={handleAnalyze}
-                            disabled={!inputText.trim()}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={spikeSheetStyles.analyzeButtonText}>Analyze</Text>
-                        </TouchableOpacity>
-                    </Pressable>
-                </Animated.View>
-            </Pressable>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+            >
+                <Pressable style={spikeSheetStyles.overlay} onPress={handleClose}>
+                    <Animated.View
+                        style={[
+                            spikeSheetStyles.sheet,
+                            { transform: [{ translateY: slideAnim }] }
+                        ]}
+                    >
+                        <Pressable onPress={() => { }}>
+                            <View style={spikeSheetStyles.handle} />
+                            <Text style={spikeSheetStyles.title}>Check meal response</Text>
+                            <Text style={spikeSheetStyles.subtitle}>
+                                What are you planning to eat?
+                            </Text>
+                            <TextInput
+                                style={spikeSheetStyles.input}
+                                placeholder="e.g., butter chicken with naan and rice"
+                                placeholderTextColor="#878787"
+                                value={inputText}
+                                onChangeText={setInputText}
+                                multiline
+                                numberOfLines={3}
+                                textAlignVertical="top"
+                                autoFocus
+                            />
+                            <TouchableOpacity
+                                style={[
+                                    spikeSheetStyles.analyzeButton,
+                                    !inputText.trim() && spikeSheetStyles.analyzeButtonDisabled,
+                                ]}
+                                onPress={handleAnalyze}
+                                disabled={!inputText.trim()}
+                                activeOpacity={0.8}
+                            >
+                                <Text style={spikeSheetStyles.analyzeButtonText}>Analyze</Text>
+                            </TouchableOpacity>
+                        </Pressable>
+                    </Animated.View>
+                </Pressable>
+            </KeyboardAvoidingView>
         </Modal>
     );
 }
@@ -717,31 +847,217 @@ const spikeSheetStyles = StyleSheet.create({
     },
 });
 
-// Tip Card Component
-function TipCard({ onPress }: { onPress: () => void }) {
+// Exercise Input Sheet - Bottom sheet for exercise input
+function ExerciseInputSheet({
+    visible,
+    onClose,
+    onAnalyze
+}: {
+    visible: boolean;
+    onClose: () => void;
+    onAnalyze: (text: string) => void;
+}) {
+    const [inputText, setInputText] = React.useState('');
+    const slideAnim = React.useRef(new Animated.Value(300)).current;
+
+    React.useEffect(() => {
+        if (visible) {
+            Animated.spring(slideAnim, {
+                toValue: 0,
+                useNativeDriver: true,
+                tension: 65,
+                friction: 11,
+            }).start();
+        } else {
+            slideAnim.setValue(300);
+        }
+    }, [visible, slideAnim]);
+
+    const handleAnalyze = () => {
+        if (inputText.trim()) {
+            onAnalyze(inputText.trim());
+            setInputText('');
+        }
+    };
+
+    const handleClose = () => {
+        Animated.timing(slideAnim, {
+            toValue: 300,
+            duration: 200,
+            useNativeDriver: true,
+        }).start(() => {
+            setInputText('');
+            onClose();
+        });
+    };
+
     return (
-        <TouchableOpacity
-            style={styles.tipCardContainer}
-            onPress={onPress}
-            activeOpacity={0.8}
+        <Modal
+            visible={visible}
+            transparent
+            animationType="fade"
+            onRequestClose={handleClose}
         >
-            <View style={styles.tipCardShadow} />
-            <View style={styles.tipCard}>
-                <Ionicons name="bulb" size={24} color="#CAA163" />
-                <Text style={styles.tipText}>
-                    Planning your next lunch? <Text style={styles.tipLink}>Tap to check spike risk</Text>
-                </Text>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+            >
+                <Pressable style={spikeSheetStyles.overlay} onPress={handleClose}>
+                    <Animated.View
+                        style={[
+                            spikeSheetStyles.sheet,
+                            { transform: [{ translateY: slideAnim }] }
+                        ]}
+                    >
+                        <Pressable onPress={() => { }}>
+                            <View style={spikeSheetStyles.handle} />
+                            <Text style={spikeSheetStyles.title}>Check exercise impact</Text>
+                            <Text style={spikeSheetStyles.subtitle}>
+                                What exercise are you planning to do?
+                            </Text>
+                            <TextInput
+                                style={spikeSheetStyles.input}
+                                placeholder="e.g., 30 min walk after lunch"
+                                placeholderTextColor="#878787"
+                                value={inputText}
+                                onChangeText={setInputText}
+                                multiline
+                                numberOfLines={3}
+                                textAlignVertical="top"
+                                autoFocus
+                            />
+                            <TouchableOpacity
+                                style={[
+                                    spikeSheetStyles.analyzeButton,
+                                    !inputText.trim() && spikeSheetStyles.analyzeButtonDisabled,
+                                ]}
+                                onPress={handleAnalyze}
+                                disabled={!inputText.trim()}
+                                activeOpacity={0.8}
+                            >
+                                <Text style={spikeSheetStyles.analyzeButtonText}>Analyze</Text>
+                            </TouchableOpacity>
+                        </Pressable>
+                    </Animated.View>
+                </Pressable>
+            </KeyboardAvoidingView>
+        </Modal>
+    );
+}
+
+// Swipeable Tip Cards Component
+function SwipeableTipCards({ onMealPress, onExercisePress }: {
+    onMealPress: () => void;
+    onExercisePress: () => void;
+}) {
+    const [activeIndex, setActiveIndex] = useState(0);
+    const slideAnim = React.useRef(new Animated.Value(0)).current;
+
+    const cards = [
+        {
+            icon: 'bulb' as const,
+            iconColor: '#CAA163',
+            text: 'Planning your next lunch?',
+            linkText: 'Tap to check meal response',
+            onPress: onMealPress,
+        },
+        {
+            icon: 'fitness' as const,
+            iconColor: '#4CAF50',
+            text: 'Planning your next exercise?',
+            linkText: 'Tap to check impact',
+            onPress: onExercisePress,
+        },
+    ];
+
+    const handleSwipe = (direction: 'left' | 'right') => {
+        const nextIndex = direction === 'left'
+            ? (activeIndex + 1) % cards.length
+            : (activeIndex - 1 + cards.length) % cards.length;
+
+        // Animate card shuffle horizontally
+        Animated.sequence([
+            Animated.timing(slideAnim, {
+                toValue: direction === 'left' ? -30 : 30,
+                duration: 100,
+                useNativeDriver: true,
+            }),
+            Animated.timing(slideAnim, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+            }),
+        ]).start();
+
+        setActiveIndex(nextIndex);
+    };
+
+    const panResponder = React.useMemo(() =>
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponder: (_, gestureState) => {
+                // Only respond to horizontal swipes
+                return Math.abs(gestureState.dx) > 15 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+            },
+            onPanResponderRelease: (_, gestureState) => {
+                if (gestureState.dx < -50) {
+                    handleSwipe('left');
+                } else if (gestureState.dx > 50) {
+                    handleSwipe('right');
+                }
+            },
+        }),
+        [activeIndex]);
+
+    const currentCard = cards[activeIndex];
+
+    return (
+        <View style={styles.tipCardsWrapper}>
+            <Animated.View
+                {...panResponder.panHandlers}
+                style={[
+                    styles.tipCardContainer,
+                    { transform: [{ translateX: slideAnim }] }
+                ]}
+            >
+                <TouchableOpacity
+                    style={styles.tipCardTouchable}
+                    onPress={currentCard.onPress}
+                    activeOpacity={0.8}
+                >
+                    <View style={styles.tipCardShadow} />
+                    <View style={styles.tipCard}>
+                        <Ionicons name={currentCard.icon} size={24} color={currentCard.iconColor} />
+                        <Text style={styles.tipText}>
+                            {currentCard.text} <Text style={styles.tipLink}>{currentCard.linkText}</Text>
+                        </Text>
+                    </View>
+                </TouchableOpacity>
+            </Animated.View>
+
+            {/* Dots indicator */}
+            <View style={styles.dotsContainer}>
+                {cards.map((_, index) => (
+                    <View
+                        key={index}
+                        style={[
+                            styles.dot,
+                            index === activeIndex && styles.dotActive
+                        ]}
+                    />
+                ))}
             </View>
-        </TouchableOpacity>
+        </View>
     );
 }
 // Meal Card Component with Mini Chart
 const MINI_CHART_WIDTH = 280;
 const MINI_CHART_HEIGHT = 130;
 
-function MealCard({ review, onPress }: {
+function MealCard({ review, onPress, glucoseUnit }: {
     review: PostMealReview;
     onPress?: () => void;
+    glucoseUnit: GlucoseUnit;
 }) {
     const predictedCurve = review.predicted_curve || [];
     const actualCurve = review.actual_curve || [];
@@ -818,7 +1134,7 @@ function MealCard({ review, onPress }: {
             <View style={styles.miniChartContainer}>
                 {/* Legend */}
                 <View style={styles.miniChartLegend}>
-                    <Text style={styles.miniChartYLabel}>mmol/L</Text>
+                    <Text style={styles.miniChartYLabel}>{glucoseUnit}</Text>
                     <View style={styles.miniChartLegendItems}>
                         <View style={styles.miniChartLegendItem}>
                             <View style={[styles.legendDot, { backgroundColor: '#3494D9' }]} />
@@ -866,7 +1182,7 @@ function MealCard({ review, onPress }: {
                             fill="#878787"
                             textAnchor="end"
                         >
-                            {val}
+                            {formatGlucose(val, glucoseUnit)}
                         </SvgText>
                     ))}
 
@@ -906,7 +1222,7 @@ function MealCard({ review, onPress }: {
                                 fill="#878787"
                                 textAnchor="middle"
                             >
-                                {predictedPeak.value.toFixed(1)}
+                                {formatGlucose(predictedPeak.value, glucoseUnit)}
                             </SvgText>
                         </>
                     )}
@@ -927,7 +1243,7 @@ function MealCard({ review, onPress }: {
                                 textAnchor="middle"
                                 fontWeight="600"
                             >
-                                {actualPeak.value.toFixed(1)}
+                                {formatGlucose(actualPeak.value, glucoseUnit)}
                             </SvgText>
                         </>
                     )}
@@ -963,7 +1279,7 @@ function MealCard({ review, onPress }: {
                     <Text style={[styles.statusBadgeText, { color: statusStyle.text }]}>{statusStyle.label}</Text>
                 </View>
                 <Text style={styles.statusDescription}>
-                    Peaked at {(review.actual_peak || 0).toFixed(1)} mmol/L - {
+                    Peaked at {formatGlucoseWithUnit(review.actual_peak || 0, glucoseUnit)} - {
                         review.status_tag === 'steady' ? 'steady response' :
                             review.status_tag === 'mild_elevation' ? 'smoother than expected' :
                                 'higher than expected'
@@ -976,24 +1292,33 @@ function MealCard({ review, onPress }: {
 
 export default function TodayScreen() {
     const { profile, user } = useAuth();
+    const glucoseUnit = useGlucoseUnit();
     const [isFabOpen, setIsFabOpen] = useState(false);
     const [range, setRange] = useState<RangeKey>('30d');
     const [spikeSheetVisible, setSpikeSheetVisible] = useState(false);
+    const [exerciseSheetVisible, setExerciseSheetVisible] = useState(false);
     const overlayOpacity = React.useRef(new Animated.Value(0)).current;
     const fabRef = React.useRef<AnimatedFABRef>(null);
 
     // Use unified data fetching hook - batches all queries
     const { glucoseLogs, activityLogs, fibreSummary, mealReviews, isLoading } = useTodayScreenData(range);
-    
+
     // Fetch sleep data from HealthKit
     const { data: sleepData } = useSleepData(range);
+
+    // Fetch daily context (steps, active minutes) from HealthKit
+    const dateRange = getDateRange(range);
+    const dailyContext = useDailyContext(user?.id, dateRange.startDate, dateRange.endDate);
+
+    // Check if user is in wearables_only mode
+    const isWearablesOnly = profile?.tracking_mode === 'wearables_only';
 
     // Process meal reviews - show completed ones or mock data
     const pastMealReviews = useMemo(() => {
         if (!user?.id) return [];
-        
+
         const completedReviews = mealReviews.filter(r => r.status === 'opened' && r.actual_peak !== null);
-        
+
         // If no real reviews, show mock data for UI demonstration
         if (completedReviews.length === 0) {
             return [
@@ -1077,7 +1402,7 @@ export default function TodayScreen() {
                 },
             ] as PostMealReview[];
         }
-        
+
         return completedReviews.slice(0, 10);
     }, [mealReviews, user?.id]);
 
@@ -1140,29 +1465,59 @@ export default function TodayScreen() {
                         </View>
 
                         <View style={styles.trendsSection}>
-                            <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} />
+                            <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} glucoseUnit={glucoseUnit} />
                         </View>
 
                         {/* Stats Grid */}
                         <View style={styles.statsGrid}>
                             <View style={styles.statsRow}>
-                                <DaysInRangeCard range={range} glucoseLogs={glucoseLogs} />
-                                <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                {isWearablesOnly ? (
+                                    <>
+                                        <StepsStatCard
+                                            avgSteps={dailyContext.avgSteps}
+                                            isAuthorized={dailyContext.isAuthorized}
+                                            isAvailable={dailyContext.isAvailable}
+                                            range={range}
+                                        />
+                                        <ActiveMinutesStatCard
+                                            avgMinutes={dailyContext.avgActiveMinutes}
+                                            isAuthorized={dailyContext.isAuthorized}
+                                            isAvailable={dailyContext.isAvailable}
+                                            range={range}
+                                        />
+                                    </>
+                                ) : (
+                                    <>
+                                        <DaysInRangeCard range={range} glucoseLogs={glucoseLogs} />
+                                        <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                    </>
+                                )}
                             </View>
                             <View style={styles.statsRow}>
-                                <ActivityStatCard range={range} activityLogs={activityLogs} />
-                                <SleepStatCard range={range} sleepData={sleepData} />
+                                {isWearablesOnly ? (
+                                    <>
+                                        <SleepStatCard range={range} sleepData={sleepData} />
+                                        <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                    </>
+                                ) : (
+                                    <>
+                                        <ActivityStatCard range={range} activityLogs={activityLogs} />
+                                        <SleepStatCard range={range} sleepData={sleepData} />
+                                    </>
+                                )}
                             </View>
                         </View>
 
-                        {/* Tip Card */}
-                        <TipCard onPress={() => setSpikeSheetVisible(true)} />
+                        {/* Connect Apple Health CTA - show for wearables_only if not authorized */}
+                        {isWearablesOnly && !dailyContext.isAuthorized && dailyContext.isAvailable && (
+                            <ConnectHealthCTA />
+                        )}
 
-                        {/* Page indicator */}
-                        <View style={styles.pageIndicator}>
-                            <View style={[styles.indicatorDot, styles.indicatorDotActive]} />
-                            <View style={styles.indicatorDot} />
-                        </View>
+                        {/* Tip Cards - Swipeable */}
+                        <SwipeableTipCards
+                            onMealPress={() => setSpikeSheetVisible(true)}
+                            onExercisePress={() => setExerciseSheetVisible(true)}
+                        />
 
                         {/* Meal Cards */}
                         <ScrollView
@@ -1176,6 +1531,7 @@ export default function TodayScreen() {
                                     <MealCard
                                         key={review.id}
                                         review={review}
+                                        glucoseUnit={glucoseUnit}
                                         onPress={() => {
                                             // For mock reviews, pass data directly; for real reviews, just pass ID
                                             if (review.id.startsWith('mock-')) {
@@ -1240,16 +1596,27 @@ export default function TodayScreen() {
                 </SafeAreaView>
             </View>
 
-            {/* Spike Risk Input Sheet */}
+            {/* Meal Response Input Sheet */}
             <SpikeRiskInputSheet
                 visible={spikeSheetVisible}
                 onClose={() => setSpikeSheetVisible(false)}
                 onAnalyze={(text) => {
                     setSpikeSheetVisible(false);
-                    router.push({ pathname: '/check-spike-risk', params: { initialText: text } } as any);
+                    router.push({ pathname: '/meal-response-check', params: { initialText: text } } as any);
                 }}
             />
-        </AnimatedScreen>
+
+            {/* Exercise Input Sheet */}
+            <ExerciseInputSheet
+                visible={exerciseSheetVisible}
+                onClose={() => setExerciseSheetVisible(false)}
+                onAnalyze={(text) => {
+                    setExerciseSheetVisible(false);
+                    // Navigate to exercise impact analysis screen
+                    router.push({ pathname: '/check-exercise-impact', params: { initialText: text } } as any);
+                }}
+            />
+        </AnimatedScreen >
     );
 }
 
@@ -1504,6 +1871,28 @@ const styles = StyleSheet.create({
     },
     tipLink: {
         color: '#3494D9',
+    },
+    // Swipeable tip cards styles
+    tipCardsWrapper: {
+        marginBottom: 16,
+    },
+    tipCardTouchable: {
+        // No additional styles needed, uses tipCardContainer
+    },
+    dotsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: 8,
+        marginTop: 12,
+    },
+    dot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#3F4243',
+    },
+    dotActive: {
+        backgroundColor: '#FFFFFF',
     },
     pageIndicator: {
         flexDirection: 'row',
@@ -1780,6 +2169,41 @@ const styles = StyleSheet.create({
         color: '#878787',
         textAlign: 'center',
         paddingHorizontal: 32,
+    },
+    // Wearables-only mode styles
+    dataSourceLabel: {
+        fontFamily: fonts.regular,
+        fontSize: 10,
+        color: '#666',
+        marginTop: 4,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    connectHealthCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 55, 95, 0.1)',
+        borderRadius: 12,
+        padding: 16,
+        marginHorizontal: 16,
+        marginBottom: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 55, 95, 0.2)',
+    },
+    connectHealthContent: {
+        flex: 1,
+        marginLeft: 12,
+    },
+    connectHealthTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: Colors.textPrimary,
+    },
+    connectHealthSubtitle: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#878787',
+        marginTop: 2,
     },
 });
 

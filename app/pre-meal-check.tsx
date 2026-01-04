@@ -1,4 +1,4 @@
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { schedulePostMealReviewNotification } from '@/lib/notifications';
 import {
@@ -11,6 +11,7 @@ import {
     PremealDriver,
     PremealMealDraft
 } from '@/lib/supabase';
+import { formatGlucose, GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -279,9 +280,10 @@ const loadingStyles = StyleSheet.create({
 });
 
 // Dynamic Glucose Chart - renders personalized prediction curve
-function DynamicGlucoseChart({ curveData, mealTime }: {
+function DynamicGlucoseChart({ curveData, mealTime, glucoseUnit }: {
     curveData: PremealCurvePoint[];
     mealTime: Date;
+    glucoseUnit: GlucoseUnit;
 }) {
     // Calculate chart dimensions
     const chartWidth = 280;
@@ -370,10 +372,10 @@ function DynamicGlucoseChart({ curveData, mealTime }: {
     return (
         <View style={chartStyles.container}>
             <View style={chartStyles.yAxis}>
-                <Text style={chartStyles.yLabel}>14</Text>
-                <Text style={chartStyles.yLabel}>11</Text>
-                <Text style={chartStyles.yLabel}>8</Text>
-                <Text style={chartStyles.yLabel}>5</Text>
+                <Text style={chartStyles.yLabel}>{formatGlucose(14, glucoseUnit)}</Text>
+                <Text style={chartStyles.yLabel}>{formatGlucose(11, glucoseUnit)}</Text>
+                <Text style={chartStyles.yLabel}>{formatGlucose(8, glucoseUnit)}</Text>
+                <Text style={chartStyles.yLabel}>{formatGlucose(5, glucoseUnit)}</Text>
             </View>
             <View style={chartStyles.chartArea}>
                 <Svg width="100%" height="100%" viewBox={`0 0 ${chartWidth} ${chartHeight + 10}`} preserveAspectRatio="none">
@@ -401,7 +403,7 @@ function DynamicGlucoseChart({ curveData, mealTime }: {
                                 fontSize={11}
                                 fontWeight="600"
                             >
-                                {peak.value.toFixed(1)}
+                                {formatGlucose(peak.value, glucoseUnit)}
                             </SvgText>
                         </>
                     )}
@@ -454,6 +456,7 @@ const chartStyles = StyleSheet.create({
 export default function PreMealCheckScreen() {
     const params = useLocalSearchParams();
     const { user } = useAuth();
+    const glucoseUnit = useGlucoseUnit();
 
     // Parse meal data from params
     const mealName = (params.mealName as string) || 'Meal';
@@ -802,14 +805,14 @@ export default function PreMealCheckScreen() {
 
                         {/* Chart Header */}
                         <View style={styles.chartHeader}>
-                            <Text style={styles.unitLabel}>mmol/L</Text>
+                            <Text style={styles.unitLabel}>{glucoseUnit}</Text>
                             <View style={styles.predictedLegend}>
                                 <View style={styles.legendDot} />
                                 <Text style={styles.legendText}>Predicted</Text>
                             </View>
                         </View>
 
-                        <DynamicGlucoseChart curveData={predictedCurve} mealTime={mealTime} />
+                        <DynamicGlucoseChart curveData={predictedCurve} mealTime={mealTime} glucoseUnit={glucoseUnit} />
                     </View>
 
                     {/* Drivers Section */}

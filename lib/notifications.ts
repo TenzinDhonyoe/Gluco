@@ -1,6 +1,6 @@
 /**
  * Notifications Library
- * Handles local notifications for post-meal reviews
+ * Handles local notifications for after-meal check-ins
  */
 
 import * as Notifications from 'expo-notifications';
@@ -43,7 +43,7 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 }
 
 /**
- * Schedule a post-meal review notification
+ * Schedule an after-meal check-in notification
  */
 export async function schedulePostMealReviewNotification(
     reviewId: string,
@@ -66,8 +66,8 @@ export async function schedulePostMealReviewNotification(
         // Schedule the notification
         const notificationId = await Notifications.scheduleNotificationAsync({
             content: {
-                title: 'Post Meal Checkup',
-                body: `"${mealName}" is ready for review`,
+                title: 'After-Meal Check-in',
+                body: `Time to check in on "${mealName}"`,
                 data: {
                     reviewId,
                     mealId,
@@ -84,7 +84,7 @@ export async function schedulePostMealReviewNotification(
             },
         });
 
-        console.log(`Scheduled post-meal review notification: ${notificationId} in ${secondsUntil}s`);
+        console.log(`Scheduled after-meal check-in notification: ${notificationId} in ${secondsUntil}s`);
         return notificationId;
     } catch (error) {
         console.error('Failed to schedule notification:', error);
@@ -113,7 +113,7 @@ export function handleNotificationResponse(
     const data = response.notification.request.content.data as unknown as PostMealReviewNotificationData;
 
     if (data?.route && data?.reviewId) {
-        // Navigate to the post-meal review screen
+        // Navigate to the after-meal check-in screen
         router.push({
             pathname: data.route as any,
             params: { reviewId: data.reviewId },
@@ -183,8 +183,8 @@ export async function cancelAllNotifications(): Promise<void> {
  */
 export async function configureAndroidChannel(): Promise<void> {
     if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('post-meal-reviews', {
-            name: 'Post Meal Reviews',
+        await Notifications.setNotificationChannelAsync('after-meal-checkins', {
+            name: 'After-Meal Check-ins',
             importance: Notifications.AndroidImportance.HIGH,
             vibrationPattern: [0, 250, 250, 250],
             lightColor: '#3494D9',

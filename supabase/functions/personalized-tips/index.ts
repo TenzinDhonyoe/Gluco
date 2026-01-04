@@ -120,7 +120,9 @@ async function generateTipsWithGemini(stats: UserStats): Promise<PersonalizedTip
         return generateFallbackTips(stats);
     }
 
-    const prompt = `You are a health coach for someone managing their glucose levels. Based on their week's data, generate 3 personalized tips (one for glucose, one for meals, one for activity).
+    const prompt = `You are a wellness coach helping someone understand their eating patterns and energy levels. Based on their week's data, generate 3 personalized tips (one for glucose patterns if tracked, one for meals, one for activity).
+
+IMPORTANT: Use behavioral, wellness-focused language. Do NOT imply diagnosis, detection, or prediction of any disease. Avoid clinical terminology.
 
 USER'S WEEK DATA:
 - Glucose: ${stats.glucose.totalReadings} readings, avg ${stats.glucose.avgLevel ?? 'N/A'} mmol/L, ${stats.glucose.inRangePct ?? 0}% in range, ${stats.glucose.highReadingsCount} high readings
@@ -130,7 +132,7 @@ USER'S WEEK DATA:
 For each tip, provide:
 1. A short title (2-4 words)
 2. A personalized description (1-2 sentences referencing their actual data)
-3. A relevant article URL from a reputable health source (Healthline, Diabetes.org, Mayo Clinic, Harvard Health, etc.)
+3. A relevant article URL from a reputable wellness source (Healthline, Mayo Clinic, Harvard Health, etc.)
 
 Return ONLY valid JSON in this exact format:
 {
@@ -206,7 +208,7 @@ function generateFallbackTips(stats: UserStats): PersonalizedTip[] {
             description: stats.meal.avgFibrePerDay !== null
                 ? `Your fibre intake is ${stats.meal.avgFibrePerDay} g/day. Aim for 25g+ daily.`
                 : 'Log meals to track your fibre intake.',
-            articleUrl: 'https://www.diabetes.ca/nutrition--fitness/eating-well/fibre',
+            articleUrl: 'https://www.healthline.com/nutrition/fiber-and-blood-sugar',
             metric: stats.meal.avgFibrePerDay ? `${stats.meal.avgFibrePerDay} g/day` : undefined,
         },
         {

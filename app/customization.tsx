@@ -6,16 +6,24 @@ import {
     ActivityIndicator,
     Alert,
     Pressable,
+    ScrollView,
     StyleSheet,
     Text,
     TextInput,
+    TouchableOpacity,
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { getUserProfile, updateUserProfile } from '@/lib/supabase';
+import { getUserProfile, updateUserProfile, GlucoseUnit } from '@/lib/supabase';
+import { 
+    formatGlucose, 
+    convertToMmol, 
+    convertFromMmol,
+    getGlucoseInputPlaceholder 
+} from '@/lib/utils/glucoseUnits';
 
 // Default glucose target range (mmol/L)
 const DEFAULT_TARGET_MIN = 3.9;
@@ -23,10 +31,12 @@ const DEFAULT_TARGET_MAX = 10.0;
 
 export default function CustomizationScreen() {
     const router = useRouter();
-    const { user } = useAuth();
+    const { user, refreshProfile } = useAuth();
+    const currentUnit = useGlucoseUnit();
 
     const [targetMin, setTargetMin] = useState(DEFAULT_TARGET_MIN.toString());
     const [targetMax, setTargetMax] = useState(DEFAULT_TARGET_MAX.toString());
+    const [selectedUnit, setSelectedUnit] = useState<GlucoseUnit>(currentUnit);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
 
@@ -40,8 +50,14 @@ export default function CustomizationScreen() {
         try {
             const profile = await getUserProfile(user.id);
             if (profile) {
-                setTargetMin((profile.target_min ?? DEFAULT_TARGET_MIN).toString());
-                setTargetMax((profile.target_max ?? DEFAULT_TARGET_MAX).toString());
+                const unit = profile.glucose_unit ?? 'mmol/L';
+                setSelectedUnit(unit);
+                
+                // Display target values in user's preferred unit
+                const minMmol = profile.target_min ?? DEFAULT_TARGET_MIN;
+                const maxMmol = profile.target_max ?? DEFAULT_TARGET_MAX;
+                setTargetMin(formatGlucose(minMmol, unit));
+                setTargetMax(formatGlucose(maxMmol, unit));
             }
         } catch (error) {
             console.error('Error loading settings:', error);
@@ -53,6 +69,27 @@ export default function CustomizationScreen() {
     useEffect(() => {
         loadSettings();
     }, [loadSettings]);
+    
+    // When unit changes, convert the displayed values
+    const handleUnitChange = (newUnit: GlucoseUnit) => {
+        if (newUnit === selectedUnit) return;
+        
+        // Convert current values from old unit to mmol, then to new unit for display
+        const minValue = parseFloat(targetMin);
+        const maxValue = parseFloat(targetMax);
+        
+        if (!isNaN(minValue)) {
+            const minMmol = convertToMmol(minValue, selectedUnit);
+            setTargetMin(formatGlucose(minMmol, newUnit));
+        }
+        
+        if (!isNaN(maxValue)) {
+            const maxMmol = convertToMmol(maxValue, selectedUnit);
+            setTargetMax(formatGlucose(maxMmol, newUnit));
+        }
+        
+        setSelectedUnit(newUnit);
+    };
 
     const handleBack = () => {
         router.back();
@@ -73,17 +110,23 @@ export default function CustomizationScreen() {
             return;
         }
 
-        if (minValue < 2 || minValue > 8) {
-            Alert.alert('Invalid Range', 'Minimum target should be between 2.0 and 8.0 mmol/L');
+        // Convert to mmol/L for validation and storage
+        const minMmol = convertToMmol(minValue, selectedUnit);
+        const maxMmol = convertToMmol(maxValue, selectedUnit);
+
+        if (minMmol < 2 || minMmol > 8) {
+            const minDisplay = selectedUnit === 'mg/dL' ? '36-144 mg/dL' : '2.0-8.0 mmol/L';
+            Alert.alert('Invalid Range', `Minimum target should be between ${minDisplay}`);
             return;
         }
 
-        if (maxValue < 5 || maxValue > 15) {
-            Alert.alert('Invalid Range', 'Maximum target should be between 5.0 and 15.0 mmol/L');
+        if (maxMmol < 5 || maxMmol > 15) {
+            const maxDisplay = selectedUnit === 'mg/dL' ? '90-270 mg/dL' : '5.0-15.0 mmol/L';
+            Alert.alert('Invalid Range', `Maximum target should be between ${maxDisplay}`);
             return;
         }
 
-        if (minValue >= maxValue) {
+        if (minMmol >= maxMmol) {
             Alert.alert('Invalid Range', 'Minimum target must be less than maximum target');
             return;
         }
@@ -91,11 +134,14 @@ export default function CustomizationScreen() {
         setIsSaving(true);
         try {
             const result = await updateUserProfile(user.id, {
-                target_min: minValue,
-                target_max: maxValue,
+                target_min: minMmol,
+                target_max: maxMmol,
+                glucose_unit: selectedUnit,
             });
 
             if (result) {
+                // Refresh profile so the unit change is reflected app-wide immediately
+                await refreshProfile();
                 Alert.alert('Success', 'Settings saved successfully', [
                     { text: 'OK', onPress: () => router.back() },
                 ]);
@@ -138,9 +184,57 @@ export default function CustomizationScreen() {
                 </View>
 
                 {/* Content */}
-                <View style={styles.content}>
-                    {/* Target Range Card */}
+                <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+                    {/* Glucose Unit Card */}
                     <View style={styles.card}>
+                        <Text style={styles.cardTitle}>Glucose Unit</Text>
+                        <Text style={styles.cardDescription}>
+                            Choose your preferred unit for displaying glucose values throughout the app.
+                        </Text>
+
+                        <View style={styles.unitSelector}>
+                            <TouchableOpacity
+                                style={[
+                                    styles.unitOption,
+                                    selectedUnit === 'mmol/L' && styles.unitOptionSelected,
+                                ]}
+                                onPress={() => handleUnitChange('mmol/L')}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[
+                                    styles.unitOptionText,
+                                    selectedUnit === 'mmol/L' && styles.unitOptionTextSelected,
+                                ]}>
+                                    mmol/L
+                                </Text>
+                                <Text style={styles.unitOptionSubtext}>
+                                    Used in Canada, UK, Australia
+                                </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={[
+                                    styles.unitOption,
+                                    selectedUnit === 'mg/dL' && styles.unitOptionSelected,
+                                ]}
+                                onPress={() => handleUnitChange('mg/dL')}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[
+                                    styles.unitOptionText,
+                                    selectedUnit === 'mg/dL' && styles.unitOptionTextSelected,
+                                ]}>
+                                    mg/dL
+                                </Text>
+                                <Text style={styles.unitOptionSubtext}>
+                                    Used in USA, Germany, Japan
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
+                    {/* Target Range Card */}
+                    <View style={[styles.card, { marginTop: 16 }]}>
                         <Text style={styles.cardTitle}>Glucose Target Range</Text>
                         <Text style={styles.cardDescription}>
                             Set your personal glucose target range. This will be shown on your charts as the "in range" zone.
@@ -154,14 +248,14 @@ export default function CustomizationScreen() {
                                     <TextInput
                                         value={targetMin}
                                         onChangeText={setTargetMin}
-                                        placeholder="3.9"
+                                        placeholder={getGlucoseInputPlaceholder(selectedUnit)}
                                         placeholderTextColor="#878787"
                                         style={styles.textInput}
                                         keyboardType="decimal-pad"
                                         returnKeyType="done"
                                     />
                                 </View>
-                                <Text style={styles.unitLabel}>mmol/L</Text>
+                                <Text style={styles.unitLabel}>{selectedUnit}</Text>
                             </View>
                         </View>
 
@@ -173,18 +267,21 @@ export default function CustomizationScreen() {
                                     <TextInput
                                         value={targetMax}
                                         onChangeText={setTargetMax}
-                                        placeholder="10.0"
+                                        placeholder={selectedUnit === 'mg/dL' ? 'e.g., 180' : 'e.g., 10.0'}
                                         placeholderTextColor="#878787"
                                         style={styles.textInput}
                                         keyboardType="decimal-pad"
                                         returnKeyType="done"
                                     />
                                 </View>
-                                <Text style={styles.unitLabel}>mmol/L</Text>
+                                <Text style={styles.unitLabel}>{selectedUnit}</Text>
                             </View>
                         </View>
                     </View>
-                </View>
+                    
+                    {/* Spacing at bottom for save button */}
+                    <View style={{ height: 100 }} />
+                </ScrollView>
 
                 {/* Save Button */}
                 <View style={styles.saveButtonContainer}>
@@ -317,6 +414,39 @@ const styles = StyleSheet.create({
         fontFamily: fonts.medium,
         fontSize: 16,
         color: '#FFFFFF',
+        width: 60,
+    },
+    unitSelector: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    unitOption: {
+        flex: 1,
+        backgroundColor: '#232527',
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: '#313135',
+        padding: 16,
+        alignItems: 'center',
+    },
+    unitOptionSelected: {
+        borderColor: '#3494D9',
+        backgroundColor: 'rgba(52, 148, 217, 0.1)',
+    },
+    unitOptionText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 18,
+        color: '#878787',
+        marginBottom: 4,
+    },
+    unitOptionTextSelected: {
+        color: '#3494D9',
+    },
+    unitOptionSubtext: {
+        fontFamily: fonts.regular,
+        fontSize: 11,
+        color: '#666',
+        textAlign: 'center',
     },
     saveButtonContainer: {
         paddingHorizontal: 16,

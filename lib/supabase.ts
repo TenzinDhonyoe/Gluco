@@ -4,12 +4,12 @@ import Constants from 'expo-constants';
 
 // Get Supabase configuration from environment variables or app.json extra config
 // Priority: EXPO_PUBLIC_* env vars > app.json extra > fallback defaults
-const supabaseUrl = 
+const supabaseUrl =
     process.env.EXPO_PUBLIC_SUPABASE_URL ||
     Constants.expoConfig?.extra?.supabaseUrl ||
     'https://ipodxujhoqbdrgxfphou.supabase.co';
 
-const supabaseAnonKey = 
+const supabaseAnonKey =
     process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
     Constants.expoConfig?.extra?.supabaseAnonKey ||
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlwb2R4dWpob3FiZHJneGZwaG91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU1NzM3MjMsImV4cCI6MjA4MTE0OTcyM30.WnSQN9CWwSMER8OnPn_j0ms4cTb86G4m6PmV0tN0XZ8';
@@ -24,6 +24,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 });
 
 // Types for user profile
+export type GlucoseUnit = 'mmol/L' | 'mg/dL';
+
+export type TrackingMode = 'wearables_only' | 'glucose_tracking';
+
 export interface UserProfile {
     id: string;
     email: string;
@@ -37,6 +41,11 @@ export interface UserProfile {
     onboarding_completed: boolean;
     target_min: number | null;  // Custom glucose target minimum (mmol/L)
     target_max: number | null;  // Custom glucose target maximum (mmol/L)
+    glucose_unit: GlucoseUnit;  // User preferred display unit (default: mmol/L)
+    // Tracking mode settings
+    tracking_mode: TrackingMode;
+    has_cgm: boolean;
+    manual_glucose_enabled: boolean;
     created_at: string;
     updated_at: string;
 }
@@ -1004,6 +1013,195 @@ export async function invokePremealAnalyze(
 }
 
 // ==========================================
+// DAILY CONTEXT (HealthKit Data Persistence)
+// ==========================================
+
+export type DailyContextSource = 'apple_health' | 'manual' | 'estimated';
+
+export interface DailyContext {
+    user_id: string;
+    date: string; // YYYY-MM-DD format
+    steps: number | null;
+    active_minutes: number | null;
+    sleep_hours: number | null;
+    resting_hr: number | null;
+    hrv_ms: number | null;
+    source: DailyContextSource;
+    last_synced_at: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface DailyContextInput {
+    date: string;
+    steps?: number | null;
+    active_minutes?: number | null;
+    sleep_hours?: number | null;
+    resting_hr?: number | null;
+    hrv_ms?: number | null;
+    source?: DailyContextSource;
+}
+
+/**
+ * Upsert daily context data (HealthKit or manual)
+ * Uses ON CONFLICT to update existing records
+ */
+export async function upsertDailyContext(
+    userId: string,
+    input: DailyContextInput
+): Promise<DailyContext | null> {
+    const { data, error } = await supabase
+        .from('daily_context')
+        .upsert(
+            {
+                user_id: userId,
+                date: input.date,
+                steps: input.steps,
+                active_minutes: input.active_minutes,
+                sleep_hours: input.sleep_hours,
+                resting_hr: input.resting_hr,
+                hrv_ms: input.hrv_ms,
+                source: input.source || 'apple_health',
+                last_synced_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id,date' }
+        )
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error upserting daily context:', error);
+        return null;
+    }
+
+    return data;
+}
+
+/**
+ * Get daily context for a date range
+ */
+export async function getDailyContextByRange(
+    userId: string,
+    startDate: string,
+    endDate: string
+): Promise<DailyContext[]> {
+    const { data, error } = await supabase
+        .from('daily_context')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: false });
+
+    if (error) {
+        console.error('Error fetching daily context:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+/**
+ * Get daily context for a specific date
+ */
+export async function getDailyContextForDate(
+    userId: string,
+    date: string
+): Promise<DailyContext | null> {
+    const { data, error } = await supabase
+        .from('daily_context')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', date)
+        .single();
+
+    if (error) {
+        if (error.code !== 'PGRST116') { // Not found is OK
+            console.error('Error fetching daily context:', error);
+        }
+        return null;
+    }
+
+    return data;
+}
+
+// ==========================================
+// EXERCISE ANALYSIS
+// ==========================================
+
+export interface ExerciseParsed {
+    name: string;
+    duration_min: number;
+    intensity: 'light' | 'moderate' | 'vigorous';
+    met_value: number;
+    category: string;
+}
+
+export interface ExerciseTip {
+    title: string;
+    detail: string;
+    icon: string;
+}
+
+export interface ExerciseGlucoseImpact {
+    reduction_pct: number;
+    timing_benefit: string;
+    optimal_timing: string;
+    personalized: boolean;
+    based_on_history: boolean;
+}
+
+export interface ExercisePersonalization {
+    data_quality: 'none' | 'low' | 'medium' | 'high';
+    glucose_observations: number;
+    activity_observations: number;
+    baseline_glucose: number;
+    exercise_effect: number;
+}
+
+export interface ExerciseAnalysisResult {
+    exercise: ExerciseParsed;
+    calories_burned: number;
+    glucose_impact: ExerciseGlucoseImpact;
+    tips: ExerciseTip[];
+    user_stats: {
+        weight_kg: number;
+        age: number;
+        bmi: number | null;
+    };
+    personalization: ExercisePersonalization;
+}
+
+/**
+ * Calls the exercise-analyze Edge Function to get AI-powered exercise analysis
+ * Returns calories burned, glucose impact, and personalized tips
+ */
+export async function invokeExerciseAnalyze(
+    userId: string,
+    exerciseText: string
+): Promise<ExerciseAnalysisResult | null> {
+    try {
+        const { data, error } = await supabase.functions.invoke('exercise-analyze', {
+            body: {
+                user_id: userId,
+                exercise_text: exerciseText,
+            },
+        });
+
+        if (error) {
+            console.error('Error invoking exercise-analyze:', error);
+            return null;
+        }
+
+        return data as ExerciseAnalysisResult;
+    } catch (error) {
+        console.error('Exercise Analysis error:', error);
+        return null;
+    }
+}
+
+// ==========================================
 // PERSONALIZED TIPS
 // ==========================================
 
@@ -1071,6 +1269,9 @@ export interface PostMealReview {
     total_carbs: number | null;
     total_protein: number | null;
     total_fibre: number | null;
+    baseline_glucose: number | null;
+    peak_delta: number | null;
+    time_to_peak_min: number | null;
     created_at: string;
     updated_at: string;
 }
@@ -1204,6 +1405,65 @@ export async function getReadyReviewsCount(userId: string): Promise<number> {
     }
 
     return count || 0;
+}
+
+/**
+ * Fetch completed post-meal reviews within a date range
+ * Used for weekly insights (Meal Comparison section)
+ */
+export async function getPostMealReviewsByDateRange(
+    userId: string,
+    startDate: Date,
+    endDate: Date
+): Promise<PostMealReview[]> {
+    const { data, error } = await supabase
+        .from('post_meal_reviews')
+        .select('id, meal_name, meal_time, actual_peak, actual_curve, predicted_curve, predicted_peak, status_tag, contributors, total_carbs, total_protein, total_fibre, baseline_glucose, peak_delta, time_to_peak_min')
+        .eq('user_id', userId)
+        .eq('status', 'opened')
+        .gte('meal_time', startDate.toISOString())
+        .lte('meal_time', endDate.toISOString())
+        .not('actual_peak', 'is', null)
+        .order('meal_time', { ascending: false });
+
+    if (error) {
+        console.error('Error fetching post meal reviews by date range:', error);
+        return [];
+    }
+
+    return (data || []) as PostMealReview[];
+}
+
+/**
+ * Invoke the weekly meal comparison edge function for AI-generated drivers
+ */
+export async function invokeWeeklyMealComparisonDrivers(
+    userId: string,
+    highestReview: PostMealReview | null,
+    lowestReview: PostMealReview | null
+): Promise<{
+    highest: { drivers: string[] };
+    lowest: { drivers: string[] };
+} | null> {
+    try {
+        const { data, error } = await supabase.functions.invoke('weekly-meal-comparison', {
+            body: {
+                user_id: userId,
+                highest_review: highestReview,
+                lowest_review: lowestReview,
+            },
+        });
+
+        if (error) {
+            console.error('Error invoking weekly meal comparison:', error);
+            return null;
+        }
+
+        return data;
+    } catch (err) {
+        console.error('Weekly meal comparison error:', err);
+        return null;
+    }
 }
 
 /**
@@ -1374,6 +1634,678 @@ export async function updatePostMealReviewWithManualGlucose(
         return true;
     } catch (err) {
         console.error('Failed to update review with manual glucose:', err);
+        return false;
+    }
+}
+
+// ==========================================
+// EXPERIMENTS SYSTEM
+// ==========================================
+
+// Types for experiment templates (admin-seeded catalog)
+export interface ExperimentTemplate {
+    id: string;
+    slug: string;
+    title: string;
+    subtitle: string | null;
+    description: string | null;
+    category: 'meal' | 'habit' | 'timing' | 'portion';
+    protocol: {
+        duration_days?: number;
+        exposures_per_variant?: number;
+        alternating?: boolean;
+        meal_type?: string;
+        checkin_questions?: string[];
+        instructions?: string;
+        [key: string]: any;
+    };
+    eligibility_rules: Record<string, any>;
+    icon: string | null;
+    is_active: boolean;
+    sort_order: number;
+    created_at: string;
+    updated_at: string;
+}
+
+// Types for experiment variants (A/B arms)
+export interface ExperimentVariant {
+    id: string;
+    template_id: string;
+    key: string;
+    name: string;
+    description: string | null;
+    parameters: Record<string, any>;
+    sort_order: number;
+    created_at: string;
+}
+
+// Types for user's experiment run
+export type ExperimentStatus = 'draft' | 'active' | 'completed' | 'archived';
+
+export interface UserExperiment {
+    id: string;
+    user_id: string;
+    template_id: string;
+    status: ExperimentStatus;
+    start_at: string | null;
+    end_at: string | null;
+    completed_at: string | null;
+    plan: Record<string, any>;
+    primary_metric: string;
+    metric_config: Record<string, any>;
+    personalization: {
+        reasons?: string[];
+        predicted_impact?: 'high' | 'moderate' | 'low';
+        [key: string]: any;
+    };
+    exposures_logged: number;
+    checkins_logged: number;
+    created_at: string;
+    updated_at: string;
+    // Joined data
+    experiment_templates?: ExperimentTemplate;
+}
+
+// Types for experiment events
+export type ExperimentEventType = 'exposure' | 'checkin' | 'note' | 'link_meal' | 'link_activity';
+
+export interface UserExperimentEvent {
+    id: string;
+    user_id: string;
+    user_experiment_id: string;
+    occurred_at: string;
+    type: ExperimentEventType;
+    payload: {
+        variant_id?: string;
+        variant_key?: string;
+        meal_id?: string;
+        activity_log_id?: string;
+        adherence_pct?: number;
+        energy_1_5?: number;
+        hunger_1_5?: number;
+        cravings_1_5?: number;
+        difficulty_1_5?: number;
+        notes?: string;
+        text?: string;
+        [key: string]: any;
+    };
+    created_at: string;
+}
+
+// Types for experiment analysis
+export interface VariantMetrics {
+    n_exposures: number;
+    n_with_glucose_data: number;
+    median_peak_delta: number | null;
+    mean_peak_delta: number | null;
+    median_time_to_peak: number | null;
+    avg_energy: number | null;
+    avg_hunger: number | null;
+    avg_cravings: number | null;
+}
+
+export interface ExperimentComparison {
+    winner: string | null;
+    delta: number | null;
+    confidence: 'high' | 'moderate' | 'low' | 'insufficient';
+    direction: 'better' | 'worse' | 'similar' | 'unknown';
+}
+
+export interface UserExperimentAnalysis {
+    id: string;
+    user_id: string;
+    user_experiment_id: string;
+    computed_at: string;
+    metrics: Record<string, VariantMetrics>;
+    comparison: ExperimentComparison;
+    summary: string | null;
+    suggestions: string[];
+    is_final: boolean;
+    created_at: string;
+}
+
+// Types for suggested experiments (from Edge Function)
+export interface SuggestedExperiment {
+    template: ExperimentTemplate;
+    variants: ExperimentVariant[];
+    score: number;
+    reasons: string[];
+    recommended_parameters: Record<string, any>;
+    predicted_impact: 'high' | 'moderate' | 'low';
+}
+
+// ==========================================
+// EXPERIMENT HELPER FUNCTIONS
+// ==========================================
+
+/**
+ * Fetch all active experiment templates
+ */
+export async function getExperimentTemplates(): Promise<ExperimentTemplate[]> {
+    const { data, error } = await supabase
+        .from('experiment_templates')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order');
+
+    if (error) {
+        console.error('Error fetching experiment templates:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+/**
+ * Fetch variants for a specific template
+ */
+export async function getExperimentVariants(templateId: string): Promise<ExperimentVariant[]> {
+    const { data, error } = await supabase
+        .from('experiment_variants')
+        .select('*')
+        .eq('template_id', templateId)
+        .order('sort_order');
+
+    if (error) {
+        console.error('Error fetching experiment variants:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+/**
+ * Get personalized experiment suggestions via Edge Function
+ */
+export async function getSuggestedExperiments(
+    userId: string,
+    limit: number = 6
+): Promise<{
+    suggestions: SuggestedExperiment[];
+    patterns: Record<string, any>;
+} | null> {
+    try {
+        const { data, error } = await supabase.functions.invoke('experiments-suggest', {
+            body: { user_id: userId, limit },
+        });
+
+        if (error) {
+            console.error('Error fetching suggested experiments:', error);
+            return null;
+        }
+
+        return data;
+    } catch (err) {
+        console.error('Suggested experiments error:', err);
+        return null;
+    }
+}
+
+/**
+ * Start a new experiment from a template
+ */
+export async function startUserExperiment(
+    userId: string,
+    templateId: string,
+    planOverrides?: Record<string, any>,
+    personalization?: { reasons?: string[]; predicted_impact?: string }
+): Promise<UserExperiment | null> {
+    const { data, error } = await supabase
+        .from('user_experiments')
+        .insert({
+            user_id: userId,
+            template_id: templateId,
+            status: 'active',
+            start_at: new Date().toISOString(),
+            plan: planOverrides || {},
+            personalization: personalization || {},
+        })
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error starting experiment:', error);
+        return null;
+    }
+
+    return data;
+}
+
+/**
+ * Update experiment status
+ */
+export async function updateUserExperimentStatus(
+    experimentId: string,
+    status: ExperimentStatus
+): Promise<boolean> {
+    const updateData: any = { status, updated_at: new Date().toISOString() };
+
+    if (status === 'completed') {
+        updateData.completed_at = new Date().toISOString();
+    }
+
+    const { error } = await supabase
+        .from('user_experiments')
+        .update(updateData)
+        .eq('id', experimentId);
+
+    if (error) {
+        console.error('Error updating experiment status:', error);
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Get user's experiments (optionally filtered by status)
+ */
+export async function getUserExperiments(
+    userId: string,
+    status?: ExperimentStatus | ExperimentStatus[]
+): Promise<UserExperiment[]> {
+    let query = supabase
+        .from('user_experiments')
+        .select('*, experiment_templates(*)')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+    if (status) {
+        if (Array.isArray(status)) {
+            query = query.in('status', status);
+        } else {
+            query = query.eq('status', status);
+        }
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+        console.error('Error fetching user experiments:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+/**
+ * Get a single user experiment by ID
+ */
+export async function getUserExperiment(experimentId: string): Promise<UserExperiment | null> {
+    const { data, error } = await supabase
+        .from('user_experiments')
+        .select('*, experiment_templates(*)')
+        .eq('id', experimentId)
+        .single();
+
+    if (error) {
+        console.error('Error fetching user experiment:', error);
+        return null;
+    }
+
+    return data;
+}
+
+/**
+ * Log an experiment event (exposure, checkin, note, etc.)
+ */
+export async function logExperimentEvent(
+    userId: string,
+    userExperimentId: string,
+    type: ExperimentEventType,
+    payload: UserExperimentEvent['payload'],
+    occurredAt?: Date
+): Promise<UserExperimentEvent | null> {
+    const { data, error } = await supabase
+        .from('user_experiment_events')
+        .insert({
+            user_id: userId,
+            user_experiment_id: userExperimentId,
+            type,
+            payload,
+            occurred_at: (occurredAt || new Date()).toISOString(),
+        })
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error logging experiment event:', error);
+        return null;
+    }
+
+    // Update experiment counters
+    if (type === 'exposure' || type === 'checkin') {
+        const field = type === 'exposure' ? 'exposures_logged' : 'checkins_logged';
+        await supabase.rpc('increment_experiment_counter', {
+            p_experiment_id: userExperimentId,
+            p_field: field,
+        }).catch(() => {
+            // Fallback: direct increment
+            supabase
+                .from('user_experiments')
+                .select(field)
+                .eq('id', userExperimentId)
+                .single()
+                .then(({ data: exp }) => {
+                    if (exp) {
+                        const currentVal = (exp as any)[field] || 0;
+                        supabase
+                            .from('user_experiments')
+                            .update({ [field]: currentVal + 1, updated_at: new Date().toISOString() })
+                            .eq('id', userExperimentId);
+                    }
+                });
+        });
+    }
+
+    return data;
+}
+
+/**
+ * Get events for an experiment
+ */
+export async function getExperimentEvents(
+    userExperimentId: string,
+    type?: ExperimentEventType
+): Promise<UserExperimentEvent[]> {
+    let query = supabase
+        .from('user_experiment_events')
+        .select('*')
+        .eq('user_experiment_id', userExperimentId)
+        .order('occurred_at', { ascending: true });
+
+    if (type) {
+        query = query.eq('type', type);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+        console.error('Error fetching experiment events:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+/**
+ * Get experiment analysis via Edge Function
+ */
+export async function getExperimentAnalysis(
+    userId: string,
+    userExperimentId: string,
+    saveSnapshot: boolean = true
+): Promise<{
+    analysis: {
+        metrics: Record<string, VariantMetrics>;
+        comparison: ExperimentComparison;
+        summary: string | null;
+        suggestions: string[];
+        is_final: boolean;
+    };
+    experiment: {
+        id: string;
+        status: string;
+        template_title: string;
+        total_exposures: number;
+        required_exposures: number;
+        completion_pct: number;
+    };
+} | null> {
+    try {
+        const { data, error } = await supabase.functions.invoke('experiments-evaluate', {
+            body: {
+                user_id: userId,
+                user_experiment_id: userExperimentId,
+                save_snapshot: saveSnapshot,
+            },
+        });
+
+        if (error) {
+            console.error('Error fetching experiment analysis:', error);
+            return null;
+        }
+
+        return data;
+    } catch (err) {
+        console.error('Experiment analysis error:', err);
+        return null;
+    }
+}
+
+/**
+ * Get latest analysis snapshot for an experiment
+ */
+export async function getLatestExperimentAnalysis(
+    userExperimentId: string
+): Promise<UserExperimentAnalysis | null> {
+    const { data, error } = await supabase
+        .from('user_experiment_analysis')
+        .select('*')
+        .eq('user_experiment_id', userExperimentId)
+        .order('computed_at', { ascending: false })
+        .limit(1)
+        .single();
+
+    if (error) {
+        // No analysis found is not an error
+        if (error.code === 'PGRST116') return null;
+        console.error('Error fetching experiment analysis:', error);
+        return null;
+    }
+
+    return data;
+}
+
+
+// ============================================================================
+// PHOTO UPLOAD
+// ============================================================================
+
+/**
+ * Upload a meal photo to Supabase Storage
+ * Returns the public URL of the uploaded image
+ */
+export async function uploadMealPhoto(
+    userId: string,
+    imageUri: string
+): Promise<string | null> {
+    try {
+        // Get the file extension from the URI
+        const fileName = `${userId}/${Date.now()}.jpg`;
+
+        // Fetch the image as a blob
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+
+        // Convert blob to ArrayBuffer for upload
+        const arrayBuffer = await new Response(blob).arrayBuffer();
+
+        const { data, error } = await supabase.storage
+            .from('meal-photos')
+            .upload(fileName, arrayBuffer, {
+                contentType: 'image/jpeg',
+                upsert: false,
+            });
+
+        if (error) {
+            console.error('Error uploading photo:', error);
+            return null;
+        }
+
+        // Get the public URL
+        const { data: urlData } = supabase.storage
+            .from('meal-photos')
+            .getPublicUrl(data.path);
+
+        return urlData.publicUrl;
+    } catch (err) {
+        console.error('Photo upload error:', err);
+        return null;
+    }
+}
+
+// ============================================================================
+// DATA EXPORT
+// ============================================================================
+
+/**
+ * Export all user data as a JSON object
+ */
+export async function exportUserData(userId: string): Promise<{
+    profile: UserProfile | null;
+    meals: Meal[];
+    glucose_logs: GlucoseLog[];
+    activity_logs: ActivityLog[];
+    experiments: UserExperiment[];
+} | null> {
+    try {
+        // Fetch all user data in parallel
+        const [profile, meals, glucoseLogs, activityLogs, experiments] = await Promise.all([
+            getUserProfile(userId),
+            getMeals(userId, 1000), // Get up to 1000 meals
+            getGlucoseLogs(userId, 1000),
+            getActivityLogs(userId, 1000),
+            getUserExperiments(userId),
+        ]);
+
+        return {
+            profile,
+            meals,
+            glucose_logs: glucoseLogs,
+            activity_logs: activityLogs,
+            experiments,
+        };
+    } catch (err) {
+        console.error('Data export error:', err);
+        return null;
+    }
+}
+
+// ============================================================================
+// RESET LEARNING
+// ============================================================================
+
+/**
+ * Reset personalized learning data for a user
+ * This clears calibration data and experiment analysis
+ */
+export async function resetUserLearning(userId: string): Promise<boolean> {
+    try {
+        // Delete user calibration data
+        const { error: calibrationError } = await supabase
+            .from('user_calibration')
+            .delete()
+            .eq('user_id', userId);
+
+        if (calibrationError) {
+            console.error('Error deleting calibration data:', calibrationError);
+            return false;
+        }
+
+        // Delete experiment analysis data
+        const { error: analysisError } = await supabase
+            .from('user_experiment_analysis')
+            .delete()
+            .eq('user_id', userId);
+
+        if (analysisError) {
+            console.error('Error deleting analysis data:', analysisError);
+            // Continue even if this fails
+        }
+
+        return true;
+    } catch (err) {
+        console.error('Reset learning error:', err);
+        return false;
+    }
+}
+
+// ============================================================================
+// DELETE USER DATA
+// ============================================================================
+
+/**
+ * Delete all user data from the database
+ * Note: This does not delete the auth user - that must be done separately
+ */
+export async function deleteUserData(userId: string): Promise<boolean> {
+    try {
+        // Delete in order of dependencies (children first)
+
+        // 1. Delete meal items (depends on meals)
+        const { error: itemsError } = await supabase
+            .from('meal_items')
+            .delete()
+            .eq('user_id', userId);
+        if (itemsError) console.error('Error deleting meal items:', itemsError);
+
+        // 2. Delete post-meal reviews
+        const { error: reviewsError } = await supabase
+            .from('post_meal_reviews')
+            .delete()
+            .eq('user_id', userId);
+        if (reviewsError) console.error('Error deleting reviews:', reviewsError);
+
+        // 3. Delete meals
+        const { error: mealsError } = await supabase
+            .from('meals')
+            .delete()
+            .eq('user_id', userId);
+        if (mealsError) console.error('Error deleting meals:', mealsError);
+
+        // 4. Delete glucose logs
+        const { error: glucoseError } = await supabase
+            .from('glucose_logs')
+            .delete()
+            .eq('user_id', userId);
+        if (glucoseError) console.error('Error deleting glucose logs:', glucoseError);
+
+        // 5. Delete activity logs
+        const { error: activityError } = await supabase
+            .from('activity_logs')
+            .delete()
+            .eq('user_id', userId);
+        if (activityError) console.error('Error deleting activity logs:', activityError);
+
+        // 6. Delete user calibration
+        const { error: calibrationError } = await supabase
+            .from('user_calibration')
+            .delete()
+            .eq('user_id', userId);
+        if (calibrationError) console.error('Error deleting calibration:', calibrationError);
+
+        // 7. Delete experiment data
+        const { error: expError } = await supabase
+            .from('user_experiments')
+            .delete()
+            .eq('user_id', userId);
+        if (expError) console.error('Error deleting experiments:', expError);
+
+        // 8. Delete personalized tips
+        const { error: tipsError } = await supabase
+            .from('personalized_tip_seen')
+            .delete()
+            .eq('user_id', userId);
+        if (tipsError) console.error('Error deleting tips:', tipsError);
+
+        // 9. Delete dexcom tokens
+        const { error: dexcomError } = await supabase
+            .from('dexcom_tokens')
+            .delete()
+            .eq('user_id', userId);
+        if (dexcomError) console.error('Error deleting dexcom tokens:', dexcomError);
+
+        // 10. Delete profile (last, as other tables may reference it)
+        const { error: profileError } = await supabase
+            .from('profiles')
+            .delete()
+            .eq('id', userId);
+        if (profileError) console.error('Error deleting profile:', profileError);
+
+        return true;
+    } catch (err) {
+        console.error('Delete user data error:', err);
         return false;
     }
 }

@@ -1,6 +1,6 @@
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { getUserProfile, updateUserProfile, UserProfile } from '@/lib/supabase';
+import { deleteUserData, exportUserData, getUserProfile, resetUserLearning, supabase, updateUserProfile, UserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -9,6 +9,7 @@ import {
     ActivityIndicator,
     Alert,
     ScrollView,
+    Share,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -53,8 +54,20 @@ export default function AccountPrivacyScreen() {
                 {
                     text: 'Send Link',
                     onPress: async () => {
-                        // TODO: Implement password reset via Supabase
-                        Alert.alert('Success', 'Password reset link sent to your email.');
+                        if (!user?.email) {
+                            Alert.alert('Error', 'No email address found for your account.');
+                            return;
+                        }
+
+                        const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+                            redirectTo: 'glucofigma://reset-password',
+                        });
+
+                        if (error) {
+                            Alert.alert('Error', error.message);
+                        } else {
+                            Alert.alert('Success', 'Password reset link sent to your email.');
+                        }
                     },
                 },
             ]
@@ -90,44 +103,110 @@ export default function AccountPrivacyScreen() {
         );
     };
 
-    const handleExportData = () => {
+    const handleExportData = async () => {
+        if (!user) return;
+
         Alert.alert(
             'Export Data',
-            'Your data export will be prepared and sent to your email address.',
+            'This will export all your data as a JSON file that you can save or share.',
             [
                 { text: 'Cancel', style: 'cancel' },
-                { text: 'Export', onPress: () => Alert.alert('Success', 'Data export initiated. Check your email.') },
+                {
+                    text: 'Export',
+                    onPress: async () => {
+                        try {
+                            const data = await exportUserData(user.id);
+                            if (!data) {
+                                Alert.alert('Error', 'Failed to export data. Please try again.');
+                                return;
+                            }
+
+                            const jsonString = JSON.stringify(data, null, 2);
+                            await Share.share({
+                                message: jsonString,
+                                title: 'Gluco Data Export',
+                            });
+                        } catch (error) {
+                            Alert.alert('Error', 'Failed to export data. Please try again.');
+                        }
+                    },
+                },
             ]
         );
     };
 
     const handleResetLearning = () => {
+        if (!user) return;
+
         Alert.alert(
             'Reset Personalized Learning',
-            'This will reset all personalized recommendations. Are you sure?',
+            'This will erase all personalized patterns and recommendations. Your meal, glucose, and activity logs will be kept. This cannot be undone.',
             [
                 { text: 'Cancel', style: 'cancel' },
-                { text: 'Reset', style: 'destructive', onPress: () => Alert.alert('Success', 'Personalized learning has been reset.') },
+                {
+                    text: 'Reset',
+                    style: 'destructive',
+                    onPress: async () => {
+                        const success = await resetUserLearning(user.id);
+                        if (success) {
+                            Alert.alert('Success', 'Personalized learning has been reset. New patterns will be built from your future activity.');
+                        } else {
+                            Alert.alert('Error', 'Failed to reset learning. Please try again.');
+                        }
+                    },
+                },
             ]
         );
     };
 
     const handleDeleteAccount = () => {
+        if (!user) return;
+
         Alert.alert(
             'Delete Account & Data',
-            'This action is permanent and cannot be undone. All your data will be deleted.',
+            'This action is permanent and cannot be undone. All your data including meals, glucose logs, and activity history will be permanently deleted.',
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
                     text: 'Delete Account',
                     style: 'destructive',
                     onPress: () => {
-                        Alert.alert(
+                        Alert.prompt(
                             'Confirm Deletion',
                             'Type "DELETE" to confirm account deletion.',
                             [
                                 { text: 'Cancel', style: 'cancel' },
-                            ]
+                                {
+                                    text: 'Delete',
+                                    style: 'destructive',
+                                    onPress: async (text: string | undefined) => {
+                                        if (text !== 'DELETE') {
+                                            Alert.alert('Cancelled', 'You must type DELETE to confirm.');
+                                            return;
+                                        }
+
+                                        try {
+                                            // Delete all user data
+                                            const success = await deleteUserData(user.id);
+                                            if (!success) {
+                                                Alert.alert('Error', 'Failed to delete some data. Please contact support.');
+                                                return;
+                                            }
+
+                                            // Sign out the user
+                                            await signOut();
+
+                                            // Navigate to welcome screen
+                                            router.replace('/');
+
+                                            Alert.alert('Account Deleted', 'Your account and all data have been deleted.');
+                                        } catch (error) {
+                                            Alert.alert('Error', 'Failed to delete account. Please try again.');
+                                        }
+                                    },
+                                },
+                            ],
+                            'plain-text'
                         );
                     },
                 },

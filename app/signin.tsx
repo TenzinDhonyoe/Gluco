@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
@@ -36,7 +37,7 @@ export default function SignInScreen() {
         setIsLoading(true);
         try {
             const { error } = await signIn(email.trim(), password);
-            
+
             if (error) {
                 Alert.alert('Sign In Error', error.message);
                 return;
@@ -70,6 +71,42 @@ export default function SignInScreen() {
         router.push('/signup');
     };
 
+    const handleForgotPassword = () => {
+        if (!email.trim()) {
+            Alert.alert(
+                'Enter Email',
+                'Please enter your email address first, then tap Forgot Password.'
+            );
+            return;
+        }
+
+        Alert.alert(
+            'Reset Password',
+            `Send password reset link to ${email.trim()}?`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Send Link',
+                    onPress: async () => {
+                        try {
+                            const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+                                redirectTo: 'glucofigma://reset-password',
+                            });
+
+                            if (error) {
+                                Alert.alert('Error', error.message);
+                            } else {
+                                Alert.alert('Success', 'Password reset link sent! Check your email.');
+                            }
+                        } catch (err) {
+                            Alert.alert('Error', 'Failed to send reset link. Please try again.');
+                        }
+                    },
+                },
+            ]
+        );
+    };
+
     const isFormValid = email.trim().length > 0 && password.trim().length > 0;
 
     return (
@@ -80,123 +117,137 @@ export default function SignInScreen() {
                 resizeMode="cover"
             >
                 <SafeAreaView style={styles.safeArea}>
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    style={styles.keyboardView}
-                >
-                    <ScrollView
-                        contentContainerStyle={styles.scrollContent}
-                        showsVerticalScrollIndicator={false}
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                        style={styles.keyboardView}
                     >
-                        {/* Back Button */}
-                        <TouchableOpacity
-                            style={styles.backButton}
-                            onPress={handleBack}
-                            activeOpacity={0.7}
+                        <ScrollView
+                            contentContainerStyle={styles.scrollContent}
+                            showsVerticalScrollIndicator={false}
                         >
-                            <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                        </TouchableOpacity>
-
-                        {/* Header Text */}
-                        <Text style={styles.headerText}>
-                            Welcome! Sign in to see your latest glucose trends and habit insights.
-                        </Text>
-
-                        {/* Form Container */}
-                        <View style={styles.formContainer}>
-                            {/* Email Input */}
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.inputLabel}>Email</Text>
-                                <Input
-                                    value={email}
-                                    onChangeText={setEmail}
-                                    placeholder="Email"
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                />
-                            </View>
-
-                            {/* Password Input */}
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.inputLabel}>Password</Text>
-                                <Input
-                                    value={password}
-                                    onChangeText={setPassword}
-                                    placeholder="Password"
-                                    secureTextEntry={!showPassword}
-                                    autoCapitalize="none"
-                                    right={(
-                                        <TouchableOpacity
-                                            style={styles.eyeButton}
-                                            onPress={() => setShowPassword(!showPassword)}
-                                        >
-                                            <Ionicons
-                                                name={showPassword ? "eye-off-outline" : "eye-outline"}
-                                                size={22}
-                                                color="#878787"
-                                            />
-                                        </TouchableOpacity>
-                                    )}
-                                />
-                            </View>
-                        </View>
-
-                        {/* Continue Button */}
-                        <Button
-                            onPress={handleContinue}
-                            disabled={!isFormValid}
-                            loading={isLoading}
-                            variant="primary"
-                            style={styles.continueButton}
-                        >
-                            Continue
-                        </Button>
-
-                        {/* Divider */}
-                        <View style={styles.dividerContainer}>
-                            <View style={styles.dividerDashed} />
-                            <Text style={styles.dividerText}>OR</Text>
-                            <View style={styles.dividerDashed} />
-                        </View>
-
-                        {/* Social Sign In Buttons */}
-                        <View style={styles.socialContainer}>
-                            {/* Google Button */}
+                            {/* Back Button */}
                             <TouchableOpacity
-                                style={styles.googleButton}
-                                onPress={handleGoogleSignIn}
-                                activeOpacity={0.8}
+                                style={styles.backButton}
+                                onPress={handleBack}
+                                activeOpacity={0.7}
                             >
-                                <Image
-                                    source={require('../assets/images/google-logo.png')}
-                                    style={styles.googleLogo}
-                                    resizeMode="contain"
-                                />
-                                <Text style={styles.googleButtonText}>Continue with Google</Text>
+                                <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
                             </TouchableOpacity>
 
-                            {/* Apple Button */}
-                            <TouchableOpacity
-                                style={styles.appleButton}
-                                onPress={handleAppleSignIn}
-                                activeOpacity={0.8}
-                            >
-                                <View style={styles.appleIconContainer}>
-                                    <Ionicons name="logo-apple" size={24} color={Colors.textPrimary} />
+                            {/* Header Text */}
+                            <Text style={styles.headerText}>
+                                Welcome! Sign in to see your latest glucose trends and habit insights.
+                            </Text>
+
+                            {/* Form Container */}
+                            <View style={styles.formContainer}>
+                                {/* Email Input */}
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.inputLabel}>Email</Text>
+                                    <Input
+                                        value={email}
+                                        onChangeText={setEmail}
+                                        placeholder="Email"
+                                        keyboardType="email-address"
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                    />
                                 </View>
-                                <Text style={styles.appleButtonText}>Continue with Apple</Text>
-                            </TouchableOpacity>
-                        </View>
 
-                        {/* Sign Up Link */}
-                        <Text style={styles.signUpText}>
-                            Don&apos;t have an account with us?{' '}
-                            <Text style={styles.signUpLink} onPress={handleSignUp}>Sign Up</Text>
-                        </Text>
-                    </ScrollView>
-                </KeyboardAvoidingView>
-            </SafeAreaView>
+                                {/* Password Input */}
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.inputLabel}>Password</Text>
+                                    <Input
+                                        value={password}
+                                        onChangeText={setPassword}
+                                        placeholder="Password"
+                                        secureTextEntry={!showPassword}
+                                        autoCapitalize="none"
+                                        right={(
+                                            <TouchableOpacity
+                                                style={styles.eyeButton}
+                                                onPress={() => setShowPassword(!showPassword)}
+                                            >
+                                                <Ionicons
+                                                    name={showPassword ? "eye-off-outline" : "eye-outline"}
+                                                    size={22}
+                                                    color="#878787"
+                                                />
+                                            </TouchableOpacity>
+                                        )}
+                                    />
+                                </View>
+                            </View>
+
+                            {/* Forgot Password Link */}
+                            <TouchableOpacity
+                                style={styles.forgotPasswordContainer}
+                                onPress={handleForgotPassword}
+                            >
+                                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                            </TouchableOpacity>
+
+                            {/* Continue Button */}
+                            <Button
+                                onPress={handleContinue}
+                                disabled={!isFormValid}
+                                loading={isLoading}
+                                variant="primary"
+                                style={styles.continueButton}
+                            >
+                                Continue
+                            </Button>
+
+                            {/* Divider */}
+                            <View style={styles.dividerContainer}>
+                                <View style={styles.dividerDashed} />
+                                <Text style={styles.dividerText}>OR</Text>
+                                <View style={styles.dividerDashed} />
+                            </View>
+
+                            {/* Social Sign In Buttons */}
+                            <View style={styles.socialContainer}>
+                                {/* Google Button */}
+                                <TouchableOpacity
+                                    style={[styles.googleButton, styles.socialButtonDisabled]}
+                                    onPress={handleGoogleSignIn}
+                                    activeOpacity={0.8}
+                                >
+                                    <Image
+                                        source={require('../assets/images/google-logo.png')}
+                                        style={[styles.googleLogo, { opacity: 0.5 }]}
+                                        resizeMode="contain"
+                                    />
+                                    <Text style={[styles.googleButtonText, { opacity: 0.5 }]}>Continue with Google</Text>
+                                    <View style={styles.comingSoonBadge}>
+                                        <Text style={styles.comingSoonText}>Soon</Text>
+                                    </View>
+                                </TouchableOpacity>
+
+                                {/* Apple Button */}
+                                <TouchableOpacity
+                                    style={[styles.appleButton, styles.socialButtonDisabled]}
+                                    onPress={handleAppleSignIn}
+                                    activeOpacity={0.8}
+                                >
+                                    <View style={[styles.appleIconContainer, { opacity: 0.5 }]}>
+                                        <Ionicons name="logo-apple" size={24} color={Colors.textPrimary} />
+                                    </View>
+                                    <Text style={[styles.appleButtonText, { opacity: 0.5 }]}>Continue with Apple</Text>
+                                    <View style={styles.comingSoonBadge}>
+                                        <Text style={styles.comingSoonText}>Soon</Text>
+                                    </View>
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Sign Up Link */}
+                            <Text style={styles.signUpText}>
+                                Don&apos;t have an account with us?{' '}
+                                <Text style={styles.signUpLink} onPress={handleSignUp}>Sign Up</Text>
+                            </Text>
+                        </ScrollView>
+                    </KeyboardAvoidingView>
+                </SafeAreaView>
             </ImageBackground>
         </View>
     );
@@ -357,5 +408,34 @@ const styles = StyleSheet.create({
     signUpLink: {
         color: '#47aa4b', // Green link color from Figma
         fontFamily: fonts.regular,
+    },
+    // Forgot Password link
+    forgotPasswordContainer: {
+        alignSelf: 'flex-end',
+        marginBottom: 20,
+        marginTop: -8,
+    },
+    forgotPasswordText: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#3494D9',
+    },
+    // Coming Soon styling for social buttons
+    socialButtonDisabled: {
+        opacity: 0.7,
+    },
+    comingSoonBadge: {
+        position: 'absolute',
+        right: 12,
+        backgroundColor: '#3F4243',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 4,
+    },
+    comingSoonText: {
+        fontFamily: fonts.medium,
+        fontSize: 10,
+        color: '#AAAAAA',
+        textTransform: 'uppercase',
     },
 });
