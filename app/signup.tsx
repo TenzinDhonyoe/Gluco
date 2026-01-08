@@ -8,7 +8,6 @@ import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
     Alert,
-    Image,
     ImageBackground,
     KeyboardAvoidingView,
     Platform,
@@ -24,6 +23,8 @@ export default function SignUpScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [agreeToTerms, setAgreeToTerms] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const { signUp } = useAuth();
@@ -37,6 +38,11 @@ export default function SignUpScreen() {
 
         if (password.trim().length < 6) {
             Alert.alert('Error', 'Password must be at least 6 characters');
+            return;
+        }
+
+        if (password !== confirmPassword) {
+            Alert.alert('Error', 'Passwords do not match');
             return;
         }
 
@@ -62,15 +68,7 @@ export default function SignUpScreen() {
         }
     };
 
-    const handleGoogleSignIn = () => {
-        // TODO: Implement Google Sign In with Supabase OAuth
-        Alert.alert('Coming Soon', 'Google Sign In will be available soon');
-    };
 
-    const handleAppleSignIn = () => {
-        // TODO: Implement Apple Sign In with Supabase OAuth
-        Alert.alert('Coming Soon', 'Apple Sign In will be available soon');
-    };
 
     const handleBack = () => {
         router.back();
@@ -80,7 +78,7 @@ export default function SignUpScreen() {
         router.push('/signin');
     };
 
-    const isFormValid = agreeToTerms && email.trim().length > 0 && password.trim().length >= 6;
+    const isFormValid = agreeToTerms && email.trim().length > 0 && password.trim().length >= 6 && password === confirmPassword;
 
     return (
         <View style={styles.container}>
@@ -153,6 +151,30 @@ export default function SignUpScreen() {
                                         )}
                                     />
                                 </View>
+
+                                {/* Confirm Password Input */}
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.inputLabel}>Confirm Password</Text>
+                                    <Input
+                                        value={confirmPassword}
+                                        onChangeText={setConfirmPassword}
+                                        placeholder="Confirm Password"
+                                        secureTextEntry={!showConfirmPassword}
+                                        autoCapitalize="none"
+                                        right={(
+                                            <TouchableOpacity
+                                                style={styles.eyeButton}
+                                                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                                            >
+                                                <Ionicons
+                                                    name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
+                                                    size={22}
+                                                    color="#878787"
+                                                />
+                                            </TouchableOpacity>
+                                        )}
+                                    />
+                                </View>
                             </View>
 
                             {/* Agreement and Button Section */}
@@ -184,35 +206,6 @@ export default function SignUpScreen() {
                                     Continue
                                 </Button>
 
-                                {/* Divider */}
-                                <View style={styles.dividerContainer}>
-                                    <View style={styles.dividerDashed} />
-                                    <Text style={styles.dividerText}>Or Sign in with</Text>
-                                    <View style={styles.dividerDashed} />
-                                </View>
-
-                                {/* Social Sign In Icons (Coming Soon) */}
-                                <View style={styles.socialIconsContainer}>
-                                    <TouchableOpacity
-                                        style={[styles.socialIconButton, { opacity: 0.4 }]}
-                                        onPress={handleGoogleSignIn}
-                                        activeOpacity={0.8}
-                                    >
-                                        <Image
-                                            source={require('../assets/images/google-logo.png')}
-                                            style={styles.socialIcon}
-                                            resizeMode="contain"
-                                        />
-                                    </TouchableOpacity>
-
-                                    <TouchableOpacity
-                                        style={[styles.socialIconButton, { opacity: 0.4 }]}
-                                        onPress={handleAppleSignIn}
-                                        activeOpacity={0.8}
-                                    >
-                                        <Ionicons name="logo-apple" size={48} color={Colors.textPrimary} />
-                                    </TouchableOpacity>
-                                </View>
 
                                 {/* Sign In Link */}
                                 <Text style={styles.signInText}>

@@ -32,10 +32,10 @@ export default function ConfirmEmailScreen() {
                 if (session?.user?.email_confirmed_at) {
                     // User has confirmed their email
                     clearInterval(interval);
-                    
+
                     // Refresh the auth context
                     await supabase.auth.refreshSession();
-                    
+
                     // Navigate to index which will route to appropriate onboarding step
                     router.replace('/' as never);
                 }
@@ -64,7 +64,7 @@ export default function ConfirmEmailScreen() {
                 router.replace('/' as never);
             } else {
                 // Go to onboarding
-                router.replace('/onboarding-1' as never);
+                router.replace('/onboarding-2' as never);
             }
         }
     }, [user, profile]);

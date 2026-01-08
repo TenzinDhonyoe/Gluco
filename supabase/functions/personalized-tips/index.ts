@@ -198,7 +198,7 @@ function generateFallbackTips(stats: UserStats): PersonalizedTip[] {
             description: stats.glucose.totalReadings > 0
                 ? `You logged ${stats.glucose.totalReadings} readings this week with ${stats.glucose.inRangePct}% in range.`
                 : 'Start logging your glucose to see personalized insights.',
-            articleUrl: 'https://www.healthline.com/health/type-2-diabetes/blood-glucose-monitoring',
+            articleUrl: 'https://www.healthline.com/nutrition/blood-sugar-after-eating',
             metric: stats.glucose.avgLevel ? `${stats.glucose.avgLevel} mmol/L avg` : undefined,
         },
         {
@@ -218,7 +218,7 @@ function generateFallbackTips(stats: UserStats): PersonalizedTip[] {
             description: stats.activity.totalMinutes > 0
                 ? `Great work! You've logged ${stats.activity.totalMinutes} minutes across ${stats.activity.activeDays} days.`
                 : 'A 10-min walk after meals can reduce glucose spikes by 15%.',
-            articleUrl: 'https://www.healthline.com/health/type-2-diabetes/walking-after-meal',
+            articleUrl: 'https://www.healthline.com/nutrition/walking-after-eating',
             metric: `${stats.activity.totalMinutes} min`,
         },
     ];

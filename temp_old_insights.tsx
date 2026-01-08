@@ -1,26 +1,24 @@
 import { AnimatedScreen } from '@/components/animated-screen';
+import { MealResponseMiniChart } from '@/components/meal-response-mini-chart';
 import { SegmentedControl } from '@/components/segmented-control';
-import { Disclaimer } from '@/components/ui/Disclaimer';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import {
     getGlucoseLogsByDateRange,
-    getMealsWithCheckinsByDateRange,
+    getPostMealReviewsByDateRange,
     getSuggestedExperiments,
     getUserExperiments,
-    GlucoseLog,
-    invokeMetabolicScore,
-    MealWithCheckin,
-    MetabolicScoreResult,
+    invokeWeeklyMealComparisonDrivers,
+    PostMealReview,
     startUserExperiment,
     SuggestedExperiment,
-    UserExperiment
+    UserExperiment,
 } from '@/lib/supabase';
-import { formatGlucoseWithUnit } from '@/lib/utils/glucoseUnits';
+import { formatGlucoseWithUnit, GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
@@ -30,7 +28,7 @@ import {
     StyleSheet,
     Text,
     TouchableOpacity,
-    View
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { G, Path } from 'react-native-svg';
@@ -65,12 +63,11 @@ function getCategoryColor(category: GlucoseCategory): string {
 }
 
 // Get date range for the last 7 days
-// Get date range for analysis (last 30 days for robust patterns)
-function getInsightsDateRange(days: number = 30): { startDate: Date; endDate: Date } {
+function getWeekRange(): { startDate: Date; endDate: Date } {
     const now = new Date();
     const endDate = new Date(now);
     const startDate = new Date(now);
-    startDate.setDate(now.getDate() - days);
+    startDate.setDate(now.getDate() - 7);
     startDate.setHours(0, 0, 0, 0);
     return { startDate, endDate };
 }
@@ -311,6 +308,135 @@ function BehavioralImpactItem({ title, percentage, color }: { title: string; per
     );
 }
 
+// Meal Comparison Card - shows actual spike data with AI drivers
+function MealComparisonCard({
+    review,
+    spikeDelta,
+    drivers,
+    driversLoading,
+    glucoseUnit,
+    type,
+}: {
+    review: PostMealReview;
+    spikeDelta: number;
+    drivers: string[];
+    driversLoading: boolean;
+    glucoseUnit: GlucoseUnit;
+    type: 'highest' | 'lowest';
+}) {
+    const isHighest = type === 'highest';
+
+    // Parse meal time
+    const mealDate = review.meal_time ? new Date(review.meal_time) : null;
+
+    // Format time (e.g., "08:10 AM")
+    const formattedTime = mealDate
+        ? mealDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+        : '';
+
+    // Format date (e.g., "16-11-2025")
+    const formattedDate = mealDate
+        ? `${mealDate.getDate().toString().padStart(2, '0')}-${(mealDate.getMonth() + 1).toString().padStart(2, '0')}-${mealDate.getFullYear()}`
+        : '';
+
+    // Determine badge based on status_tag or spike magnitude
+    const getBadgeInfo = () => {
+        if (review.status_tag === 'steady') {
+            return { bg: 'rgba(99, 181, 27, 0.15)', border: '#63B51B', color: '#63B51B', label: 'Steady' };
+        } else if (review.status_tag === 'mild_elevation') {
+            return { bg: 'rgba(99, 181, 27, 0.15)', border: '#63B51B', color: '#63B51B', label: 'Mild Elevation' };
+        } else if (review.status_tag === 'spike') {
+            return { bg: 'rgba(244, 67, 54, 0.15)', border: '#F44336', color: '#F44336', label: 'Spike' };
+        }
+        // Fallback based on spike delta
+        if (spikeDelta < 2) {
+            return { bg: 'rgba(99, 181, 27, 0.15)', border: '#63B51B', color: '#63B51B', label: 'Steady' };
+        } else if (spikeDelta < 3.5) {
+            return { bg: 'rgba(99, 181, 27, 0.15)', border: '#63B51B', color: '#63B51B', label: 'Mild Elevation' };
+        }
+        return { bg: 'rgba(244, 67, 54, 0.15)', border: '#F44336', color: '#F44336', label: 'Spike' };
+    };
+
+    const badge = getBadgeInfo();
+
+    // Generate peak description based on predicted vs actual
+    const getPeakDescription = () => {
+        const peakValue = review.actual_peak ? formatGlucoseWithUnit(review.actual_peak, glucoseUnit) : '—';
+        const predictedPeak = review.predicted_peak;
+
+        if (predictedPeak && review.actual_peak) {
+            if (review.actual_peak < predictedPeak - 0.5) {
+                return `Peaked at ${peakValue} - smoother than expected`;
+            } else if (review.actual_peak > predictedPeak + 0.5) {
+                return `Peaked at ${peakValue} - higher than expected`;
+            }
+            return `Peaked at ${peakValue} - as expected`;
+        }
+        return `Peaked at ${peakValue}`;
+    };
+
+    return (
+        <View style={styles.mealCardContent}>
+            {/* Meal info */}
+            <View style={styles.mealInfoSection}>
+                <Text style={styles.mealName}>{review.meal_name || 'Unknown Meal'}</Text>
+                <View style={styles.mealDateTimeRow}>
+                    <Text style={styles.mealDateTime}>{formattedTime}</Text>
+                    <View style={styles.mealDateTimeDot} />
+                    <Text style={styles.mealDateTime}>{formattedDate}</Text>
+                </View>
+            </View>
+
+            {/* Chart section */}
+            <View style={styles.mealChartSection}>
+                <MealResponseMiniChart
+                    actualCurve={review.actual_curve}
+                    predictedCurve={review.predicted_curve}
+                    mealTime={mealDate}
+                    glucoseUnit={glucoseUnit}
+                />
+
+                {/* Badge and peak text */}
+                <View style={styles.mealStatusSection}>
+                    <View style={[styles.mealElevationBadge, { backgroundColor: badge.bg, borderColor: badge.border }]}>
+                        <Text style={[styles.mealElevationText, { color: badge.color }]}>
+                            {badge.label}
+                        </Text>
+                    </View>
+                    <Text style={styles.mealPeakText}>{getPeakDescription()}</Text>
+                </View>
+            </View>
+
+            {/* Top Drivers */}
+            <View style={styles.mealTopDrivers}>
+                <Text style={styles.mealTopDriversTitle}>Top Drivers:</Text>
+                <View style={styles.mealDriversList}>
+                    {driversLoading ? (
+                        <View style={styles.mealDriverItem}>
+                            <ActivityIndicator size="small" color="#3494D9" />
+                            <Text style={[styles.mealDriverText, { marginLeft: 8 }]}>Generating insights...</Text>
+                        </View>
+                    ) : drivers.length > 0 ? (
+                        drivers.map((driver, index) => (
+                            <View key={index} style={styles.mealDriverItem}>
+                                <View style={styles.mealDriverBullet} />
+                                <Text style={styles.mealDriverText}>{driver}</Text>
+                            </View>
+                        ))
+                    ) : (
+                        <View style={styles.mealDriverItem}>
+                            <View style={styles.mealDriverBullet} />
+                            <Text style={styles.mealDriverText}>
+                                {isHighest ? 'Meal composition led to elevated response' : 'Well-balanced meal kept glucose steady'}
+                            </Text>
+                        </View>
+                    )}
+                </View>
+            </View>
+        </View>
+    );
+}
+
 // Empty state for Meal Comparison section
 function MealComparisonEmpty() {
     return (
@@ -318,72 +444,36 @@ function MealComparisonEmpty() {
             <Ionicons name="nutrition-outline" size={48} color="#4A4A4A" />
             <Text style={styles.mealComparisonEmptyTitle}>No Meal Data Yet</Text>
             <Text style={styles.mealComparisonEmptyText}>
-                Log meals and check in regularly to see patterns here.
+                Log meals and complete post-meal reviews to see your highest and lowest spike comparisons here.
             </Text>
         </View>
     );
 }
 
-// Helper to calculate score (High is good, Low is bad)
-function calculateMealScore(meal: MealWithCheckin, logs: GlucoseLog[]): number {
-    const checkin = meal.meal_checkins?.[0];
-    if (!checkin) return 0;
-
-    let score = 0;
-
-    // Energy (1-5 scale mapped from levels)
-    const energyMap: Record<string, number> = { 'low': 1, 'steady': 3, 'high': 5 };
-    if (checkin.energy) score += energyMap[checkin.energy] || 0;
-
-    // Mood (1-5 scale mapped from levels)
-    const moodMap: Record<string, number> = { 'low': 1, 'okay': 3, 'good': 5 };
-    if (checkin.mood) score += moodMap[checkin.mood] || 0;
-
-    // Glucose Spike Impact (penalty for high spikes)
-    // Find logs within 2 hours of meal
-    const mealTime = new Date(meal.logged_at).getTime();
-    const twoHoursLater = mealTime + (2 * 60 * 60 * 1000);
-
-    // Simple baseline: log closest to meal time (within 30 mins before/after)
-    // Simple max: max log in 2h window
-    const nearbyLogs = logs.filter(l => {
-        const t = new Date(l.logged_at).getTime();
-        return t >= mealTime && t <= twoHoursLater;
-    });
-
-    if (nearbyLogs.length > 0) {
-        const levels = nearbyLogs.map(l => l.glucose_level);
-        const max = Math.max(...levels);
-        const min = Math.min(...levels); // approximate baseline
-        const spike = max - min;
-
-        // Spike penalty (Spike > 2.0 starts penalizing)
-        if (spike > 4.0) score -= 3;
-        else if (spike > 2.0) score -= 1;
-        else score += 1; // Steady bonus
+// Helper to compute spike delta from a review
+function computeSpikeDelta(review: PostMealReview): number {
+    // Prefer stored peak_delta if available
+    if (review.peak_delta !== null && review.peak_delta !== undefined) {
+        return review.peak_delta;
     }
-
-    return score;
+    // Fallback: compute from actual_curve and baseline_glucose
+    if (review.actual_curve && review.actual_curve.length > 0) {
+        const peakValue = Math.max(...review.actual_curve.map(p => p.value));
+        const baseline = review.baseline_glucose ?? review.actual_curve[0]?.value ?? 5.5;
+        return peakValue - baseline;
+    }
+    // Last resort: use actual_peak with default baseline
+    if (review.actual_peak !== null) {
+        const baseline = review.baseline_glucose ?? 5.5;
+        return review.actual_peak - baseline;
+    }
+    return 0;
 }
 
 export default function InsightsScreen() {
     const { user } = useAuth();
     const glucoseUnit = useGlucoseUnit();
-    const params = useLocalSearchParams();
-
-    // Initialize tab from params or default to weekly
-    const [activeTab, setActiveTab] = useState<TabKey>(
-        (params.tab as TabKey) || 'weekly'
-    );
-
-    // Update tab if params change
-    useFocusEffect(
-        useCallback(() => {
-            if (params.tab && ['weekly', 'trends', 'experiments'].includes(params.tab as string)) {
-                setActiveTab(params.tab as TabKey);
-            }
-        }, [params.tab])
-    );
+    const [activeTab, setActiveTab] = useState<TabKey>('weekly');
     const [isLoading, setIsLoading] = useState(true);
     const [mealTab, setMealTab] = useState<'highest' | 'lowest'>('highest');
 
@@ -397,28 +487,24 @@ export default function InsightsScreen() {
         consistentMealTimes: 28,
     });
 
-    // Best & Worst Meals
-    const [bestMeal, setBestMeal] = useState<MealWithCheckin | null>(null);
-    const [worstMeal, setWorstMeal] = useState<MealWithCheckin | null>(null);
+    // Meal Comparison states
+    const [highestSpikeReview, setHighestSpikeReview] = useState<PostMealReview | null>(null);
+    const [lowestSpikeReview, setLowestSpikeReview] = useState<PostMealReview | null>(null);
+    const [mealComparisonDrivers, setMealComparisonDrivers] = useState<{
+        highest: { drivers: string[] };
+        lowest: { drivers: string[] };
+    } | null>(null);
+    const [driversLoading, setDriversLoading] = useState(false);
 
     // Experiments states
     const [suggestedExperiments, setSuggestedExperiments] = useState<SuggestedExperiment[]>([]);
     const [activeExperiments, setActiveExperiments] = useState<UserExperiment[]>([]);
     const [experimentsLoading, setExperimentsLoading] = useState(false);
     const [startingExperiment, setStartingExperiment] = useState<string | null>(null);
-    const [successExperiment, setSuccessExperiment] = useState<string | null>(null);
 
     // Insights text
-    const [timeOfDayInsight, setTimeOfDayInsight] = useState('');
-    const [weekdayInsight, setWeekdayInsight] = useState('');
-    const [hasSufficientData, setHasSufficientData] = useState(false);
-    const [trendStats, setTrendStats] = useState({ steady: 0, mild: 0, spike: 0 });
-    const [glucoseStats, setGlucoseStats] = useState({ tir: 0, average: 0, totalReadings: 0, variability: 0 });
-    const [insightsRangeDays, setInsightsRangeDays] = useState(30);
-
-    // Metabolic Score state
-    const [metabolicScore, setMetabolicScore] = useState<MetabolicScoreResult | null>(null);
-    const [metabolicScoreLoading, setMetabolicScoreLoading] = useState(false);
+    const [timeOfDayInsight, setTimeOfDayInsight] = useState('Mornings had the steadiest responses. Evenings showed the highest rises.');
+    const [weekdayInsight, setWeekdayInsight] = useState('Weekdays may be raising your overall glucose average. Try small tweaks like adding fiber or a short post-meal walk.');
 
     const fetchWeeklyData = useCallback(async () => {
         if (!user) {
@@ -428,20 +514,8 @@ export default function InsightsScreen() {
 
         setIsLoading(true);
         try {
-            const { startDate, endDate } = getInsightsDateRange(insightsRangeDays);
+            const { startDate, endDate } = getWeekRange();
             const logs = await getGlucoseLogsByDateRange(user.id, startDate, endDate);
-
-            // Check for data sufficiency (at least 3 days of data for partial insights, 7 ideally)
-            // User requested 7 days message
-            const uniqueDays = new Set(logs.map(l => new Date(l.logged_at).toISOString().split('T')[0])).size;
-            const sufficient = uniqueDays >= Math.min(3, insightsRangeDays); // Relax check for short ranges
-            setHasSufficientData(sufficient);
-
-            if (!sufficient) {
-                // Don't process questionable data
-                setIsLoading(false);
-                return;
-            }
 
             // Process time of day data - track values for averaging
             const timeValues: { [key: string]: number[] } = {
@@ -487,7 +561,7 @@ export default function InsightsScreen() {
             });
 
             // Calculate averages per time period
-            const calcAvg = (values: number[]) => values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+            const calcAvg = (values: number[]) => values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 5;
 
             setTimeOfDayData([
                 { period: 'morning', avgValue: calcAvg(timeValues.morning) },
@@ -498,43 +572,6 @@ export default function InsightsScreen() {
 
             setWeekdayData(weekday);
             setWeekendData(weekend);
-
-
-            // Calculate aggregated trend stats for Pie Chart
-            const totalSteady = timeData.morning.steady + timeData.afternoon.steady + timeData.evening.steady + timeData.night.steady;
-            const totalMild = timeData.morning.mild + timeData.afternoon.mild + timeData.evening.mild + timeData.night.mild;
-            const totalSpike = timeData.morning.spike + timeData.afternoon.spike + timeData.evening.spike + timeData.night.spike;
-            setTrendStats({
-                steady: totalSteady,
-                mild: totalMild,
-                spike: totalSpike
-            });
-
-            // Calculate Glucose Statistics (TIR and Average)
-            if (logs.length > 0) {
-                // Time in Range (3.9 - 10.0 mmol/L) -> (70 - 180 mg/dL)
-                // Assuming logs are mmol/L (if they are stored as such)
-                // Wait, DB logs are usually mmol/L. Let's assume standard range 3.9-10.
-                const tirCount = logs.filter(l => l.glucose_level >= 3.9 && l.glucose_level <= 10.0).length;
-                const tir = (tirCount / logs.length) * 100;
-
-                const sumGlucose = logs.reduce((sum, l) => sum + l.glucose_level, 0);
-                const average = sumGlucose / logs.length;
-
-                // Variability (Standard Deviation / Mean * 100)
-                const variance = logs.reduce((sum, l) => sum + Math.pow(l.glucose_level - average, 2), 0) / logs.length;
-                const stdDev = Math.sqrt(variance);
-                const cv = average > 0 ? (stdDev / average) * 100 : 0;
-
-                setGlucoseStats({
-                    tir,
-                    average,
-                    totalReadings: logs.length,
-                    variability: cv
-                });
-            } else {
-                setGlucoseStats({ tir: 0, average: 0, totalReadings: 0, variability: 0 });
-            }
 
             // Generate insights based on data
             const periods = ['morning', 'afternoon', 'evening', 'night'];
@@ -558,25 +595,41 @@ export default function InsightsScreen() {
                 `${steadiestPeriod.charAt(0).toUpperCase() + steadiestPeriod.slice(1)}s had the steadiest responses. ${spikiestPeriod.charAt(0).toUpperCase() + spikiestPeriod.slice(1)}s showed the highest rises.`
             );
 
-            // Meal Comparison using Check-ins
-            const meals = await getMealsWithCheckinsByDateRange(user.id, startDate, endDate);
+            // Fetch post-meal reviews for Meal Comparison section
+            const reviews = await getPostMealReviewsByDateRange(user.id, startDate, endDate);
 
-            // Score meals that have check-ins
-            const rankedMeals = meals
-                .filter(m => m.meal_checkins && m.meal_checkins.length > 0)
-                .map(m => ({ meal: m, score: calculateMealScore(m, logs) }))
-                .sort((a, b) => b.score - a.score);
+            if (reviews.length > 0) {
+                // Compute spike delta for each review and find highest/lowest
+                const reviewsWithDelta = reviews.map(r => ({
+                    review: r,
+                    spikeDelta: computeSpikeDelta(r),
+                }));
 
-            if (rankedMeals.length > 0) {
-                setBestMeal(rankedMeals[0].meal);
-                // Only show worst if different from best
-                if (rankedMeals.length > 1) {
-                    setWorstMeal(rankedMeals[rankedMeals.length - 1].meal);
-                } else {
-                    setWorstMeal(null);
+                // Sort by spike delta (highest first)
+                reviewsWithDelta.sort((a, b) => b.spikeDelta - a.spikeDelta);
+
+                const highest = reviewsWithDelta[0]?.review || null;
+                const lowest = reviewsWithDelta[reviewsWithDelta.length - 1]?.review || null;
+
+                setHighestSpikeReview(highest);
+                setLowestSpikeReview(lowest);
+
+                // Fetch AI drivers if we have both meals
+                if (highest && lowest) {
+                    setDriversLoading(true);
+                    try {
+                        const drivers = await invokeWeeklyMealComparisonDrivers(user.id, highest, lowest);
+                        setMealComparisonDrivers(drivers);
+                    } catch (driverError) {
+                        console.error('Error fetching meal comparison drivers:', driverError);
+                    } finally {
+                        setDriversLoading(false);
+                    }
                 }
             } else {
-                setWorstMeal(null);
+                setHighestSpikeReview(null);
+                setLowestSpikeReview(null);
+                setMealComparisonDrivers(null);
             }
 
         } catch (error) {
@@ -584,36 +637,12 @@ export default function InsightsScreen() {
         } finally {
             setIsLoading(false);
         }
-    }, [user, insightsRangeDays]);
+    }, [user]);
 
     useFocusEffect(
         useCallback(() => {
             fetchWeeklyData();
         }, [fetchWeeklyData])
-    );
-
-    // Fetch metabolic score
-    const fetchMetabolicScore = useCallback(async () => {
-        if (!user) return;
-
-        setMetabolicScoreLoading(true);
-        try {
-            const result = await invokeMetabolicScore(user.id);
-            setMetabolicScore(result);
-        } catch (error) {
-            console.error('Error fetching metabolic score:', error);
-        } finally {
-            setMetabolicScoreLoading(false);
-        }
-    }, [user]);
-
-    // Fetch metabolic score when weekly tab is active
-    useFocusEffect(
-        useCallback(() => {
-            if (activeTab === 'weekly') {
-                fetchMetabolicScore();
-            }
-        }, [activeTab, fetchMetabolicScore])
     );
 
     // Fetch experiments data
@@ -649,7 +678,7 @@ export default function InsightsScreen() {
 
     // Handle starting an experiment
     const handleStartExperiment = async (suggestion: SuggestedExperiment) => {
-        if (!user || startingExperiment) return;
+        if (!user) return;
 
         setStartingExperiment(suggestion.template.id);
         try {
@@ -664,42 +693,29 @@ export default function InsightsScreen() {
             );
 
             if (experiment) {
-                setStartingExperiment(null);
-                setSuccessExperiment(suggestion.template.id);
+                Alert.alert(
+                    'Experiment Started! 🧪',
+                    `You've started "${suggestion.template.title}". Log your meals and check in regularly to see your results.`,
+                    [
+                        {
+                            text: 'View Details',
+                            onPress: () => router.push(`/experiment-detail?id=${experiment.id}` as any),
+                        },
+                        { text: 'Got it', style: 'cancel' },
+                    ]
+                );
+                // Refresh experiments list
                 fetchExperimentsData();
-
-                // Show checkmark then navigate
-                setTimeout(() => {
-                    setSuccessExperiment(null);
-                    router.push('/(tabs)/' as any);
-                }, 1500);
             } else {
-                setStartingExperiment(null);
                 Alert.alert('Error', 'Failed to start experiment. Please try again.');
             }
         } catch (error) {
             console.error('Error starting experiment:', error);
-            setStartingExperiment(null);
             Alert.alert('Error', 'Something went wrong. Please try again.');
+        } finally {
+            setStartingExperiment(null);
         }
     };
-
-
-
-    // Reusable empty state for reports
-    const renderInsufficientData = () => (
-        <View style={styles.card}>
-            <View style={{ alignItems: 'center', padding: 24, gap: 12 }}>
-                <Ionicons name="bar-chart-outline" size={48} color="#3494D9" />
-                <Text style={{ fontFamily: fonts.semiBold, fontSize: 18, color: '#FFFFFF', textAlign: 'center' }}>
-                    Not Enough Data Yet
-                </Text>
-                <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: '#878787', textAlign: 'center', lineHeight: 20 }}>
-                    We need at least 7 days of glucose data to generate meaningful insights and trends. Keep logging!
-                </Text>
-            </View>
-        </View>
-    );
 
     const renderWeeklyReport = () => (
         <ScrollView
@@ -707,495 +723,287 @@ export default function InsightsScreen() {
             contentContainerStyle={styles.scrollContent}
         >
             <Text style={styles.sectionDescription}>
-                How your habits and patterns contributed to your wellness this week.
+                How your blood sugar behaved across different times and habits this week.
             </Text>
 
-            {/* Metabolic Response Score Card */}
+            {/* Time of Day Comparison */}
             <View style={styles.card}>
-                <View style={styles.metabolicScoreHeader}>
-                    <Text style={styles.metabolicScoreTitle}>Metabolic Response Score</Text>
-                    {metabolicScore && (
-                        <View style={[
-                            styles.confidenceBadge,
-                            metabolicScore.confidence === 'high' && styles.confidenceHigh,
-                            metabolicScore.confidence === 'medium' && styles.confidenceMedium,
-                            metabolicScore.confidence === 'low' && styles.confidenceLow,
-                        ]}>
-                            <Text style={styles.confidenceText}>
-                                {metabolicScore.confidence}
-                            </Text>
-                        </View>
-                    )}
-                </View>
-
-                {metabolicScoreLoading ? (
+                <Text style={styles.cardTitle}>Time of Day Comparison</Text>
+                {isLoading ? (
                     <ActivityIndicator size="large" color="#3494D9" style={{ marginVertical: 40 }} />
-                ) : metabolicScore?.status === 'insufficient' ? (
-                    <View style={styles.notEnoughDataContainer}>
-                        <Ionicons name="analytics-outline" size={32} color="#878787" />
-                        <Text style={styles.notEnoughDataText}>
-                            Not enough data to compute a score. Try adding lab results or connecting your wearable for at least 5 days.
-                        </Text>
-                        <TouchableOpacity
-                            style={styles.addLabsButton}
-                            onPress={() => router.push('/labs-health-info' as any)}
-                        >
-                            <Text style={styles.addLabsButtonText}>Add Lab Results</Text>
-                        </TouchableOpacity>
-                    </View>
-                ) : metabolicScore ? (
-                    <View>
-                        {/* Improved Score UI */}
-                        <View style={styles.scoreContainer}>
-                            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', gap: 8, marginBottom: 4 }}>
-                                <Text style={[
-                                    styles.scoreNumber,
-                                    metabolicScore.band === 'low' && styles.scoreGreat,
-                                    metabolicScore.band === 'medium' && styles.scoreModerate,
-                                    metabolicScore.band === 'high' && styles.scoreNeedsAttention,
-                                ]}>
-                                    {metabolicScore.metabolic_response_score}
-                                </Text>
-
-                            </View>
-
-                            {/* Progress Bar (Strain Meter) */}
-                            <View style={{ height: 6, backgroundColor: '#2A2A2E', borderRadius: 3, marginVertical: 12, width: '100%', overflow: 'hidden' }}>
-                                <View
-                                    style={{
-                                        width: `${metabolicScore.metabolic_response_score || 0}%`,
-                                        height: '100%',
-                                        backgroundColor: metabolicScore.band === 'low' ? '#4CAF50' : metabolicScore.band === 'medium' ? '#FF9800' : '#F44336',
-                                        borderRadius: 3
-                                    }}
-                                />
-                            </View>
-
-                        </View>
-
-                        {/* Simplified Drivers - Max 2 items, truncated */}
-                        <Text style={[styles.driversTitle, { marginTop: 16, marginBottom: 8 }]}>Leading Factors</Text>
-                        <View style={{ gap: 8, marginBottom: 16 }}>
-                            {metabolicScore.drivers.slice(0, 2).map((driver, index) => (
-                                <View key={index} style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-                                    <Ionicons
-                                        name={metabolicScore.band === 'low' ? "checkmark-circle" : "information-circle"}
-                                        size={18}
-                                        color={metabolicScore.band === 'low' ? "#4CAF50" : "#878787"}
-                                    />
-                                    <View style={{ flex: 1 }}>
-                                        <Text numberOfLines={1} style={{ fontFamily: fonts.regular, fontSize: 13, color: '#E1E1E1' }}>
-                                            {driver.text}
-                                        </Text>
-                                    </View>
-                                </View>
-                            ))}
-                        </View>
-
-                        <View style={styles.dataSourcesRow}>
-                            <Text style={styles.dataSourcesLabel}>Data sources:</Text>
-                            <Text style={styles.dataSourcesValue}>
-                                {metabolicScore.wearables_days} wearable days
-                                {metabolicScore.lab_present ? ' • Labs' : ''}
-                            </Text>
-                        </View>
-
-                        <TouchableOpacity
-                            style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                backgroundColor: '#252527',
-                                paddingVertical: 16,
-                                borderRadius: 16,
-                                marginTop: 20,
-                                gap: 8,
-                                width: '100%'
-                            }}
-                            activeOpacity={0.7}
-                            onPress={() => router.push('/labs-health-info' as any)}
-                        >
-                            <Ionicons name="add-circle-sharp" size={20} color="#3494D9" />
-                            <Text style={{ fontSize: 16, fontFamily: fonts.semiBold, color: '#FFFFFF' }}>
-                                {metabolicScore.lab_present ? 'Update Lab Results' : 'Add Lab Results'}
-                            </Text>
-                        </TouchableOpacity>
-
-                        <Disclaimer variant="short" style={styles.metabolicDisclaimer} />
-                    </View>
                 ) : (
-                    <Text style={styles.noDataText}>Unable to load score</Text>
+                    <>
+                        <TimeOfDayChart data={timeOfDayData} />
+                        <Text style={styles.insightText}>{timeOfDayInsight}</Text>
+                    </>
                 )}
             </View>
 
-            {/* Data Sufficiency Check */}
-            {!hasSufficientData ? renderInsufficientData() : (
-                <>
-                    {/* Time of Day Comparison */}
-                    <View style={styles.card}>
-                        <Text style={styles.cardTitle}>Time of Day Comparison</Text>
-                        <TimeOfDayChart data={timeOfDayData} />
-                        <Text style={styles.insightText}>{timeOfDayInsight}</Text>
-                    </View>
-
-                    {/* Weekday vs Weekend */}
-                    <View style={styles.card}>
-                        <Text style={styles.cardTitle}>Weekday vs Weekend Comparison</Text>
+            {/* Weekday vs Weekend */}
+            <View style={styles.card}>
+                <Text style={styles.cardTitle}>Weekday vs Weekend Comparison</Text>
+                {isLoading ? (
+                    <ActivityIndicator size="large" color="#3494D9" style={{ marginVertical: 40 }} />
+                ) : (
+                    <>
                         <WeekdayWeekendComparison
                             weekdayData={weekdayData}
                             weekendData={weekendData}
                         />
                         <Text style={styles.insightText}>{weekdayInsight}</Text>
-                    </View>
+                    </>
+                )}
+            </View>
 
+            {/* Behavioral Impacts */}
+            <View style={styles.card}>
+                <Text style={styles.cardTitle}>Behavioral Impacts</Text>
+                <BehavioralImpactItem
+                    title="Sleep"
+                    percentage={behavioralStats.sleep}
+                    color="#0E9CFF"
+                />
+                <BehavioralImpactItem
+                    title="Post Meal Walks"
+                    percentage={behavioralStats.postMealWalks}
+                    color="#0E9CFF"
+                />
+                <BehavioralImpactItem
+                    title="Consistent Meal Times"
+                    percentage={behavioralStats.consistentMealTimes}
+                    color="#0E9CFF"
+                />
+            </View>
 
-                    {/* Behavioral Impacts - HIDDEN (Logic not implemented) */}
+            {/* Best & Worst Meal Comparison */}
+            <View style={styles.mealComparisonSection}>
+                <Text style={styles.mealComparisonTitle}>Best & Worst Meal Comparison</Text>
+                <View style={styles.mealComparisonCard}>
+                    {isLoading ? (
+                        <ActivityIndicator size="large" color="#3494D9" style={{ marginVertical: 40 }} />
+                    ) : !highestSpikeReview && !lowestSpikeReview ? (
+                        <MealComparisonEmpty />
+                    ) : (
+                        <>
+                            {/* Meal tabs */}
+                            <View style={styles.mealTabs}>
+                                <View
+                                    style={[
+                                        styles.mealTabItem,
+                                        mealTab === 'highest' && styles.mealTabItemActive,
+                                    ]}
+                                    onTouchEnd={() => setMealTab('highest')}
+                                >
+                                    <Text style={[styles.mealTabText, mealTab === 'highest' && styles.mealTabTextActive]}>
+                                        BEST MEAL
+                                    </Text>
+                                </View>
+                                <View
+                                    style={[
+                                        styles.mealTabItem,
+                                        mealTab === 'lowest' && styles.mealTabItemActive,
+                                    ]}
+                                    onTouchEnd={() => setMealTab('lowest')}
+                                >
+                                    <Text style={[styles.mealTabText, mealTab === 'lowest' && styles.mealTabTextActive]}>
+                                        WORST MEAL
+                                    </Text>
+                                </View>
+                            </View>
 
-                    {/* Best & Worst Meal Comparison - Feature deprecated during regulatory cleanup */}
-                    {/* Best & Worst Meal Comparison */}
-                    <View style={styles.mealComparisonSection}>
-                        <Text style={styles.mealComparisonTitle}>Best & Worst Meal Comparison</Text>
-                        <View style={styles.mealComparisonCard}>
-                            {!bestMeal && !worstMeal ? (
-                                <MealComparisonEmpty />
+                            {/* Best meal = lowest spike, Worst meal = highest spike */}
+                            {mealTab === 'highest' && lowestSpikeReview ? (
+                                <MealComparisonCard
+                                    review={lowestSpikeReview}
+                                    spikeDelta={computeSpikeDelta(lowestSpikeReview)}
+                                    drivers={mealComparisonDrivers?.lowest?.drivers || []}
+                                    driversLoading={driversLoading}
+                                    glucoseUnit={glucoseUnit}
+                                    type="lowest"
+                                />
+                            ) : mealTab === 'lowest' && highestSpikeReview ? (
+                                <MealComparisonCard
+                                    review={highestSpikeReview}
+                                    spikeDelta={computeSpikeDelta(highestSpikeReview)}
+                                    drivers={mealComparisonDrivers?.highest?.drivers || []}
+                                    driversLoading={driversLoading}
+                                    glucoseUnit={glucoseUnit}
+                                    type="highest"
+                                />
                             ) : (
-                                <>
-                                    <View style={styles.mealTabs}>
-                                        <TouchableOpacity
-                                            onPress={() => setMealTab('highest')}
-                                            style={[styles.mealTabItem, mealTab === 'highest' && styles.mealTabItemActive]}
-                                        >
-                                            <Text style={[styles.mealTabText, mealTab === 'highest' && styles.mealTabTextActive]}>
-                                                Best Meal
-                                            </Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            onPress={() => setMealTab('lowest')}
-                                            style={[styles.mealTabItem, mealTab === 'lowest' && styles.mealTabItemActive]}
-                                        >
-                                            <Text style={[styles.mealTabText, mealTab === 'lowest' && styles.mealTabTextActive]}>
-                                                Worst Meal
-                                            </Text>
-                                        </TouchableOpacity>
-                                    </View>
-
-                                    {mealTab === 'highest' && bestMeal && (
-                                        <View style={styles.mealCardContent}>
-                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                <View>
-                                                    <Text style={{ fontFamily: fonts.semiBold, fontSize: 16, color: '#FFFFFF', marginBottom: 4 }}>
-                                                        {bestMeal.name}
-                                                    </Text>
-                                                    <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: '#878787' }}>
-                                                        {new Date(bestMeal.logged_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                    </Text>
-                                                </View>
-                                                <View style={{ backgroundColor: 'rgba(76, 175, 80, 0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
-                                                    <Text style={{ fontFamily: fonts.medium, fontSize: 12, color: '#4CAF50' }}>Top Rated</Text>
-                                                </View>
-                                            </View>
-
-                                            {bestMeal.meal_checkins?.[0] && (
-                                                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                                                    {bestMeal.meal_checkins[0].energy && (
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#22282C', padding: 6, borderRadius: 6 }}>
-                                                            <Ionicons name="flash" size={12} color="#FFD700" />
-                                                            <Text style={{ color: '#DDD', fontSize: 12, fontFamily: fonts.medium }}>
-                                                                {bestMeal.meal_checkins[0].energy.charAt(0).toUpperCase() + bestMeal.meal_checkins[0].energy.slice(1)} Energy
-                                                            </Text>
-                                                        </View>
-                                                    )}
-                                                    {bestMeal.meal_checkins[0].mood && (
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#22282C', padding: 6, borderRadius: 6 }}>
-                                                            <Ionicons name="happy" size={12} color="#0E9CFF" />
-                                                            <Text style={{ color: '#DDD', fontSize: 12, fontFamily: fonts.medium }}>
-                                                                {bestMeal.meal_checkins[0].mood.charAt(0).toUpperCase() + bestMeal.meal_checkins[0].mood.slice(1)} Mood
-                                                            </Text>
-                                                        </View>
-                                                    )}
-                                                </View>
-                                            )}
-                                        </View>
-                                    )}
-
-                                    {mealTab === 'lowest' && (
-                                        worstMeal ? (
-                                            <View style={styles.mealCardContent}>
-                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                    <View>
-                                                        <Text style={{ fontFamily: fonts.semiBold, fontSize: 16, color: '#FFFFFF', marginBottom: 4 }}>
-                                                            {worstMeal.name}
-                                                        </Text>
-                                                        <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: '#878787' }}>
-                                                            {new Date(worstMeal.logged_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                        </Text>
-                                                    </View>
-                                                    <View style={{ backgroundColor: 'rgba(244, 67, 54, 0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
-                                                        <Text style={{ fontFamily: fonts.medium, fontSize: 12, color: '#F44336' }}>Review</Text>
-                                                    </View>
-                                                </View>
-
-                                                {worstMeal.meal_checkins?.[0] && (
-                                                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                                                        {worstMeal.meal_checkins[0].energy && (
-                                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#22282C', padding: 6, borderRadius: 6 }}>
-                                                                <Ionicons name="flash-outline" size={12} color="#FFD700" />
-                                                                <Text style={{ color: '#DDD', fontSize: 12, fontFamily: fonts.medium }}>
-                                                                    {worstMeal.meal_checkins[0].energy.charAt(0).toUpperCase() + worstMeal.meal_checkins[0].energy.slice(1)} Energy
-                                                                </Text>
-                                                            </View>
-                                                        )}
-                                                        {worstMeal.meal_checkins[0].mood && (
-                                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#22282C', padding: 6, borderRadius: 6 }}>
-                                                                <Ionicons name="sad-outline" size={12} color="#F44336" />
-                                                                <Text style={{ color: '#DDD', fontSize: 12, fontFamily: fonts.medium }}>
-                                                                    {worstMeal.meal_checkins[0].mood.charAt(0).toUpperCase() + worstMeal.meal_checkins[0].mood.slice(1)} Mood
-                                                                </Text>
-                                                            </View>
-                                                        )}
-                                                    </View>
-                                                )}
-                                            </View>
-                                        ) : (
-                                            <View style={{ padding: 20, alignItems: 'center' }}>
-                                                <Text style={{ color: '#878787', fontFamily: fonts.regular }}>
-                                                    Great job! No poorly rated meals found this week.
-                                                </Text>
-                                            </View>
-                                        )
-                                    )}
-                                </>
+                                <MealComparisonEmpty />
                             )}
-                        </View>
-                    </View>
-                </>
-            )
-            }
+                        </>
+                    )}
+                </View>
+            </View>
 
             {/* Bottom spacing for tab bar */}
             <View style={{ height: 160 }} />
-        </ScrollView >
+        </ScrollView>
     );
 
-    const renderTrends = () => {
-        // Calculate percentages and dynamic text
+    const renderTrends = () => (
+        <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+        >
+            {/* Date filter row */}
+            <View style={styles.trendsDateRow}>
+                <Text style={styles.trendsDateText}>Today</Text>
+                <Ionicons name="options-outline" size={20} color="#E7E8E9" />
+            </View>
 
-
-        const handleRangePress = () => {
-            Alert.alert(
-                'Select Time Range',
-                'Choose the period for data analysis',
-                [
-                    { text: 'Last 7 Days', onPress: () => setInsightsRangeDays(7) },
-                    { text: 'Last 14 Days', onPress: () => setInsightsRangeDays(14) },
-                    { text: 'Last 30 Days', onPress: () => setInsightsRangeDays(30) },
-                    { text: 'Last 90 Days', onPress: () => setInsightsRangeDays(90) },
-                    { text: 'Cancel', style: 'cancel' }
-                ]
-            );
-        };
-
-        return (
-            <ScrollView
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.scrollContent}
-            >
-                {/* Date filter row */}
-                <TouchableOpacity
-                    style={styles.trendsDateRow}
-                    onPress={handleRangePress}
-                    activeOpacity={0.7}
-                >
-                    <Text style={styles.trendsDateText}>Last {insightsRangeDays} Days</Text>
-                    <Ionicons name="options-outline" size={20} color="#E7E8E9" />
-                </TouchableOpacity>
-
-                {/* Daily Patterns Card (New) */}
-                <View style={styles.trendsCard}>
-                    <View style={styles.trendsCardHeader}>
-                        <Text style={styles.trendsCardTitle}>Daily Patterns</Text>
-                        <Text style={styles.trendsCardDescription}>
-                            Average glucose levels across different times of the day.
-                        </Text>
-                    </View>
-
-                    {!hasSufficientData ? (
-                        <View style={{ alignItems: 'center', padding: 24, gap: 12 }}>
-                            <Ionicons name="bar-chart-outline" size={48} color="#3494D9" />
-                            <Text style={{ fontFamily: fonts.semiBold, fontSize: 18, color: '#FFFFFF', textAlign: 'center' }}>
-                                Not Enough Data Yet
-                            </Text>
-                            <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: '#878787', textAlign: 'center', lineHeight: 20 }}>
-                                We need at least 7 days of glucose data to generate meaningful insights and trends. Keep logging!
-                            </Text>
-                        </View>
-                    ) : (
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: 120, paddingHorizontal: 10, marginBottom: 10 }}>
-                            {timeOfDayData.map((item, index) => {
-                                const maxVal = Math.max(...timeOfDayData.map(d => d.avgValue)) || 1;
-                                const height = (item.avgValue / maxVal) * 100;
-                                return (
-                                    <View key={index} style={{ alignItems: 'center', width: '20%' }}>
-                                        <Text style={{ fontSize: 11, fontFamily: fonts.semiBold, color: '#FFFFFF', marginBottom: 4 }}>
-                                            {formatGlucoseWithUnit(item.avgValue, glucoseUnit).split(' ')[0]}
-                                        </Text>
-                                        <View style={{ width: '100%', height: 80, justifyContent: 'flex-end', backgroundColor: '#2A2A2E', borderRadius: 6, overflow: 'hidden' }}>
-                                            <View style={{
-                                                width: '100%',
-                                                height: `${height}%`,
-                                                backgroundColor: '#3494D9',
-                                                borderRadius: 6
-                                            }} />
-                                        </View>
-                                        <Text style={{ fontSize: 10, color: '#878787', marginTop: 8, textTransform: 'capitalize' }}>
-                                            {item.period.slice(0, 3)}
-                                        </Text>
-                                    </View>
-                                );
-                            })}
-                        </View>
-                    )}
+            {/* Meal Impacts Card */}
+            <View style={styles.trendsCard}>
+                <View style={styles.trendsCardHeader}>
+                    <Text style={styles.trendsCardTitle}>Meal Impacts</Text>
+                    <Text style={styles.trendsCardDescription}>
+                        Shows the percentage of meals that aligned with steady patterns versus meals that were followed by mild or strong elevations.
+                    </Text>
                 </View>
 
-                {/* Meal Impacts Card */}
-                {!hasSufficientData ? null : (
-                    <>
-                        <View style={styles.trendsCard}>
-                            <View style={styles.trendsCardHeader}>
-                                <Text style={styles.trendsCardTitle}>Meal Impacts</Text>
-                                <Text style={styles.trendsCardDescription}>
-                                    Shows the percentage of meals that aligned with steady patterns versus meals that were followed by mild or strong elevations.
-                                </Text>
-                            </View>
-
-                            <View style={styles.mealImpactsContent}>
-                                {/* Legend */}
-                                <View style={styles.mealImpactsLegend}>
-                                    <View style={styles.legendItem}>
-                                        <View style={[styles.legendDotLarge, { backgroundColor: '#4CAF50' }]} />
-                                        <Text style={styles.legendLabel}>Steady Levels</Text>
-                                    </View>
-                                    <View style={styles.legendItem}>
-                                        <View style={[styles.legendDotLarge, { backgroundColor: '#FF9800' }]} />
-                                        <Text style={styles.legendLabel}>Mild Elevations</Text>
-                                    </View>
-                                    <View style={styles.legendItem}>
-                                        <View style={[styles.legendDotLarge, { backgroundColor: '#F44336' }]} />
-                                        <Text style={styles.legendLabel}>Spikes</Text>
-                                    </View>
-                                </View>
-
-                                {/* Dynamic Pie Chart */}
-                                <View style={styles.pieChartContainer}>
-                                    <PieChart
-                                        size={130}
-                                        data={[
-                                            { value: trendStats.steady, color: '#4CAF50', label: 'Steady' },
-                                            { value: trendStats.mild, color: '#FF9800', label: 'Mild' },
-                                            { value: trendStats.spike, color: '#F44336', label: 'Spikes' },
-                                        ]}
-                                    />
-                                </View>
-                            </View>
+                <View style={styles.mealImpactsContent}>
+                    {/* Legend */}
+                    <View style={styles.mealImpactsLegend}>
+                        <View style={styles.legendItem}>
+                            <View style={[styles.legendDotLarge, { backgroundColor: '#4CAF50' }]} />
+                            <Text style={styles.legendLabel}>Steady Levels</Text>
                         </View>
-
-                        {/* Glucose Health Card (New Stats) */}
-                        <View style={styles.trendsCard}>
-                            <View style={styles.trendsCardHeader}>
-                                <Text style={styles.trendsCardTitle}>Glucose Health</Text>
-                                <Text style={styles.trendsCardDescription}>
-                                    Key metrics showing your overall stability and average levels.
-                                </Text>
-                            </View>
-
-                            <View style={styles.peakComparisonContent}>
-                                {/* Time in Range */}
-                                <View style={styles.trendBarRow}>
-                                    <Text style={styles.trendBarLabel}>Time in Range</Text>
-                                    <View style={styles.trendBarContainer}>
-                                        <View style={[styles.trendBar, { width: `${glucoseStats.tir}%`, backgroundColor: '#4CAF50' }]} />
-                                    </View>
-                                    <Text style={styles.trendBarValue}>{glucoseStats.tir.toFixed(0)}%</Text>
-                                </View>
-
-                                {/* Average Glucose */}
-                                <View style={styles.trendBarRow}>
-                                    <Text style={styles.trendBarLabel}>Average Glucose</Text>
-                                    <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                                        <Text style={styles.trendBarValue}>
-                                            {formatGlucoseWithUnit(glucoseStats.average, glucoseUnit)}
-                                        </Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            <Text style={styles.trendsInsightText}>
-                                You spent {glucoseStats.tir.toFixed(0)}% of the time in the healthy range (70-180 mg/dL).
-                                {glucoseStats.tir > 70 ? ' Great job!' : ' Aim for over 70%.'}
-                            </Text>
+                        <View style={styles.legendItem}>
+                            <View style={[styles.legendDotLarge, { backgroundColor: '#FF9800' }]} />
+                            <Text style={styles.legendLabel}>Mild Elevations</Text>
                         </View>
-
-                        {/* Glucose Variability Card (New Trend) */}
-                        <View style={styles.trendsCard}>
-                            <View style={styles.trendsCardHeader}>
-                                <Text style={styles.trendsCardTitle}>Glucose Variability</Text>
-                                <Text style={styles.trendsCardDescription}>
-                                    Measures how much your levels swing. Lower is more stable.
-                                </Text>
-                            </View>
-
-                            <View style={styles.peakComparisonContent}>
-                                <View style={{ alignItems: 'center', marginBottom: 10 }}>
-                                    <Text style={{ fontSize: 32, fontFamily: fonts.bold, color: '#FFFFFF' }}>
-                                        {glucoseStats.variability.toFixed(1)}%
-                                    </Text>
-                                    <Text style={{ fontSize: 13, color: '#878787', marginTop: 4 }}>
-                                        Coefficient of Variation (CV)
-                                    </Text>
-                                </View>
-
-                                {/* Visual Bar for CV */}
-                                <View style={{ width: '100%', height: 6, backgroundColor: '#2A2A2E', borderRadius: 3, marginBottom: 8, overflow: 'hidden' }}>
-                                    {/* 3 Zones: <20 (Good), 20-33 (Moderate), >33 (Unstable) */}
-                                    <View style={{ width: '33%', height: '100%', backgroundColor: '#4CAF50', position: 'absolute', left: 0, opacity: 0.3 }} />
-                                    <View style={{ width: '22%', height: '100%', backgroundColor: '#FF9800', position: 'absolute', left: '33%', opacity: 0.3 }} />
-                                    <View style={{ width: '45%', height: '100%', backgroundColor: '#F44336', position: 'absolute', left: '55%', opacity: 0.3 }} />
-
-                                    {/* Indicator */}
-                                    <View style={{
-                                        position: 'absolute',
-                                        left: `${Math.min(glucoseStats.variability * 1.66, 100)}%`, // Scale roughly 0-60% range to 0-100 bar width 
-                                        width: 8,
-                                        height: 8,
-                                        top: -1,
-                                        borderRadius: 4,
-                                        backgroundColor: '#FFFFFF',
-                                        marginLeft: -4
-                                    }} />
-                                </View>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                                    <Text style={{ fontSize: 10, color: '#4CAF50' }}>Stable (&lt;20%)</Text>
-                                    <Text style={{ fontSize: 10, color: '#F44336' }}>Variable (&gt;33%)</Text>
-                                </View>
-                            </View>
-
-                            <Text style={styles.trendsInsightText}>
-                                {glucoseStats.variability < 20
-                                    ? "Your stability is excellent! Very few swings."
-                                    : glucoseStats.variability < 33
-                                        ? "You have moderate fluctuations. Try pairing carbs with protein."
-                                        : "Your levels are swinging significantly. Focus on flattening the spikes."}
-                            </Text>
+                        <View style={styles.legendItem}>
+                            <View style={[styles.legendDotLarge, { backgroundColor: '#F44336' }]} />
+                            <Text style={styles.legendLabel}>Spikes</Text>
                         </View>
+                    </View>
 
-                    </>
-                )}
+                    {/* Dynamic Pie Chart */}
+                    <View style={styles.pieChartContainer}>
+                        <PieChart
+                            size={130}
+                            data={[
+                                { value: 55, color: '#4CAF50', label: 'Steady' },
+                                { value: 30, color: '#FF9800', label: 'Mild' },
+                                { value: 15, color: '#C62828', label: 'Spikes' },
+                            ]}
+                        />
+                    </View>
+                </View>
+            </View>
 
-                {/* Bottom spacing for tab bar */}
-                <View style={{ height: 160 }} />
-            </ScrollView>
-        );
-    };
+            {/* Peak Comparison Card */}
+            <View style={styles.trendsCard}>
+                <View style={styles.trendsCardHeader}>
+                    <Text style={styles.trendsCardTitle}>Peak Comparison</Text>
+                    <Text style={styles.trendsCardDescription}>
+                        Shows how your average glucose rise differed from what the model expected using averages.
+                    </Text>
+                </View>
+
+                <View style={styles.peakComparisonContent}>
+                    {/* Predicted Peak */}
+                    <View style={styles.trendBarRow}>
+                        <Text style={styles.trendBarLabel}>Predicted Peak</Text>
+                        <View style={styles.trendBarContainer}>
+                            <View style={[styles.trendBar, { width: '100%' }]} />
+                        </View>
+                        <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(8.9, glucoseUnit)}</Text>
+                    </View>
+
+                    {/* Actual Peak */}
+                    <View style={styles.trendBarRow}>
+                        <Text style={styles.trendBarLabel}>Actual Peak</Text>
+                        <View style={styles.trendBarContainer}>
+                            <View style={[styles.trendBar, { width: '75%' }]} />
+                        </View>
+                        <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(7.4, glucoseUnit)}</Text>
+                    </View>
+                </View>
+
+                <Text style={styles.trendsInsightText}>
+                    Your actual responses were 18% gentler than expected. Best tweak was adding fibers before lunch.
+                </Text>
+            </View>
+
+            {/* Gluco Suggestion Impact Card */}
+            <View style={styles.trendsCard}>
+                <View style={styles.trendsCardHeader}>
+                    <Text style={styles.trendsCardTitle}>Gluco Suggestion Impact</Text>
+                    <Text style={styles.trendsCardDescription}>
+                        Compares how similar meals responded when you followed a Gluco suggestion versus when you didn't.
+                    </Text>
+                </View>
+
+                <View style={styles.suggestionImpactContent}>
+                    {/* With More Fiber vs With Same Fiber */}
+                    <View style={styles.suggestionGroup}>
+                        <View style={styles.trendBarRow}>
+                            <Text style={styles.trendBarLabel}>With More Fiber</Text>
+                            <View style={styles.trendBarContainer}>
+                                <View style={[styles.trendBar, { width: '75%' }]} />
+                            </View>
+                            <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(7.1, glucoseUnit)}</Text>
+                        </View>
+                        <View style={styles.trendBarRow}>
+                            <Text style={styles.trendBarLabel}>With Same Fiber</Text>
+                            <View style={styles.trendBarContainer}>
+                                <View style={[styles.trendBar, { width: '95%' }]} />
+                            </View>
+                            <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(8.9, glucoseUnit)}</Text>
+                        </View>
+                    </View>
+
+                    {/* With Walk vs No Walk */}
+                    <View style={styles.suggestionGroup}>
+                        <View style={styles.trendBarRow}>
+                            <Text style={styles.trendBarLabel}>With Walk</Text>
+                            <View style={styles.trendBarContainer}>
+                                <View style={[styles.trendBar, { width: '60%' }]} />
+                            </View>
+                            <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(6.8, glucoseUnit)}</Text>
+                        </View>
+                        <View style={styles.trendBarRow}>
+                            <Text style={styles.trendBarLabel}>No Walk</Text>
+                            <View style={styles.trendBarContainer}>
+                                <View style={[styles.trendBar, { width: '95%' }]} />
+                            </View>
+                            <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(9.2, glucoseUnit)}</Text>
+                        </View>
+                    </View>
+
+                    {/* Half Portion vs Full Portion */}
+                    <View style={styles.suggestionGroup}>
+                        <View style={styles.trendBarRow}>
+                            <Text style={styles.trendBarLabel}>Half Portion</Text>
+                            <View style={styles.trendBarContainer}>
+                                <View style={[styles.trendBar, { width: '80%' }]} />
+                            </View>
+                            <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(7.3, glucoseUnit)}</Text>
+                        </View>
+                        <View style={styles.trendBarRow}>
+                            <Text style={styles.trendBarLabel}>Full Portion</Text>
+                            <View style={styles.trendBarContainer}>
+                                <View style={[styles.trendBar, { width: '95%' }]} />
+                            </View>
+                            <Text style={styles.trendBarValue}>{formatGlucoseWithUnit(9.8, glucoseUnit)}</Text>
+                        </View>
+                    </View>
+                </View>
+
+                {/* See more link */}
+                <View style={styles.seeMoreRow}>
+                    <Text style={styles.seeMoreText}>See more habits you tried</Text>
+                    <Ionicons name="chevron-down" size={16} color="#E7E8E9" />
+                </View>
+            </View>
+
+            {/* Bottom spacing for tab bar */}
+            <View style={{ height: 160 }} />
+        </ScrollView>
+    );
 
     const renderExperiments = () => (
         <ScrollView
@@ -1214,31 +1022,6 @@ export default function InsightsScreen() {
                     </Text>
                 </View>
             </View>
-
-            {/* My Experiments Link */}
-            <TouchableOpacity
-                style={styles.myExperimentsCard}
-                onPress={() => router.push('/experiments-list' as any)}
-                activeOpacity={0.8}
-            >
-                <LinearGradient
-                    colors={['#313135', '#2A2A2E']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.myExperimentsGradient}
-                >
-                    <View style={styles.myExperimentsContent}>
-                        <View style={styles.myExperimentsIconContainer}>
-                            <Ionicons name="flask-outline" size={20} color="#3494D9" />
-                        </View>
-                        <View style={styles.myExperimentsTextContainer}>
-                            <Text style={styles.myExperimentsTitle}>My Experiments</Text>
-                            <Text style={styles.myExperimentsSubtitle}>View active & completed</Text>
-                        </View>
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color="#666" />
-                </LinearGradient>
-            </TouchableOpacity>
 
             {/* Active Experiments Section */}
             {activeExperiments.length > 0 && (
@@ -1287,9 +1070,9 @@ export default function InsightsScreen() {
                             </TouchableOpacity>
                         ))}
                     </View>
-
                 </>
             )}
+
             {/* Suggested For You Section */}
             <Text style={styles.experimentsSectionTitle}>Suggested For You</Text>
 
@@ -1334,19 +1117,14 @@ export default function InsightsScreen() {
                             <TouchableOpacity
                                 style={[
                                     styles.experimentButton,
-                                    (startingExperiment === suggestion.template.id || successExperiment === suggestion.template.id) && styles.experimentButtonDisabled,
+                                    startingExperiment === suggestion.template.id && styles.experimentButtonDisabled,
                                 ]}
                                 onPress={() => handleStartExperiment(suggestion)}
-                                disabled={startingExperiment === suggestion.template.id || successExperiment === suggestion.template.id}
+                                disabled={startingExperiment === suggestion.template.id}
                                 activeOpacity={0.7}
                             >
                                 {startingExperiment === suggestion.template.id ? (
                                     <ActivityIndicator size="small" color="#FFFFFF" />
-                                ) : successExperiment === suggestion.template.id ? (
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                        <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
-                                        <Text style={styles.experimentButtonText}>Started</Text>
-                                    </View>
                                 ) : (
                                     <Text style={styles.experimentButtonText}>Start Experiment</Text>
                                 )}
@@ -1366,7 +1144,14 @@ export default function InsightsScreen() {
             )}
 
             {/* View All Experiments Link */}
-
+            <TouchableOpacity
+                style={styles.viewAllExperimentsButton}
+                onPress={() => router.push('/experiments-list' as any)}
+                activeOpacity={0.7}
+            >
+                <Text style={styles.viewAllExperimentsText}>View All Experiments</Text>
+                <Ionicons name="chevron-forward" size={18} color="#3494D9" />
+            </TouchableOpacity>
 
             {/* Bottom spacing for tab bar */}
             <View style={{ height: 160 }} />
@@ -1406,25 +1191,11 @@ export default function InsightsScreen() {
                     {activeTab === 'weekly' && renderWeeklyReport()}
                     {activeTab === 'trends' && renderTrends()}
                     {activeTab === 'experiments' && renderExperiments()}
-
-                    {/* Success Overlay */}
-                    {activeTab === 'experiments' && successExperiment && (
-                        <View style={styles.successOverlay}>
-                            <View style={styles.successCard}>
-                                <Ionicons name="checkmark-circle" size={80} color="#4CAF50" />
-                                <Text style={styles.successTitle}>Experiment Started!</Text>
-                                <Text style={styles.successSubtitle}>Good luck!</Text>
-                            </View>
-                        </View>
-                    )}
                 </SafeAreaView>
             </View>
-        </AnimatedScreen >
+        </AnimatedScreen>
     );
 }
-
-
-
 
 const styles = StyleSheet.create({
     container: {
@@ -2216,269 +1987,5 @@ const styles = StyleSheet.create({
         fontFamily: fonts.medium,
         fontSize: 14,
         color: '#3494D9',
-    },
-
-    // Insufficient Data
-    insufficientDataContainer: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 32,
-        gap: 12,
-        minHeight: 200,
-    },
-    insufficientDataTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 18,
-        color: '#FFFFFF',
-        textAlign: 'center',
-    },
-    insufficientDataText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#8E8E93',
-        textAlign: 'center',
-        lineHeight: 20,
-    },
-
-    // Success Overlay
-    successOverlay: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.85)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-    },
-    successCard: {
-        backgroundColor: '#1C1C1E',
-        borderRadius: 24,
-        padding: 32,
-        alignItems: 'center',
-        width: '80%',
-        gap: 16,
-        borderWidth: 1,
-        borderColor: '#3494D9',
-    },
-    successTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 24,
-        color: '#FFFFFF',
-        marginTop: 8,
-    },
-    successSubtitle: {
-        fontFamily: fonts.regular,
-        fontSize: 16,
-        color: '#E7E8E9',
-    },
-
-    // My Experiments Card (Premium)
-    myExperimentsCard: {
-        marginHorizontal: 16,
-        marginVertical: 12,
-        borderRadius: 16,
-        overflow: 'hidden',
-    },
-    myExperimentsBackground: {
-        padding: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    myExperimentsTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 18,
-        color: '#FFFFFF',
-    },
-    myExperimentsSubtitle: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: 'rgba(255,255,255,0.8)',
-        marginTop: 4,
-    },
-
-
-    // Metabolic Score
-    metabolicScoreHeader: {
-        marginBottom: 16,
-    },
-    metabolicScoreTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 20,
-        color: '#FFFFFF',
-    },
-    metabolicDisclaimer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        marginTop: 4,
-    },
-
-    // Confidence Badge
-    confidenceBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 8,
-        backgroundColor: '#1E1E1E',
-        alignSelf: 'flex-start',
-        marginTop: 8,
-        gap: 6,
-    },
-    confidenceHigh: {
-        backgroundColor: 'rgba(76, 175, 80, 0.2)',
-    },
-    confidenceMedium: {
-        backgroundColor: 'rgba(255, 152, 0, 0.2)',
-    },
-    confidenceLow: {
-        backgroundColor: 'rgba(244, 67, 54, 0.2)',
-    },
-    confidenceText: {
-        fontFamily: fonts.medium,
-        fontSize: 12,
-        color: '#FFFFFF',
-    },
-
-    // Not Enough Data
-    notEnoughDataContainer: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-        backgroundColor: '#1C1C1E',
-        borderRadius: 16,
-        gap: 12,
-    },
-    notEnoughDataText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#8E8E93',
-        textAlign: 'center',
-        lineHeight: 20,
-    },
-    noDataText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#8E8E93',
-        marginTop: 8,
-    },
-
-    // Add Labs Button
-    addLabsButton: {
-        backgroundColor: '#3494D9',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
-        marginTop: 12,
-    },
-    addLabsButtonText: {
-        fontFamily: fonts.bold,
-        fontSize: 14,
-        color: '#FFFFFF',
-    },
-    addLabsButtonSecondary: {
-        marginTop: 12,
-        padding: 8,
-    },
-    addLabsButtonSecondaryText: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#3494D9',
-    },
-
-    // Score Display
-    scoreContainer: {
-        alignItems: 'center',
-        marginVertical: 24,
-    },
-    scoreNumber: {
-        fontFamily: fonts.bold,
-        fontSize: 48,
-        color: '#FFFFFF',
-    },
-    scoreBand: {
-        fontFamily: fonts.bold,
-        fontSize: 18,
-        marginTop: 4,
-    },
-    scoreGreat: { color: '#4CAF50' },
-    scoreModerate: { color: '#FF9800' },
-    scoreNeedsAttention: { color: '#F44336' },
-
-    // Drivers
-    driversTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
-        marginBottom: 12,
-    },
-    driverItem: {
-        flexDirection: 'row',
-        marginBottom: 12,
-        gap: 12,
-    },
-    driverBullet: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: '#3494D9',
-        marginTop: 8,
-    },
-    driverContent: {
-        flex: 1,
-        gap: 2,
-    },
-    driverDetail: {
-        fontFamily: fonts.regular,
-        fontSize: 13,
-        color: '#8E8E93',
-    },
-
-    // Data Sources
-    dataSourcesRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingVertical: 8,
-        borderBottomWidth: 1,
-        borderBottomColor: '#2A2A2E',
-    },
-    dataSourcesLabel: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#8E8E93',
-    },
-    dataSourcesValue: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-    },
-
-    // My Experiments Extra
-    myExperimentsGradient: {
-        borderRadius: 16,
-        padding: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    myExperimentsContent: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    myExperimentsIconContainer: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: 'rgba(52, 148, 217, 0.1)',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    myExperimentsTextContainer: {
-        flex: 1,
     },
 });

@@ -20,7 +20,6 @@ Notifications.setNotificationHandler({
 
 // Types
 export interface PostMealReviewNotificationData {
-    reviewId: string;
     mealId: string;
     mealName: string;
     route: string;
@@ -46,7 +45,6 @@ export async function requestNotificationPermissions(): Promise<boolean> {
  * Schedule an after-meal check-in notification
  */
 export async function schedulePostMealReviewNotification(
-    reviewId: string,
     mealId: string,
     mealName: string,
     scheduledFor: Date
@@ -66,13 +64,12 @@ export async function schedulePostMealReviewNotification(
         // Schedule the notification
         const notificationId = await Notifications.scheduleNotificationAsync({
             content: {
-                title: 'After-Meal Check-in',
-                body: `Time to check in on "${mealName}"`,
+                title: 'Check in on your meal',
+                body: `How are you feeling after eating "${mealName}"?`,
                 data: {
-                    reviewId,
                     mealId,
                     mealName,
-                    route: '/post-meal-review',
+                    route: '/meal-checkin',
                     ts: scheduledFor.getTime(),
                 } as PostMealReviewNotificationData as unknown as Record<string, unknown>,
                 sound: true,
@@ -112,11 +109,11 @@ export function handleNotificationResponse(
 ): void {
     const data = response.notification.request.content.data as unknown as PostMealReviewNotificationData;
 
-    if (data?.route && data?.reviewId) {
+    if (data?.route && data?.mealId) {
         // Navigate to the after-meal check-in screen
         router.push({
             pathname: data.route as any,
-            params: { reviewId: data.reviewId },
+            params: { mealId: data.mealId, mealName: data.mealName },
         });
     }
 }

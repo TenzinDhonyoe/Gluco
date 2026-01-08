@@ -4,18 +4,11 @@
  */
 
 import {
-    getActiveMinutes,
-    getHRV,
-    getRestingHeartRate,
-    getSleepData,
-    getSteps,
-    initHealthKit,
-    isHealthKitAvailable,
+    isHealthKitAvailable
 } from '@/lib/healthkit';
 import {
     DailyContext,
-    getDailyContextByRange,
-    upsertDailyContext,
+    getDailyContextByRange
 } from '@/lib/supabase';
 import { useIsFocused } from '@react-navigation/native';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -78,81 +71,8 @@ export function useDailyContext(
     // Sync HealthKit data to database
     const syncHealthKitData = useCallback(async () => {
         if (!userId || Platform.OS !== 'ios' || syncInProgress.current) {
-            return;
         }
 
-        // Prevent duplicate syncs for same range
-        const syncKey = `${formatDate(startDate)}-${formatDate(endDate)}`;
-        if (lastSyncRef.current === syncKey) {
-            return;
-        }
-
-        syncInProgress.current = true;
-        setStats(prev => ({ ...prev, isSyncing: true }));
-
-        try {
-            // Initialize HealthKit
-            const authorized = await initHealthKit();
-            if (!authorized) {
-                setStats(prev => ({
-                    ...prev,
-                    isAvailable: isHealthKitAvailable(),
-                    isAuthorized: false,
-                    isSyncing: false,
-                    isLoading: false,
-                }));
-                return;
-            }
-
-            // Fetch all HealthKit data in parallel
-            const [stepsData, activeData, sleepData, hrData, hrvData] = await Promise.all([
-                getSteps(startDate, endDate),
-                getActiveMinutes(startDate, endDate),
-                getSleepData(startDate, endDate),
-                getRestingHeartRate(startDate, endDate),
-                getHRV(startDate, endDate),
-            ]);
-
-            // Upsert per-day data if we have any
-            // For simplicity, we'll aggregate by the range midpoint for now
-            const today = formatDate(new Date());
-            await upsertDailyContext(userId, {
-                date: today,
-                steps: stepsData?.avgStepsPerDay ?? null,
-                active_minutes: activeData?.avgMinutesPerDay ?? null,
-                sleep_hours: sleepData ? sleepData.avgMinutesPerNight / 60 : null,
-                resting_hr: hrData?.avgRestingHR ?? null,
-                hrv_ms: hrvData?.avgHRV ?? null,
-                source: 'apple_health',
-            });
-
-            // Update stats
-            setStats({
-                avgSteps: stepsData?.avgStepsPerDay ?? null,
-                avgActiveMinutes: activeData?.avgMinutesPerDay ?? null,
-                avgSleepHours: sleepData ? Math.round((sleepData.avgMinutesPerNight / 60) * 10) / 10 : null,
-                avgRestingHR: hrData?.avgRestingHR ?? null,
-                avgHRV: hrvData?.avgHRV ?? null,
-                isAvailable: true,
-                isAuthorized: true,
-                isLoading: false,
-                isSyncing: false,
-                lastSyncedAt: new Date(),
-                dataSource: 'apple_health',
-                daysWithData: stepsData?.days ?? sleepData?.nights ?? 0,
-            });
-
-            lastSyncRef.current = syncKey;
-        } catch (error) {
-            console.warn('Error syncing HealthKit data:', error);
-            setStats(prev => ({
-                ...prev,
-                isSyncing: false,
-                isLoading: false,
-            }));
-        } finally {
-            syncInProgress.current = false;
-        }
     }, [userId, startDate, endDate]);
 
     // Load from database (fast, non-blocking)

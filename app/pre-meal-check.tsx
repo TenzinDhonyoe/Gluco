@@ -1,17 +1,14 @@
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { schedulePostMealReviewNotification } from '@/lib/notifications';
 import {
     addMealItems,
     createMeal,
-    createPostMealReview,
     invokePremealAnalyze,
     PremealAdjustmentTip,
-    PremealCurvePoint,
     PremealDriver,
-    PremealMealDraft
+    PremealMealDraft,
+    PremealResult
 } from '@/lib/supabase';
-import { formatGlucose, GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -28,7 +25,6 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
 
 // Types
 interface MealItem {
@@ -48,77 +44,7 @@ interface MealItem {
     serving_unit?: string | null;
 }
 
-// Spike Risk Gauge Component
-function SpikeRiskGauge({ risk }: { risk: number }) {
-    const size = 56;
-    const strokeWidth = 5;
-    const radius = (size - strokeWidth) / 2;
-    const circumference = radius * 2 * Math.PI;
-    const strokeDashoffset = circumference - (risk / 100) * circumference;
 
-    // Color based on risk
-    const getColor = () => {
-        if (risk < 50) return '#4CAF50';
-        if (risk < 75) return '#FF9800';
-        return '#F44336';
-    };
-
-    return (
-        <View style={gaugeStyles.container}>
-            <Svg width={size} height={size}>
-                {/* Background circle */}
-                <Circle
-                    stroke="#2A2D30"
-                    fill="none"
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={radius}
-                    strokeWidth={strokeWidth}
-                />
-                {/* Progress circle */}
-                <Circle
-                    stroke={getColor()}
-                    fill="none"
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={radius}
-                    strokeWidth={strokeWidth}
-                    strokeDasharray={`${circumference} ${circumference}`}
-                    strokeDashoffset={strokeDashoffset}
-                    strokeLinecap="round"
-                    transform={`rotate(-90 ${size / 2} ${size / 2})`}
-                />
-            </Svg>
-            {/* Centered text overlay */}
-            <View style={gaugeStyles.textOverlay}>
-                <Text style={gaugeStyles.percentText}>{risk} %</Text>
-            </View>
-        </View>
-    );
-}
-
-const gaugeStyles = StyleSheet.create({
-    container: {
-        width: 56,
-        height: 56,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    textOverlay: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    percentText: {
-        fontFamily: fonts.semiBold,
-        fontSize: 13,
-        color: '#FFFFFF',
-    },
-});
 
 // AI Loading Screen with mascot and animated wave dots
 function AILoadingScreen() {
@@ -279,179 +205,7 @@ const loadingStyles = StyleSheet.create({
     },
 });
 
-// Dynamic Glucose Chart - renders personalized prediction curve
-function DynamicGlucoseChart({ curveData, mealTime, glucoseUnit }: {
-    curveData: PremealCurvePoint[];
-    mealTime: Date;
-    glucoseUnit: GlucoseUnit;
-}) {
-    // Calculate chart dimensions
-    const chartWidth = 280;
-    const chartHeight = 100;
 
-    // Y-axis range (glucose values 4-15 mmol/L)
-    const minY = 4;
-    const maxY = 14;
-    const yRange = maxY - minY;
-
-    // Generate path from curve data
-    const generatePath = () => {
-        if (!curveData || curveData.length === 0) {
-            // Default fallback curve
-            return `M0,${chartHeight / 2} L${chartWidth},${chartHeight / 2}`;
-        }
-
-        // Map curve points to SVG coordinates
-        const points = curveData.map((point, index) => {
-            const x = (point.t_min / 180) * chartWidth;
-            // glucose_delta now contains actual glucose value from API
-            const glucoseValue = point.glucose_delta;
-            const y = chartHeight - ((glucoseValue - minY) / yRange) * chartHeight;
-            return { x, y: Math.max(5, Math.min(chartHeight - 5, y)), value: glucoseValue };
-        });
-
-        // Create smooth curve path using bezier curves
-        if (points.length < 2) return `M0,${chartHeight / 2}`;
-
-        let path = `M${points[0].x},${points[0].y}`;
-        for (let i = 1; i < points.length; i++) {
-            const prev = points[i - 1];
-            const curr = points[i];
-            const cp1x = prev.x + (curr.x - prev.x) / 3;
-            const cp2x = prev.x + 2 * (curr.x - prev.x) / 3;
-            path += ` C${cp1x},${prev.y} ${cp2x},${curr.y} ${curr.x},${curr.y}`;
-        }
-
-        return path;
-    };
-
-    // Find peak point for marker
-    const getPeakPoint = () => {
-        if (!curveData || curveData.length === 0) return null;
-
-        let maxVal = -Infinity;
-        let peakIndex = 0;
-        curveData.forEach((point, index) => {
-            if (point.glucose_delta > maxVal) {
-                maxVal = point.glucose_delta;
-                peakIndex = index;
-            }
-        });
-
-        const peak = curveData[peakIndex];
-        const x = (peak.t_min / 180) * chartWidth;
-        const y = chartHeight - ((peak.glucose_delta - minY) / yRange) * chartHeight;
-        return { x, y: Math.max(15, Math.min(chartHeight - 5, y)), value: peak.glucose_delta };
-    };
-
-    // Generate fill path (closed)
-    const generateFillPath = () => {
-        const linePath = generatePath();
-        return `${linePath} L${chartWidth},${chartHeight} L0,${chartHeight} Z`;
-    };
-
-    // Generate time labels based on meal time
-    const getTimeLabels = () => {
-        const labels: string[] = [];
-        for (let i = 0; i <= 6; i++) {
-            const mins = i * 30;
-            const time = new Date(mealTime.getTime() + mins * 60 * 1000);
-            const h = time.getHours() % 12 || 12;
-            const m = time.getMinutes();
-            const ampm = time.getHours() >= 12 ? 'PM' : 'AM';
-            labels.push(`${h}:${m.toString().padStart(2, '0')}${ampm}`);
-        }
-        return labels;
-    };
-
-    const path = generatePath();
-    const fillPath = generateFillPath();
-    const peak = getPeakPoint();
-    const timeLabels = getTimeLabels();
-
-    return (
-        <View style={chartStyles.container}>
-            <View style={chartStyles.yAxis}>
-                <Text style={chartStyles.yLabel}>{formatGlucose(14, glucoseUnit)}</Text>
-                <Text style={chartStyles.yLabel}>{formatGlucose(11, glucoseUnit)}</Text>
-                <Text style={chartStyles.yLabel}>{formatGlucose(8, glucoseUnit)}</Text>
-                <Text style={chartStyles.yLabel}>{formatGlucose(5, glucoseUnit)}</Text>
-            </View>
-            <View style={chartStyles.chartArea}>
-                <Svg width="100%" height="100%" viewBox={`0 0 ${chartWidth} ${chartHeight + 10}`} preserveAspectRatio="none">
-                    {/* Grid lines */}
-                    <Path d="M0,0 L280,0" stroke="rgba(255,255,255,0.15)" strokeWidth={0.5} strokeDasharray="4,4" />
-                    <Path d="M0,33 L280,33" stroke="rgba(255,255,255,0.15)" strokeWidth={0.5} strokeDasharray="4,4" />
-                    <Path d="M0,66 L280,66" stroke="rgba(255,255,255,0.15)" strokeWidth={0.5} strokeDasharray="4,4" />
-                    <Path d="M0,100 L280,100" stroke="rgba(255,255,255,0.15)" strokeWidth={0.5} strokeDasharray="4,4" />
-
-                    {/* Fill under curve */}
-                    <Path d={fillPath} fill="rgba(52, 148, 217, 0.2)" />
-
-                    {/* Main curve */}
-                    <Path d={path} stroke="#3494D9" strokeWidth={2.5} fill="none" strokeLinecap="round" />
-
-                    {/* Peak marker */}
-                    {peak && (
-                        <>
-                            <Circle cx={peak.x} cy={peak.y} r={5} fill="#3494D9" />
-                            <SvgText
-                                x={peak.x}
-                                y={peak.y - 10}
-                                textAnchor="middle"
-                                fill="#FFFFFF"
-                                fontSize={11}
-                                fontWeight="600"
-                            >
-                                {formatGlucose(peak.value, glucoseUnit)}
-                            </SvgText>
-                        </>
-                    )}
-                </Svg>
-
-                {/* X axis labels */}
-                <View style={chartStyles.xAxis}>
-                    {timeLabels.map((label, i) => (
-                        <Text key={i} style={chartStyles.xLabel}>{label}</Text>
-                    ))}
-                </View>
-            </View>
-        </View>
-    );
-}
-
-const chartStyles = StyleSheet.create({
-    container: {
-        flexDirection: 'row',
-        height: 150,
-        marginTop: 8,
-    },
-    yAxis: {
-        width: 26,
-        justifyContent: 'space-between',
-        alignItems: 'flex-end',
-        paddingRight: 6,
-        paddingVertical: 4,
-    },
-    yLabel: {
-        fontFamily: fonts.regular,
-        fontSize: 10,
-        color: '#878787',
-    },
-    chartArea: {
-        flex: 1,
-    },
-    xAxis: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginTop: 4,
-    },
-    xLabel: {
-        fontFamily: fonts.regular,
-        fontSize: 7,
-        color: '#878787',
-    },
-});
 
 export default function PreMealCheckScreen() {
     const params = useLocalSearchParams();
@@ -491,8 +245,7 @@ export default function PreMealCheckScreen() {
     // API State
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState<string | null>(null);
-    const [spikeRisk, setSpikeRisk] = React.useState(0);
-    const [predictedCurve, setPredictedCurve] = React.useState<PremealCurvePoint[]>([]);
+    const [result, setResult] = React.useState<PremealResult | null>(null);
     const [drivers, setDrivers] = React.useState<PremealDriver[]>([]);
     const [tips, setTips] = React.useState<(PremealAdjustmentTip & { id: string; selected: boolean })[]>([]);
 
@@ -506,17 +259,56 @@ export default function PreMealCheckScreen() {
 
         async function fetchAnalysis() {
             if (!user?.id || mealItems.length === 0) {
+                // Mock analysis logic for demo
+                await new Promise(resolve => setTimeout(resolve, 3000));
+
+                // Determine risk based on macros
+                const totalCarbs = totalMacros.carbs;
+                const totalFiber = totalMacros.fiber;
+
+                // Generate drivers
+                const newDrivers: PremealDriver[] = [];
+                if (totalCarbs > 60) newDrivers.push({ text: 'Higher carb content provides sustained energy', reason_code: 'HIGH_CARBS' });
+                if (totalFiber < 5) newDrivers.push({ text: 'Low fiber might mean quicker digestion', reason_code: 'LOW_FIBER' });
+                if (totalMacros.protein > 20) newDrivers.push({ text: 'Good protein content helps balance the meal', reason_code: 'GOOD_PROTEIN' });
+
+                // Generate tips
+                const newTips: (PremealAdjustmentTip & { id: string, selected: boolean })[] = [
+                    {
+                        id: '1',
+                        title: 'Add a side salad',
+                        detail: 'Fiber helps steady your glucose response',
+                        benefit_level: 'medium',
+                        action_type: 'ADD_FIBER',
+                        selected: false
+                    },
+                    {
+                        id: '2',
+                        title: 'Take a 15 min walk',
+                        detail: 'Movement helps your body use energy',
+                        benefit_level: 'high',
+                        action_type: 'WALK',
+                        selected: false
+                    }
+                ];
+
+                const mockResult: PremealResult = {
+                    drivers: newDrivers,
+                    adjustment_tips: newTips,
+                    debug: {
+                        net_carbs: totalCarbs - totalFiber,
+                        fibre_g: totalFiber,
+                        protein_g: totalMacros.protein,
+                        fat_g: totalMacros.fat,
+                        time_bucket: 'Lunch', // Mock
+                        recent_spike_avg: null
+                    }
+                };
+
+                setResult(mockResult);
+                setDrivers(mockResult.drivers);
+                setTips(mockResult.adjustment_tips.map(t => ({ ...t, selected: false, id: t.id || Math.random().toString() })));
                 setLoading(false);
-                // Use local fallback if no meal items
-                const netCarbs = Math.max(totalMacros.carbs - totalMacros.fiber, 0);
-                const risk = Math.round(Math.min(80, netCarbs * 1.2 + 20));
-                setSpikeRisk(risk);
-                setDrivers([
-                    { text: 'Add food items to get AI-powered predictions.', reason_code: 'NO_ITEMS' }
-                ]);
-                setTips([
-                    { id: '1', title: 'Take a post-meal walk', detail: '10-15 mins of walking helps', risk_reduction_pct: 12, action_type: 'POST_MEAL_WALK', selected: false },
-                ]);
                 return;
             }
 
@@ -548,44 +340,60 @@ export default function PreMealCheckScreen() {
                 const minDelay = new Promise(resolve => setTimeout(resolve, 3000));
 
                 // Run API call and minimum delay in parallel
-                const [result] = await Promise.all([
+                const [apiResult] = await Promise.all([
                     invokePremealAnalyze(user.id, mealDraft),
                     minDelay
                 ]);
 
-                if (result) {
-                    setSpikeRisk(result.spike_risk_pct);
-                    setPredictedCurve(result.predicted_curve);
-                    setDrivers(result.drivers);
-                    setTips(result.adjustment_tips.map((tip, index) => ({
+                if (apiResult) {
+                    setResult(apiResult);
+                    setDrivers(apiResult.drivers);
+                    setTips(apiResult.adjustment_tips.map((tip, index) => ({
                         ...tip,
                         id: String(index + 1),
                         selected: false,
                     })));
                 } else {
                     // Fallback to local calculation
-                    const netCarbs = Math.max(totalMacros.carbs - totalMacros.fiber, 0);
-                    const risk = Math.round(Math.min(80, netCarbs * 1.2 + 20));
-                    setSpikeRisk(risk);
-                    setDrivers([
-                        { text: 'Analysis unavailable. Showing estimate based on macros.', reason_code: 'FALLBACK' }
-                    ]);
-                    setTips([
-                        { id: '1', title: 'Take a post-meal walk', detail: '10-15 mins of walking helps', risk_reduction_pct: 12, action_type: 'POST_MEAL_WALK', selected: false },
-                    ]);
+                    // Mock fallback result
+                    const fallbackResult: PremealResult = {
+                        drivers: [{ text: 'Analysis unavailable. Showing estimate based on macros.', reason_code: 'FALLBACK' }],
+                        adjustment_tips: [
+                            { title: 'Take a post-meal walk', detail: '10-15 mins of walking helps', benefit_level: 'medium', action_type: 'POST_MEAL_WALK' },
+                        ],
+                        debug: {
+                            net_carbs: 0,
+                            fibre_g: 0,
+                            protein_g: 0,
+                            fat_g: 0,
+                            time_bucket: 'Unknown',
+                            recent_spike_avg: null
+                        }
+                    };
+                    setResult(fallbackResult);
+                    setDrivers(fallbackResult.drivers);
+                    setTips(fallbackResult.adjustment_tips.map((t, i) => ({ ...t, id: String(i), selected: false })));
                 }
             } catch (err) {
                 console.error('Premeal analysis error:', err);
                 // Fallback on error
-                const netCarbs = Math.max(totalMacros.carbs - totalMacros.fiber, 0);
-                const risk = Math.round(Math.min(80, netCarbs * 1.2 + 20));
-                setSpikeRisk(risk);
-                setDrivers([
-                    { text: 'Could not connect to analysis service. Showing estimate.', reason_code: 'ERROR' }
-                ]);
-                setTips([
-                    { id: '1', title: 'Take a post-meal walk', detail: '10-15 mins of walking helps', risk_reduction_pct: 12, action_type: 'POST_MEAL_WALK', selected: false },
-                ]);
+                const errorResult: PremealResult = {
+                    drivers: [{ text: 'Could not connect to analysis service.', reason_code: 'ERROR' }],
+                    adjustment_tips: [
+                        { title: 'Take a post-meal walk', detail: '10-15 mins of walking helps', benefit_level: 'medium', action_type: 'POST_MEAL_WALK' },
+                    ],
+                    debug: {
+                        net_carbs: 0,
+                        fibre_g: 0,
+                        protein_g: 0,
+                        fat_g: 0,
+                        time_bucket: 'Unknown',
+                        recent_spike_avg: null
+                    }
+                };
+                setResult(errorResult);
+                setDrivers(errorResult.drivers);
+                setTips(errorResult.adjustment_tips.map((t, i) => ({ ...t, id: String(i), selected: false })));
             } finally {
                 setLoading(false);
             }
@@ -600,13 +408,7 @@ export default function PreMealCheckScreen() {
         );
     };
 
-    // Calculate adjusted spike risk based on selected tips
-    const adjustedSpikeRisk = useMemo(() => {
-        const totalReduction = tips
-            .filter(tip => tip.selected)
-            .reduce((sum, tip) => sum + tip.risk_reduction_pct, 0);
-        return Math.max(0, spikeRisk - totalReduction);
-    }, [spikeRisk, tips]);
+
 
     const [isSaving, setIsSaving] = React.useState(false);
 
@@ -633,10 +435,10 @@ export default function PreMealCheckScreen() {
             // Create the meal record
             const meal = await createMeal(user.id, {
                 name: mealName,
-                meal_type: null, // Could be passed from parent screen
+                meal_type: null,
                 logged_at: mealTime.toISOString(),
                 photo_path: imageUri || null,
-                notes: `Spike Risk: ${adjustedSpikeRisk}% (original: ${spikeRisk}%)`,
+                notes: `Meal logged via pre-meal check`,
             });
 
             if (!meal) {
@@ -668,32 +470,7 @@ export default function PreMealCheckScreen() {
                 await addMealItems(user.id, meal.id, items);
             }
 
-            // Schedule post-meal review notification for 2 hours after meal
-            const scheduledFor = new Date(mealTime.getTime() + 2 * 60 * 60 * 1000);
-
-            // Create review row in database
-            const review = await createPostMealReview(user.id, {
-                meal_id: meal.id,
-                scheduled_for: scheduledFor,
-                meal_name: mealName,
-                meal_time: mealTime,
-                predicted_risk_pct: spikeRisk,
-                predicted_curve: predictedCurve.map(p => ({ time: p.t_min, value: p.glucose_delta })),
-                total_carbs: totalMacros.carbs,
-                total_protein: totalMacros.protein,
-                total_fibre: totalMacros.fiber,
-            });
-
-            // Schedule local notification
-            if (review) {
-                const notificationId = await schedulePostMealReviewNotification(
-                    review.id,
-                    meal.id,
-                    mealName,
-                    scheduledFor
-                );
-                console.log('Scheduled post-meal review:', review.id, 'notification:', notificationId);
-            }
+            // Removed PostMealReview creation logic
 
             Alert.alert('Success', 'Meal logged successfully!', [
                 { text: 'OK', onPress: () => router.dismissTo('/(tabs)') },
@@ -792,32 +569,11 @@ export default function PreMealCheckScreen() {
                         </View>
                     </View>
 
-                    {/* Prediction Section - No box, plain layout */}
-                    <View style={styles.predictionSection}>
-                        {/* Risk Header Row */}
-                        <View style={styles.riskHeader}>
-                            <Text style={styles.balancedLabel}>Balanced Meal</Text>
-                            <View style={styles.spikeRiskContainer}>
-                                <Text style={styles.spikeRiskLabel}>Spike Risk:</Text>
-                                <SpikeRiskGauge risk={adjustedSpikeRisk} />
-                            </View>
-                        </View>
-
-                        {/* Chart Header */}
-                        <View style={styles.chartHeader}>
-                            <Text style={styles.unitLabel}>{glucoseUnit}</Text>
-                            <View style={styles.predictedLegend}>
-                                <View style={styles.legendDot} />
-                                <Text style={styles.legendText}>Predicted</Text>
-                            </View>
-                        </View>
-
-                        <DynamicGlucoseChart curveData={predictedCurve} mealTime={mealTime} glucoseUnit={glucoseUnit} />
-                    </View>
+                    {/* Prediction Section Removed */}
 
                     {/* Drivers Section */}
                     <View style={styles.driversSection}>
-                        <Text style={styles.sectionTitle}>Drivers:</Text>
+                        <Text style={styles.sectionTitle}>Meal Balance Drivers:</Text>
                         {drivers.map((driver, index) => (
                             <View key={index} style={styles.driverRow}>
                                 <View style={styles.driverBullet} />
@@ -838,7 +594,9 @@ export default function PreMealCheckScreen() {
                                 <View style={styles.tipHeader}>
                                     <View>
                                         <Text style={styles.tipTitle}>{tip.title}</Text>
-                                        <Text style={styles.tipRisk}>-{tip.risk_reduction_pct}% Risk</Text>
+                                        <Text style={[styles.tipRisk, { color: '#1565C0' }]}>
+                                            {tip.benefit_level ? tip.benefit_level.toUpperCase() : 'MEDIUM'} IMPACT
+                                        </Text>
                                     </View>
                                     <View style={[styles.tipCheckbox, tip.selected && styles.tipCheckboxSelected]}>
                                         {tip.selected && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
@@ -1033,12 +791,12 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: '#FFFFFF',
     },
-    spikeRiskContainer: {
+    mealResponseContainer: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
     },
-    spikeRiskLabel: {
+    mealResponseLabel: {
         fontFamily: fonts.regular,
         fontSize: 13,
         color: '#878787',

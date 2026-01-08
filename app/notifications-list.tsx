@@ -1,11 +1,11 @@
 /**
  * Notifications List Screen
- * Shows list of post-meal reviews with status badges
+ * Shows list of recent meals with check-in status
  */
 
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { getPendingReviews, PostMealReview } from '@/lib/supabase';
+import { getMealsWithCheckinsByDateRange, MealWithCheckin } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -23,50 +23,51 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function NotificationsListScreen() {
     const { user } = useAuth();
-    const [reviews, setReviews] = useState<PostMealReview[]>([]);
+    const [meals, setMeals] = useState<MealWithCheckin[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    const loadReviews = useCallback(async () => {
+    const loadMeals = useCallback(async () => {
         if (!user?.id) return;
 
-        const data = await getPendingReviews(user.id);
-        setReviews(data);
+        // Get meals from the last 7 days
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 7);
+
+        const data = await getMealsWithCheckinsByDateRange(user.id, startDate, endDate);
+        setMeals(data);
         setLoading(false);
     }, [user?.id]);
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
-        await loadReviews();
+        await loadMeals();
         setRefreshing(false);
-    }, [loadReviews]);
+    }, [loadMeals]);
 
     useEffect(() => {
-        loadReviews();
-    }, [loadReviews]);
+        loadMeals();
+    }, [loadMeals]);
 
     const handleBack = () => {
-        // Go back with proper reverse animation (slide out to right)
         router.back();
     };
 
-    const handleReviewPress = (review: PostMealReview) => {
+    const handleMealPress = (meal: MealWithCheckin) => {
         router.push({
-            pathname: '/post-meal-review',
-            params: { reviewId: review.id },
+            pathname: '/meal-checkin',
+            params: { mealId: meal.id, mealName: meal.name },
         });
     };
 
-    const getStatusBadge = (review: PostMealReview) => {
-        const now = new Date();
-        const scheduledFor = new Date(review.scheduled_for);
+    const getStatusBadge = (meal: MealWithCheckin) => {
+        const hasCheckin = meal.meal_checkins && meal.meal_checkins.length > 0;
 
-        if (review.status === 'opened') {
-            return { label: 'Viewed', bg: '#2D2D2D', text: '#878787' };
-        } else if (now >= scheduledFor) {
-            return { label: 'Ready', bg: '#1E4D2B', text: '#4CAF50' };
+        if (hasCheckin) {
+            return { label: 'Checked in', bg: '#1E4D2B', text: '#4CAF50' };
         } else {
-            return { label: 'Scheduled', bg: '#1E3A5F', text: '#3494D9' };
+            return { label: 'Add check-in', bg: '#1E3A5F', text: '#3494D9' };
         }
     };
 
@@ -90,29 +91,29 @@ export default function NotificationsListScreen() {
         }
     };
 
-    const renderItem = ({ item }: { item: PostMealReview }) => {
+    const renderItem = ({ item }: { item: MealWithCheckin }) => {
         const status = getStatusBadge(item);
-        const isReady = new Date() >= new Date(item.scheduled_for);
+        const hasCheckin = item.meal_checkins && item.meal_checkins.length > 0;
 
         return (
             <TouchableOpacity
-                style={[styles.reviewCard, isReady && styles.reviewCardReady]}
-                onPress={() => handleReviewPress(item)}
+                style={[styles.reviewCard, !hasCheckin && styles.reviewCardReady]}
+                onPress={() => handleMealPress(item)}
                 activeOpacity={0.7}
             >
                 <View style={styles.reviewIcon}>
                     <Ionicons
-                        name={isReady ? 'restaurant' : 'time-outline'}
+                        name={hasCheckin ? 'checkmark-circle' : 'restaurant'}
                         size={22}
-                        color={isReady ? '#26A861' : '#3494D9'}
+                        color={hasCheckin ? '#4CAF50' : '#3494D9'}
                     />
                 </View>
                 <View style={styles.reviewContent}>
                     <Text style={styles.reviewTitle}>
-                        {item.meal_name || 'Meal Review'}
+                        {item.name || 'Meal'}
                     </Text>
                     <Text style={styles.reviewTime}>
-                        {formatDate(item.scheduled_for)} at {formatTime(item.scheduled_for)}
+                        {formatDate(item.logged_at)} at {formatTime(item.logged_at)}
                     </Text>
                 </View>
                 <View style={[styles.statusBadge, { backgroundColor: status.bg }]}>
@@ -128,9 +129,9 @@ export default function NotificationsListScreen() {
     const renderEmpty = () => (
         <View style={styles.emptyContainer}>
             <Ionicons name="notifications-off-outline" size={64} color="#3F4243" />
-            <Text style={styles.emptyTitle}>No Reviews Yet</Text>
+            <Text style={styles.emptyTitle}>No Recent Meals</Text>
             <Text style={styles.emptySubtitle}>
-                Post-meal reviews will appear here after you log meals
+                Log meals to see them here and add check-ins
             </Text>
         </View>
     );
@@ -155,7 +156,7 @@ export default function NotificationsListScreen() {
                     </View>
                 ) : (
                     <FlatList
-                        data={reviews}
+                        data={meals}
                         keyExtractor={item => item.id}
                         renderItem={renderItem}
                         ListEmptyComponent={renderEmpty}
@@ -236,7 +237,7 @@ const styles = StyleSheet.create({
     },
     reviewCardReady: {
         borderWidth: 1,
-        borderColor: 'rgba(38, 168, 97, 0.3)',
+        borderColor: 'rgba(52, 148, 217, 0.3)',
     },
     reviewIcon: {
         width: 42,

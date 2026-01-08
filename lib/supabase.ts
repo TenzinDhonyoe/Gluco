@@ -23,10 +23,66 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     },
 });
 
+/**
+ * Helper to invoke Edge Functions with retry logic
+ * Handles transient network errors and cold starts
+ */
+export async function invokeWithRetry<T>(
+    functionName: string,
+    body: any,
+    maxRetries: number = 3
+): Promise<T | null> {
+    let lastError: any;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            const { data, error } = await supabase.functions.invoke(functionName, {
+                body,
+            });
+
+            if (error) throw error;
+            return data as T;
+        } catch (err: any) {
+            lastError = err;
+
+            // Should we retry?
+            // Retry on network errors or timeouts (FunctionsFetchError)
+            // Or 5xx server errors. Don't retry 4xx (client errors).
+            const isRetryable =
+                err.name === 'FunctionsFetchError' ||
+                err.message?.includes('Failed to send') ||
+                (err.status && err.status >= 500);
+
+            if (!isRetryable) {
+                console.error(`Error invoking ${functionName} (fatal):`, err);
+                return null;
+            }
+
+            console.warn(`Retry attempt ${attempt + 1}/${maxRetries} for ${functionName}:`, err.message);
+
+            // Exponential backoff: 500ms, 1000ms, 2000ms
+            if (attempt < maxRetries - 1) {
+                await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt)));
+            }
+        }
+    }
+
+    console.error(`Failed to invoke ${functionName} after ${maxRetries} attempts:`, lastError);
+    return null;
+}
+
 // Types for user profile
 export type GlucoseUnit = 'mmol/L' | 'mg/dL';
 
-export type TrackingMode = 'wearables_only' | 'glucose_tracking';
+// Tracking modes: new wellness-first modes + legacy modes for backward compatibility
+export type TrackingMode =
+    | 'meals_wearables'          // Default: Meals + Apple Health
+    | 'meals_only'               // Meals only, no device data
+    | 'manual_glucose_optional'  // Meals + optional manual readings
+    | 'wearables_only'           // Legacy: kept for existing data
+    | 'glucose_tracking';        // Legacy: kept for existing data
+
+export type CoachingStyle = 'light' | 'balanced' | 'structured';
 
 export interface UserProfile {
     id: string;
@@ -46,6 +102,12 @@ export interface UserProfile {
     tracking_mode: TrackingMode;
     has_cgm: boolean;
     manual_glucose_enabled: boolean;
+    // Body metrics (new for wellness onboarding)
+    height_cm: number | null;
+    weight_kg: number | null;
+    // Coaching preferences (new for wellness onboarding)
+    coaching_style: CoachingStyle | null;
+    notifications_enabled: boolean;
     created_at: string;
     updated_at: string;
 }
@@ -86,6 +148,139 @@ export async function updateUserProfile(
     }
 
     return data;
+}
+
+// ============================================
+// MEAL PHOTO ANALYSIS
+// ============================================
+
+export type MealPhotoAnalysisStatus = 'pending' | 'complete' | 'failed';
+
+export interface NutrientEstimate {
+    calories_kcal: number | null;
+    carbs_g: number | null;
+    protein_g: number | null;
+    fat_g: number | null;
+    fibre_g: number | null;
+    sugar_g: number | null;
+    sodium_mg: number | null;
+}
+
+export interface AnalyzedItem {
+    display_name: string;
+    quantity: number;
+    unit: string;
+    confidence: 'low' | 'medium' | 'high';
+    nutrients: NutrientEstimate;
+}
+
+export interface MealPhotoAnalysisResult {
+    status: MealPhotoAnalysisStatus;
+    disclaimer: string;
+    items: AnalyzedItem[];
+    totals: {
+        calories_kcal: number | null;
+        carbs_g: number | null;
+        protein_g: number | null;
+        fat_g: number | null;
+        fibre_g: number | null;
+    };
+}
+
+export interface MealPhotoAnalysisRow {
+    id: string;
+    user_id: string;
+    meal_id: string;
+    photo_path: string;
+    status: MealPhotoAnalysisStatus;
+    result: MealPhotoAnalysisResult | null;
+    model: string | null;
+    created_at: string;
+}
+
+export async function createMealPhotoAnalysisPending(
+    mealId: string,
+    userId: string,
+    photoPath: string
+): Promise<MealPhotoAnalysisRow | null> {
+    const { data, error } = await supabase
+        .from('meal_photo_analysis')
+        .upsert({
+            meal_id: mealId,
+            user_id: userId,
+            photo_path: photoPath,
+            status: 'pending',
+            model: 'gpt-4o-mini'
+        }, { onConflict: 'meal_id' })
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error creating pending analysis:', error);
+        return null;
+    }
+    return data;
+}
+
+export async function getMealPhotoAnalysis(
+    mealId: string,
+    userId: string
+): Promise<MealPhotoAnalysisRow | null> {
+    const { data, error } = await supabase
+        .from('meal_photo_analysis')
+        .select('*')
+        .eq('meal_id', mealId)
+        .eq('user_id', userId)
+        .single();
+
+    if (error && error.code !== 'PGRST116') { // Ignore "no rows found"
+        console.error('Error fetching analysis:', error);
+    }
+    return data || null;
+}
+
+export async function ensureSignedMealPhotoUrl(photoPath: string): Promise<string> {
+    // If it's already a full URL (public or signed), just return it
+    if (photoPath.startsWith('http')) return photoPath;
+
+    // Otherwise, assume it's a storage path and get a signed URL
+    const { data, error } = await supabase.storage
+        .from('meal-photos')
+        .createSignedUrl(photoPath, 60 * 60); // 1 hour
+
+    if (error || !data?.signedUrl) {
+        console.error('Error signing photo URL:', error);
+        return photoPath; // Fallback
+    }
+    return data.signedUrl;
+}
+
+export async function invokeMealPhotoAnalyze(
+    userId: string,
+    mealId: string,
+    photoPath: string,
+    mealTime?: string,
+    mealType?: string
+): Promise<MealPhotoAnalysisResult | null> {
+    try {
+        const photoUrl = await ensureSignedMealPhotoUrl(photoPath);
+
+        const { data, error } = await supabase.functions.invoke('meal-photo-analyze', {
+            body: {
+                user_id: userId,
+                meal_id: mealId,
+                photo_url: photoUrl,
+                meal_time: mealTime,
+                meal_type: mealType
+            }
+        });
+
+        if (error) throw error;
+        return data as MealPhotoAnalysisResult;
+    } catch (e) {
+        console.error('Error invoking meal-photo-analyze:', e);
+        return null; // Let UI handle failure
+    }
 }
 
 export async function createUserProfile(
@@ -933,11 +1128,6 @@ export async function getRecentFoods(userId: string, limit = 50): Promise<Normal
 // PRE MEAL CHECK (AI ANALYSIS)
 // ==========================================
 
-export interface PremealCurvePoint {
-    t_min: number;
-    glucose_delta: number;
-}
-
 export interface PremealDriver {
     text: string;
     reason_code: string;
@@ -946,13 +1136,11 @@ export interface PremealDriver {
 export interface PremealAdjustmentTip {
     title: string;
     detail: string;
-    risk_reduction_pct: number;
+    benefit_level: 'low' | 'medium' | 'high'; // Replaced risk_reduction_pct
     action_type: string;
 }
 
 export interface PremealResult {
-    spike_risk_pct: number;
-    predicted_curve: PremealCurvePoint[];
     drivers: PremealDriver[];
     adjustment_tips: PremealAdjustmentTip[];
     debug: {
@@ -963,6 +1151,7 @@ export interface PremealResult {
         time_bucket: string;
         recent_spike_avg: number | null;
     };
+    wellness_score?: number;
 }
 
 export interface PremealMealItem {
@@ -986,7 +1175,7 @@ export interface PremealMealDraft {
 
 /**
  * Calls the premeal-analyze Edge Function to get AI-powered meal analysis
- * Returns spike risk, predicted glucose curve, drivers, and adjustment tips
+ * Returns meal drivers and wellness-focused adjustment tips
  */
 export async function invokePremealAnalyze(
     userId: string,
@@ -1242,398 +1431,146 @@ export async function getPersonalizedTips(userId: string): Promise<PersonalizedT
 }
 
 // ==========================================
-// POST MEAL REVIEW FUNCTIONS
+// MEAL CHECKIN FUNCTIONS (Wellness-only after-meal check-ins)
 // ==========================================
 
-export type ReviewStatus = 'scheduled' | 'ready' | 'opened';
-export type ReviewStatusTag = 'steady' | 'mild_elevation' | 'spike';
+export type EnergyLevel = 'low' | 'steady' | 'high';
+export type FullnessLevel = 'low' | 'okay' | 'high';
+export type CravingsLevel = 'low' | 'medium' | 'high';
+export type MoodLevel = 'low' | 'okay' | 'good';
 
-export interface PostMealReview {
+export interface MealCheckin {
     id: string;
     user_id: string;
     meal_id: string;
-    scheduled_for: string;
-    notification_id: string | null;
-    status: ReviewStatus;
-    opened_at: string | null;
-    predicted_peak: number | null;
-    predicted_curve: { time: number; value: number }[] | null;
-    predicted_risk_pct: number | null;
-    actual_peak: number | null;
-    actual_curve: { time: number; value: number }[] | null;
-    summary: string | null;
-    status_tag: ReviewStatusTag | null;
-    contributors: { title: string; detail: string; impact: string }[] | null;
-    meal_name: string | null;
-    meal_time: string | null;
-    total_carbs: number | null;
-    total_protein: number | null;
-    total_fibre: number | null;
-    baseline_glucose: number | null;
-    peak_delta: number | null;
-    time_to_peak_min: number | null;
+    energy: EnergyLevel | null;
+    fullness: FullnessLevel | null;
+    cravings: CravingsLevel | null;
+    mood: MoodLevel | null;
+    movement_after: boolean | null;
+    notes: string | null;
     created_at: string;
     updated_at: string;
 }
 
-export interface CreatePostMealReviewInput {
-    meal_id: string;
-    scheduled_for: Date;
-    notification_id?: string;
-    predicted_peak?: number;
-    predicted_curve?: { time: number; value: number }[];
-    predicted_risk_pct?: number;
-    meal_name?: string;
-    meal_time?: Date;
-    total_carbs?: number;
-    total_protein?: number;
-    total_fibre?: number;
+export interface MealCheckinInput {
+    energy?: EnergyLevel | null;
+    fullness?: FullnessLevel | null;
+    cravings?: CravingsLevel | null;
+    mood?: MoodLevel | null;
+    movement_after?: boolean | null;
+    notes?: string | null;
 }
 
-export async function createPostMealReview(
+// Upsert a meal check-in (create or update)
+export async function upsertMealCheckin(
     userId: string,
-    input: CreatePostMealReviewInput
-): Promise<PostMealReview | null> {
-    const { data, error } = await supabase
-        .from('post_meal_reviews')
-        .insert({
-            user_id: userId,
-            meal_id: input.meal_id,
-            scheduled_for: input.scheduled_for.toISOString(),
-            notification_id: input.notification_id || null,
-            status: 'scheduled',
-            predicted_peak: input.predicted_peak || null,
-            predicted_curve: input.predicted_curve || null,
-            predicted_risk_pct: input.predicted_risk_pct || null,
-            meal_name: input.meal_name || null,
-            meal_time: input.meal_time?.toISOString() || null,
-            total_carbs: input.total_carbs || null,
-            total_protein: input.total_protein || null,
-            total_fibre: input.total_fibre || null,
-        })
-        .select()
-        .single();
-
-    if (error) {
-        console.error('Error creating post meal review:', error);
-        return null;
-    }
-
-    return data;
-}
-
-export async function getPostMealReview(reviewId: string): Promise<PostMealReview | null> {
-    const { data, error } = await supabase
-        .from('post_meal_reviews')
-        .select('*')
-        .eq('id', reviewId)
-        .single();
-
-    if (error) {
-        console.error('Error fetching post meal review:', error);
-        return null;
-    }
-
-    return data;
-}
-
-export async function updatePostMealReviewStatus(
-    reviewId: string,
-    status: ReviewStatus,
-    updates?: {
-        opened_at?: Date;
-        actual_peak?: number;
-        actual_curve?: { time: number; value: number }[];
-        summary?: string;
-        status_tag?: ReviewStatusTag;
-        contributors?: { title: string; detail: string; impact: string }[];
-    }
-): Promise<PostMealReview | null> {
-    const updateData: any = { status };
-
-    if (updates?.opened_at) updateData.opened_at = updates.opened_at.toISOString();
-    if (updates?.actual_peak !== undefined) updateData.actual_peak = updates.actual_peak;
-    if (updates?.actual_curve) updateData.actual_curve = updates.actual_curve;
-    if (updates?.summary) updateData.summary = updates.summary;
-    if (updates?.status_tag) updateData.status_tag = updates.status_tag;
-    if (updates?.contributors) updateData.contributors = updates.contributors;
-
-    const { data, error } = await supabase
-        .from('post_meal_reviews')
-        .update(updateData)
-        .eq('id', reviewId)
-        .select()
-        .single();
-
-    if (error) {
-        console.error('Error updating post meal review:', error);
-        return null;
-    }
-
-    return data;
-}
-
-export async function getPendingReviews(userId: string): Promise<PostMealReview[]> {
-    const { data, error } = await supabase
-        .from('post_meal_reviews')
-        .select('*')
-        .eq('user_id', userId)
-        .order('scheduled_for', { ascending: false })
-        .limit(20);
-
-    if (error) {
-        console.error('Error fetching pending reviews:', error);
-        return [];
-    }
-
-    return data || [];
-}
-
-export async function getReadyReviewsCount(userId: string): Promise<number> {
-    const now = new Date().toISOString();
-
-    const { count, error } = await supabase
-        .from('post_meal_reviews')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .lte('scheduled_for', now)
-        .neq('status', 'opened');
-
-    if (error) {
-        console.error('Error counting ready reviews:', error);
-        return 0;
-    }
-
-    return count || 0;
-}
-
-/**
- * Fetch completed post-meal reviews within a date range
- * Used for weekly insights (Meal Comparison section)
- */
-export async function getPostMealReviewsByDateRange(
-    userId: string,
-    startDate: Date,
-    endDate: Date
-): Promise<PostMealReview[]> {
-    const { data, error } = await supabase
-        .from('post_meal_reviews')
-        .select('id, meal_name, meal_time, actual_peak, actual_curve, predicted_curve, predicted_peak, status_tag, contributors, total_carbs, total_protein, total_fibre, baseline_glucose, peak_delta, time_to_peak_min')
-        .eq('user_id', userId)
-        .eq('status', 'opened')
-        .gte('meal_time', startDate.toISOString())
-        .lte('meal_time', endDate.toISOString())
-        .not('actual_peak', 'is', null)
-        .order('meal_time', { ascending: false });
-
-    if (error) {
-        console.error('Error fetching post meal reviews by date range:', error);
-        return [];
-    }
-
-    return (data || []) as PostMealReview[];
-}
-
-/**
- * Invoke the weekly meal comparison edge function for AI-generated drivers
- */
-export async function invokeWeeklyMealComparisonDrivers(
-    userId: string,
-    highestReview: PostMealReview | null,
-    lowestReview: PostMealReview | null
-): Promise<{
-    highest: { drivers: string[] };
-    lowest: { drivers: string[] };
-} | null> {
+    mealId: string,
+    input: MealCheckinInput
+): Promise<MealCheckin | null> {
     try {
-        const { data, error } = await supabase.functions.invoke('weekly-meal-comparison', {
-            body: {
+        const { data, error } = await supabase
+            .from('meal_checkins')
+            .upsert({
                 user_id: userId,
-                highest_review: highestReview,
-                lowest_review: lowestReview,
-            },
-        });
+                meal_id: mealId,
+                energy: input.energy ?? null,
+                fullness: input.fullness ?? null,
+                cravings: input.cravings ?? null,
+                mood: input.mood ?? null,
+                movement_after: input.movement_after ?? null,
+                notes: input.notes ?? null,
+                updated_at: new Date().toISOString(),
+            }, {
+                onConflict: 'user_id,meal_id',
+            })
+            .select()
+            .single();
 
         if (error) {
-            console.error('Error invoking weekly meal comparison:', error);
+            console.error('Error upserting meal checkin:', error);
             return null;
         }
 
-        return data;
-    } catch (err) {
-        console.error('Weekly meal comparison error:', err);
+        return data as MealCheckin;
+    } catch (error) {
+        console.error('Meal checkin upsert error:', error);
         return null;
     }
 }
 
-/**
- * Compute actual glucose curve from logs for a given time window
- */
-export async function computeActualGlucoseCurve(
-    userId: string,
-    mealTime: Date,
-    windowHours: number = 3
-): Promise<{
-    curve: { time: number; value: number }[];
-    peak: number | null;
-    hasData: boolean;
-}> {
-    const endTime = new Date(mealTime.getTime() + windowHours * 60 * 60 * 1000);
-
-    const { data, error } = await supabase
-        .from('glucose_logs')
-        .select('glucose_level, logged_at')
-        .eq('user_id', userId)
-        .gte('logged_at', mealTime.toISOString())
-        .lte('logged_at', endTime.toISOString())
-        .order('logged_at', { ascending: true });
-
-    if (error || !data || data.length === 0) {
-        return { curve: [], peak: null, hasData: false };
-    }
-
-    // Convert to curve format (time in minutes from meal)
-    const curve = data.map(log => ({
-        time: (new Date(log.logged_at).getTime() - mealTime.getTime()) / (60 * 1000),
-        value: log.glucose_level,
-    }));
-
-    const peak = Math.max(...data.map(log => log.glucose_level));
-
-    return { curve, peak, hasData: true };
-}
-
-/**
- * Generate review summary and status tag based on predicted vs actual
- */
-export function generateReviewInsights(
-    predictedPeak: number | null,
-    actualPeak: number | null,
-    baselineGlucose: number = 5.5
-): {
-    summary: string;
-    statusTag: ReviewStatusTag;
-    contributors: { title: string; detail: string; impact: string }[];
-} {
-    if (actualPeak === null) {
-        return {
-            summary: 'Not enough glucose data for this review',
-            statusTag: 'steady',
-            contributors: [],
-        };
-    }
-
-    const elevation = actualPeak - baselineGlucose;
-    let statusTag: ReviewStatusTag;
-    let summary: string;
-    const contributors: { title: string; detail: string; impact: string }[] = [];
-
-    // Determine status tag based on elevation
-    if (elevation < 2.0) {
-        statusTag = 'steady';
-        summary = `Peaked at ${actualPeak.toFixed(1)} mmol/L – steady response`;
-    } else if (elevation < 3.5) {
-        statusTag = 'mild_elevation';
-        summary = `Peaked at ${actualPeak.toFixed(1)} mmol/L – mild elevation`;
-    } else {
-        statusTag = 'spike';
-        summary = `Peaked at ${actualPeak.toFixed(1)} mmol/L – notable spike`;
-    }
-
-    // Compare to prediction if available
-    if (predictedPeak !== null) {
-        const diff = actualPeak - predictedPeak;
-        if (Math.abs(diff) < 0.5) {
-            summary += ' – as expected';
-            contributors.push({
-                title: 'Matched Prediction',
-                detail: 'Your glucose response was close to what we predicted',
-                impact: 'neutral',
-            });
-        } else if (diff < 0) {
-            summary += ' – better than expected';
-            contributors.push({
-                title: 'Lower Than Expected',
-                detail: `Peaked ${Math.abs(diff).toFixed(1)} mmol/L below prediction`,
-                impact: 'positive',
-            });
-        } else {
-            summary += ' – higher than expected';
-            contributors.push({
-                title: 'Higher Than Expected',
-                detail: `Peaked ${diff.toFixed(1)} mmol/L above prediction`,
-                impact: 'negative',
-            });
-        }
-    }
-
-    // Add general insights
-    if (statusTag === 'steady') {
-        contributors.push({
-            title: 'Balanced Meal',
-            detail: 'This meal combination worked well for your glucose',
-            impact: 'positive',
-        });
-    } else if (statusTag === 'spike') {
-        contributors.push({
-            title: 'Consider Adjustments',
-            detail: 'Adding fiber or protein might help with similar meals',
-            impact: 'suggestion',
-        });
-    }
-
-    return { summary, statusTag, contributors };
-}
-
-/**
- * Update post_meal_review with manually logged glucose value
- * Used when user logs glucose manually from the post-meal review screen
- */
-export async function updatePostMealReviewWithManualGlucose(
-    reviewId: string,
-    glucoseValue: number
-): Promise<boolean> {
+// Get a meal check-in by meal ID
+export async function getMealCheckin(mealId: string): Promise<MealCheckin | null> {
     try {
-        // Get the review to access predicted peak
-        const { data: review, error: fetchError } = await supabase
-            .from('post_meal_reviews')
-            .select('predicted_peak')
-            .eq('id', reviewId)
+        const { data, error } = await supabase
+            .from('meal_checkins')
+            .select('*')
+            .eq('meal_id', mealId)
             .single();
 
-        if (fetchError || !review) {
-            console.error('Failed to fetch review:', fetchError);
-            return false;
+        if (error) {
+            if (error.code === 'PGRST116') {
+                // No rows returned - not an error
+                return null;
+            }
+            console.error('Error fetching meal checkin:', error);
+            return null;
         }
 
-        // Generate insights based on actual vs predicted
-        const insights = generateReviewInsights(
-            review.predicted_peak,
-            glucoseValue
-        );
+        return data as MealCheckin;
+    } catch (error) {
+        console.error('Get meal checkin error:', error);
+        return null;
+    }
+}
 
-        // Update the review with actual data
-        const { error: updateError } = await supabase
-            .from('post_meal_reviews')
-            .update({
-                status: 'opened',
-                actual_peak: glucoseValue,
-                actual_curve: [{ time: 120, value: glucoseValue }], // Single point for manual log
-                summary: insights.summary,
-                status_tag: insights.statusTag,
-                contributors: insights.contributors,
-                updated_at: new Date().toISOString(),
-            })
-            .eq('id', reviewId);
+// Get meals with their check-ins for a date range
+export interface MealWithCheckin extends Meal {
+    meal_checkins: MealCheckin[] | null;
+}
 
-        if (updateError) {
-            console.error('Failed to update review:', updateError);
+export async function getMealsWithCheckinsByDateRange(
+    userId: string,
+    startDate: Date,
+    endDate: Date
+): Promise<MealWithCheckin[]> {
+    try {
+        const { data, error } = await supabase
+            .from('meals')
+            .select('*, meal_checkins(*)')
+            .eq('user_id', userId)
+            .gte('logged_at', startDate.toISOString())
+            .lte('logged_at', endDate.toISOString())
+            .order('logged_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching meals with checkins:', error);
+            return [];
+        }
+
+        return (data || []) as MealWithCheckin[];
+    } catch (error) {
+        console.error('Get meals with checkins error:', error);
+        return [];
+    }
+}
+
+// Delete a meal check-in
+export async function deleteMealCheckin(mealId: string): Promise<boolean> {
+    try {
+        const { error } = await supabase
+            .from('meal_checkins')
+            .delete()
+            .eq('meal_id', mealId);
+
+        if (error) {
+            console.error('Error deleting meal checkin:', error);
             return false;
         }
 
         return true;
-    } catch (err) {
-        console.error('Failed to update review with manual glucose:', err);
+    } catch (error) {
+        console.error('Delete meal checkin error:', error);
         return false;
     }
 }
@@ -1976,26 +1913,29 @@ export async function logExperimentEvent(
     // Update experiment counters
     if (type === 'exposure' || type === 'checkin') {
         const field = type === 'exposure' ? 'exposures_logged' : 'checkins_logged';
-        await supabase.rpc('increment_experiment_counter', {
+
+        // Try RPC first
+        const { error: rpcError } = await supabase.rpc('increment_experiment_counter', {
             p_experiment_id: userExperimentId,
             p_field: field,
-        }).catch(() => {
-            // Fallback: direct increment
-            supabase
+        });
+
+        // Fallback if RPC fails (e.g. function doesn't exist)
+        if (rpcError) {
+            const { data: exp } = await supabase
                 .from('user_experiments')
                 .select(field)
                 .eq('id', userExperimentId)
-                .single()
-                .then(({ data: exp }) => {
-                    if (exp) {
-                        const currentVal = (exp as any)[field] || 0;
-                        supabase
-                            .from('user_experiments')
-                            .update({ [field]: currentVal + 1, updated_at: new Date().toISOString() })
-                            .eq('id', userExperimentId);
-                    }
-                });
-        });
+                .single();
+
+            if (exp) {
+                const currentVal = (exp as any)[field] || 0;
+                await supabase
+                    .from('user_experiments')
+                    .update({ [field]: currentVal + 1, updated_at: new Date().toISOString() })
+                    .eq('id', userExperimentId);
+            }
+        }
     }
 
     return data;
@@ -2308,5 +2248,193 @@ export async function deleteUserData(userId: string): Promise<boolean> {
         console.error('Delete user data error:', err);
         return false;
     }
+}
+
+// ==========================================
+// LAB SNAPSHOTS (for Metabolic Response Score)
+// ==========================================
+
+export interface LabSnapshot {
+    id: string;
+    user_id: string;
+    collected_at: string;
+    fasting_glucose_value: number | null;
+    fasting_glucose_unit: string;
+    fasting_insulin_value: number | null;
+    fasting_insulin_unit: string;
+    triglycerides_value: number | null;
+    triglycerides_unit: string;
+    hdl_value: number | null;
+    hdl_unit: string;
+    alt_value: number | null;
+    alt_unit: string;
+    weight_kg: number | null;
+    height_cm: number | null;
+    notes: string | null;
+    source: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CreateLabSnapshotInput {
+    collected_at?: string;
+    fasting_glucose_value?: number | null;
+    fasting_glucose_unit?: string;
+    fasting_insulin_value?: number | null;
+    fasting_insulin_unit?: string;
+    triglycerides_value?: number | null;
+    triglycerides_unit?: string;
+    hdl_value?: number | null;
+    hdl_unit?: string;
+    alt_value?: number | null;
+    alt_unit?: string;
+    weight_kg?: number | null;
+    height_cm?: number | null;
+    notes?: string | null;
+    source?: string;
+}
+
+/**
+ * Create a new lab snapshot
+ */
+export async function createLabSnapshot(
+    userId: string,
+    input: CreateLabSnapshotInput
+): Promise<LabSnapshot | null> {
+    try {
+        const { data, error } = await supabase
+            .from('lab_snapshots')
+            .insert({
+                user_id: userId,
+                collected_at: input.collected_at || new Date().toISOString(),
+                fasting_glucose_value: input.fasting_glucose_value,
+                fasting_glucose_unit: input.fasting_glucose_unit || 'mmol/L',
+                fasting_insulin_value: input.fasting_insulin_value,
+                fasting_insulin_unit: input.fasting_insulin_unit || 'uIU/mL',
+                triglycerides_value: input.triglycerides_value,
+                triglycerides_unit: input.triglycerides_unit || 'mmol/L',
+                hdl_value: input.hdl_value,
+                hdl_unit: input.hdl_unit || 'mmol/L',
+                alt_value: input.alt_value,
+                alt_unit: input.alt_unit || 'U/L',
+                weight_kg: input.weight_kg,
+                height_cm: input.height_cm,
+                notes: input.notes,
+                source: input.source || 'manual',
+            })
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Error creating lab snapshot:', error);
+            return null;
+        }
+
+        return data;
+    } catch (err) {
+        console.error('Create lab snapshot error:', err);
+        return null;
+    }
+}
+
+/**
+ * Get the latest lab snapshot for a user
+ */
+export async function getLatestLabSnapshot(
+    userId: string
+): Promise<LabSnapshot | null> {
+    try {
+        const { data, error } = await supabase
+            .from('lab_snapshots')
+            .select('*')
+            .eq('user_id', userId)
+            .order('collected_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (error) {
+            // No lab snapshots yet is not an error
+            if (error.code === 'PGRST116') return null;
+            console.error('Error fetching latest lab snapshot:', error);
+            return null;
+        }
+
+        return data;
+    } catch (err) {
+        console.error('Get latest lab snapshot error:', err);
+        return null;
+    }
+}
+
+/**
+ * Get all lab snapshots for a user
+ */
+export async function getLabSnapshots(
+    userId: string,
+    limit: number = 10
+): Promise<LabSnapshot[]> {
+    try {
+        const { data, error } = await supabase
+            .from('lab_snapshots')
+            .select('*')
+            .eq('user_id', userId)
+            .order('collected_at', { ascending: false })
+            .limit(limit);
+
+        if (error) {
+            console.error('Error fetching lab snapshots:', error);
+            return [];
+        }
+
+        return data || [];
+    } catch (err) {
+        console.error('Get lab snapshots error:', err);
+        return [];
+    }
+}
+
+// ==========================================
+// METABOLIC RESPONSE SCORE
+// ==========================================
+
+export type MetabolicScoreRangeKey = '7d' | '14d' | '30d' | '90d';
+export type MetabolicScoreBand = 'low' | 'medium' | 'high';
+export type MetabolicScoreConfidence = 'low' | 'medium' | 'high';
+
+export interface MetabolicScoreDriver {
+    key: string;
+    points: number;
+    text: string;
+}
+
+export interface MetabolicScoreComponents {
+    base: number;
+    sleep_pen: number;
+    act_pen: number;
+    steps_pen: number;
+    rhr_pen: number;
+    hrv_pen: number;
+    fibre_bonus: number;
+    lab_pen: number;
+}
+
+export interface MetabolicScoreResult {
+    status: 'ok' | 'insufficient';
+    range: MetabolicScoreRangeKey;
+    metabolic_response_score: number | null;
+    strain_score: number | null;
+    band: MetabolicScoreBand | null;
+    confidence: MetabolicScoreConfidence;
+    wearables_days: number;
+    lab_present: boolean;
+    drivers: MetabolicScoreDriver[];
+    components: MetabolicScoreComponents;
+}
+
+export async function invokeMetabolicScore(
+    userId: string,
+    range: MetabolicScoreRangeKey = '30d'
+): Promise<MetabolicScoreResult | null> {
+    return invokeWithRetry<MetabolicScoreResult>('metabolic-score', { user_id: userId, range });
 }
 

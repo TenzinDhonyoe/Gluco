@@ -52,13 +52,13 @@ interface Driver {
 interface AdjustmentTip {
     title: string;
     detail: string;
-    risk_reduction_pct: number;
+    benefit_level: 'low' | 'medium' | 'high'; // Replaced risk_reduction_pct
     action_type: string;
 }
 
 interface BaselineResult {
-    spike_risk_pct: number;
-    predicted_curve: CurvePoint[];
+    // spike_risk_pct removed
+    predicted_curve: CurvePoint[]; // Kept internally for fallback logic but removed from final output if needed
     feature_reason_codes: string[];
     debug: {
         net_carbs: number;
@@ -71,10 +71,11 @@ interface BaselineResult {
 }
 
 interface PremealResult {
-    spike_risk_pct: number;
-    predicted_curve: CurvePoint[];
+    // spike_risk_pct removed
+    // predicted_curve removed
     drivers: Driver[];
     adjustment_tips: AdjustmentTip[];
+    wellness_score?: number;
     debug: BaselineResult['debug'] & {
         personalization?: {
             carb_sensitivity: number;
@@ -96,13 +97,6 @@ interface PremealResult {
             any_activity_last_2h?: boolean;
             recent_avg_glucose_24h?: number;
             recent_variability?: number;
-        };
-        // NEW: Risk breakdown
-        risk_breakdown?: {
-            base_risk: number;
-            similar_meal_adjustment: number;
-            context_adjustment: number;
-            final_risk: number;
         };
         // NEW: Calibration info
         calibration?: {
@@ -721,10 +715,12 @@ function runBaselinePredictor(
     const mealDate = new Date(loggedAt);
     const timeBucket = getTimeBucket(mealDate);
 
-    // Calculate recent spike average (post-meal readings above threshold)
+    // Calculate recent spike average (post-meal readings above user's baseline + typical post-meal rise)
+    // Using user-relative threshold instead of hardcoded clinical value
+    const spikeThreshold = userProfile.baseline_glucose + 2.0; // User's baseline plus typical rise
     let recentSpikeAvg: number | null = null;
     const postMealReadings = recentGlucoseLogs.filter(
-        log => log.context === 'post_meal' && log.glucose_level > 7.8
+        log => log.context === 'post_meal' && log.glucose_level > spikeThreshold
     );
     if (postMealReadings.length >= 3) {
         recentSpikeAvg = postMealReadings.reduce((sum, log) => sum + log.glucose_level, 0) / postMealReadings.length;
@@ -741,7 +737,7 @@ function runBaselinePredictor(
     const reasonCodes = getFeatureReasonCodes(macros, timeBucket, recentSpikeAvg);
 
     return {
-        spike_risk_pct: riskPct,
+        // spike_risk_pct removed
         predicted_curve: curve,
         feature_reason_codes: reasonCodes,
         debug: {
@@ -764,43 +760,42 @@ function buildLLMPrompt(
     mealName: string,
     topItems: string[]
 ): string {
-    const { spike_risk_pct, feature_reason_codes, debug } = baseline;
+    const { feature_reason_codes, debug } = baseline;
 
-    return `You are a nutrition assistant helping users understand their meal's glucose impact.
-
+    return `You are a nutrition assistant helping users understand their meal's wellness balance.
+    
 Given this meal analysis, generate helpful explanations:
 
 MEAL: "${mealName}"
 TOP ITEMS: ${topItems.join(', ')}
-RISK: ${spike_risk_pct}%
 MACROS: Net Carbs ${debug.net_carbs}g, Fibre ${debug.fibre_g}g, Protein ${debug.protein_g}g, Fat ${debug.fat_g}g
 TIME: ${debug.time_bucket}
 REASON CODES: ${feature_reason_codes.join(', ')}
-${debug.recent_spike_avg ? `RECENT AVG SPIKE: ${debug.recent_spike_avg} mmol/L` : ''}
+${debug.recent_spike_avg ? `RECENT TREND: ${debug.recent_spike_avg} mmol/L rise` : ''}
 
 Generate JSON with:
-1. "drivers": 3-5 bullet points explaining WHY this risk level. Each must reference a specific measurable input (net carbs, fibre, protein, time, etc). Be concise.
-2. "adjustment_tips": 3-4 practical tips to reduce risk. Each needs:
+1. "drivers": 3-5 bullet points explaining the meal's balance. Each must reference a specific measurable input (net carbs, fibre, protein, time, etc). Be concise and encouraging or neutral.
+2. "adjustment_tips": 3-4 practical tips to improve balance. Each needs:
    - "title": short action (e.g., "Add more fiber")
    - "detail": one-liner explanation (under 100 chars)
-   - "risk_reduction_pct": integer 3-20
+   - "benefit_level": one of "low", "medium", "high"
    - "action_type": one of ADD_FIBRE, ADD_PROTEIN, PORTION_DOWN, POST_MEAL_WALK, SWAP_ITEM
 
 RULES:
-- Be practical, not alarming
-- No medical claims or medication advice
-- Reference actual numbers from the meal
-- Output ONLY valid JSON, no markdown or prose
+- Be practical, not alarming. Use positive reinforcement.
+- No medical claims or medication advice.
+- Reference actual numbers from the meal.
+- Output ONLY valid JSON, no markdown or prose.
 
 Example output format:
 {
   "drivers": [
-    {"text": "High net carbs (45g) will cause a moderate glucose rise", "reason_code": "HIGH_NET_CARBS"},
-    {"text": "Low fiber (3g) means faster carb absorption", "reason_code": "LOW_FIBRE"}
+    {"text": "Moderate net carbs (45g) provides steady energy", "reason_code": "MODERATE_NET_CARBS"},
+    {"text": "Low fiber (3g) might mean faster digestion", "reason_code": "LOW_FIBRE"}
   ],
   "adjustment_tips": [
-    {"title": "Add a side salad", "detail": "Extra fiber slows carb absorption", "risk_reduction_pct": 8, "action_type": "ADD_FIBRE"},
-    {"title": "Take a 10-min walk after eating", "detail": "Movement helps muscles use glucose", "risk_reduction_pct": 12, "action_type": "POST_MEAL_WALK"}
+    {"title": "Add a side salad", "detail": "Extra fiber supports steady glucose", "benefit_level": "medium", "action_type": "ADD_FIBRE"},
+    {"title": "Take a 10-min walk after eating", "detail": "Movement helps muscles use energy", "benefit_level": "high", "action_type": "POST_MEAL_WALK"}
   ]
 }`;
 }
@@ -963,14 +958,14 @@ function generateFallbackExplanations(baseline: BaselineResult): { drivers: Driv
 
     // Generate tips
     if (debug.fibre_g < 10) {
-        tips.push({ title: 'Add more fiber', detail: 'A side salad or vegetables can slow absorption', risk_reduction_pct: 8, action_type: 'ADD_FIBRE' });
+        tips.push({ title: 'Add more fiber', detail: 'A side salad or vegetables can slow absorption', benefit_level: 'medium', action_type: 'ADD_FIBRE' });
     }
-    tips.push({ title: 'Take a post-meal walk', detail: '10-15 minutes of walking helps use glucose', risk_reduction_pct: 12, action_type: 'POST_MEAL_WALK' });
+    tips.push({ title: 'Take a post-meal walk', detail: '10-15 minutes of walking helps use glucose', benefit_level: 'high', action_type: 'POST_MEAL_WALK' });
     if (debug.net_carbs > 40) {
-        tips.push({ title: 'Consider a smaller portion', detail: 'Reducing portion size lowers total carbs', risk_reduction_pct: 15, action_type: 'PORTION_DOWN' });
+        tips.push({ title: 'Consider a smaller portion', detail: 'Reducing portion size manages carb load', benefit_level: 'high', action_type: 'PORTION_DOWN' });
     }
     if (debug.protein_g < 15) {
-        tips.push({ title: 'Add protein', detail: 'Protein slows digestion and supports steadier energy', risk_reduction_pct: 10, action_type: 'ADD_PROTEIN' });
+        tips.push({ title: 'Add protein', detail: 'Protein slows digestion and supports steadier energy', benefit_level: 'medium', action_type: 'ADD_PROTEIN' });
     }
 
     return { drivers, adjustment_tips: tips.slice(0, 4) };
@@ -1332,19 +1327,7 @@ serve(async (req) => {
         } : 'No similar meals found');
 
         // Blend baseline with similar meal outcomes
-        const basePeakDelta = baseline.predicted_curve.length > 0
-            ? Math.max(...baseline.predicted_curve.map(p => p.glucose_delta)) - userProfile.baseline_glucose
-            : 2.5;
-        const blended = blendWithSimilarMeals(
-            baseline.spike_risk_pct,
-            basePeakDelta,
-            userProfile.avg_peak_time_min,
-            similarStats
-        );
-
-        // ============================================
-        // CONTEXT SIGNALS
-        // ============================================
+        // Context signals (kept for reasons)
         const mealTime = new Date(meal_draft.logged_at);
         const [activityContext, glucoseContext] = await Promise.all([
             fetchActivityContext(supabase, user_id, mealTime),
@@ -1356,19 +1339,11 @@ serve(async (req) => {
             ...glucoseContext,
         };
 
-        // Apply context adjustments to risk
-        const { risk: adjustedRisk, reasons: contextReasons } = applyContextAdjustments(
-            blended.risk,
+        // Get context reasons (ignoring risk values)
+        const { reasons: contextReasons } = applyContextAdjustments(
+            50, // Dummy value
             contextFeatures
         );
-
-        console.log('Context applied:', {
-            activity: activityContext,
-            glucose: glucoseContext,
-            risk_before: blended.risk,
-            risk_after: adjustedRisk,
-            context_reasons: contextReasons,
-        });
 
         // Combine reason codes
         const allReasonCodes = [...baseline.feature_reason_codes, ...contextReasons];
@@ -1380,10 +1355,9 @@ serve(async (req) => {
             .slice(0, 3)
             .map(i => i.display_name);
 
-        // Build enhanced baseline for LLM with similar meal info
+        // Build enhanced baseline for LLM
         const enhancedBaseline: BaselineResult = {
             ...baseline,
-            spike_risk_pct: adjustedRisk,
             feature_reason_codes: allReasonCodes,
         };
 
@@ -1412,8 +1386,7 @@ serve(async (req) => {
         // BUILD RESULT
         // ============================================
         const result: PremealResult = {
-            spike_risk_pct: adjustedRisk,
-            predicted_curve: baseline.predicted_curve,
+            // predicted_curve: baseline.predicted_curve (removed from final output),
             drivers: enhancedDrivers.slice(0, 5), // Limit to 5 drivers
             adjustment_tips,
             debug: {
@@ -1439,13 +1412,7 @@ serve(async (req) => {
                     recent_avg_glucose_24h: contextFeatures.recent_avg_glucose_24h,
                     recent_variability: contextFeatures.recent_variability,
                 },
-                // NEW: Risk breakdown
-                risk_breakdown: {
-                    base_risk: baseline.spike_risk_pct,
-                    similar_meal_adjustment: blended.risk - baseline.spike_risk_pct,
-                    context_adjustment: adjustedRisk - blended.risk,
-                    final_risk: adjustedRisk,
-                },
+                // Risk breakdown removed
                 // NEW: Calibration info
                 calibration: {
                     confidence: calibration.confidence,

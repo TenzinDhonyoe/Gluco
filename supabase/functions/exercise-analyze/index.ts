@@ -278,7 +278,7 @@ function calculateGlucoseImpact(
         timing_benefit = 'Post-meal exercise is 30% more effective for glucose control';
         optimal_timing = '15-45 min after eating';
     } else if (/before|pre|fasted|morning/.test(timingContext.toLowerCase())) {
-        timing_benefit = 'Fasted exercise improves insulin sensitivity';
+        timing_benefit = 'Fasted morning activity may support your energy and metabolism';
         optimal_timing = 'Before breakfast or meals';
     }
 

@@ -4,9 +4,9 @@
 import { AnimatedScreen } from '@/components/animated-screen';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { runLocalExperimentAnalysis } from '@/lib/experiment-analysis';
 import {
     ExperimentVariant,
-    getExperimentAnalysis,
     getExperimentEvents,
     getExperimentVariants,
     getUserExperiment,
@@ -14,7 +14,7 @@ import {
     updateUserExperimentStatus,
     UserExperiment,
     UserExperimentEvent,
-    VariantMetrics,
+    VariantMetrics
 } from '@/lib/supabase';
 import { formatGlucose } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +26,7 @@ import {
     Alert,
     Dimensions,
     Modal,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -38,7 +39,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function ExperimentDetailScreen() {
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id, openExposureModal, variantId } = useLocalSearchParams<{ id: string, openExposureModal?: string, variantId?: string }>();
     const { user } = useAuth();
     const glucoseUnit = useGlucoseUnit();
 
@@ -57,6 +58,7 @@ export default function ExperimentDetailScreen() {
         delta: number | null;
         confidence: string;
     } | null>(null);
+    const [isFinal, setIsFinal] = useState(false);
 
     // Modals
     const [showExposureModal, setShowExposureModal] = useState(false);
@@ -106,21 +108,25 @@ export default function ExperimentDetailScreen() {
     }, [id, user]);
 
     // Fetch analysis
-    const fetchAnalysis = async () => {
+    const fetchAnalysis = async (currentExp?: UserExperiment, currentVars?: ExperimentVariant[]) => {
         if (!id || !user) return;
+
+        const targetExp = currentExp || experiment;
+        const targetVars = currentVars || variants;
+
+        if (!targetExp || !targetVars || targetVars.length === 0) return;
 
         setIsAnalyzing(true);
         try {
-            const result = await getExperimentAnalysis(user.id, id, true);
+            const result = await runLocalExperimentAnalysis(user.id, targetExp, targetVars);
+
             if (result) {
-                setAnalysisMetrics(result.analysis.metrics);
-                setAnalysisSummary(result.analysis.summary);
-                setAnalysisSuggestions(result.analysis.suggestions);
-                setAnalysisComparison({
-                    winner: result.analysis.comparison.winner,
-                    delta: result.analysis.comparison.delta,
-                    confidence: result.analysis.comparison.confidence,
-                });
+                setAnalysisMetrics(result.metrics);
+                setAnalysisSummary(result.summary);
+                setAnalysisSuggestions(result.suggestions);
+                setAnalysisSuggestions(result.suggestions);
+                setAnalysisComparison(result.comparison);
+                setIsFinal(result.is_final);
             }
         } catch (error) {
             console.error('Error fetching analysis:', error);
@@ -133,6 +139,19 @@ export default function ExperimentDetailScreen() {
         fetchExperimentData();
     }, [fetchExperimentData]);
 
+    // Handle incoming params from widget (auto open modal)
+    useEffect(() => {
+        if (variants.length > 0 && openExposureModal === 'true' && !showExposureModal) {
+            if (variantId) {
+                const v = variants.find(v => v.id === variantId);
+                if (v) setSelectedVariant(v);
+            }
+            setShowExposureModal(true);
+            // Clear params so it doesn't re-open on refresh
+            router.setParams({ openExposureModal: undefined, variantId: undefined });
+        }
+    }, [variants, openExposureModal, variantId]);
+
     // Log an exposure
     const handleLogExposure = async (variant: ExperimentVariant) => {
         if (!user || !id) return;
@@ -144,6 +163,12 @@ export default function ExperimentDetailScreen() {
                 variant_key: variant.key,
                 adherence_pct: 100,
             });
+
+            // If this was the last required exposure, navigate to results
+            if (experiment && experiment.exposures_logged + 1 >= (experiment.experiment_templates?.protocol?.exposures_per_variant || 5) * 2) {
+                router.replace({ pathname: '/experiment-results', params: { id: experiment.id } });
+                return;
+            }
 
             if (event) {
                 Alert.alert(
@@ -303,7 +328,9 @@ export default function ExperimentDetailScreen() {
                         <TouchableOpacity onPress={() => router.back()} style={styles.headerIconBtn}>
                             <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
                         </TouchableOpacity>
-                        <Text style={styles.headerTitle}>EXPERIMENT</Text>
+                        <Text style={styles.headerTitle} numberOfLines={1}>
+                            {template?.title?.toUpperCase() || 'EXPERIMENT'}
+                        </Text>
                         <TouchableOpacity onPress={handleArchiveExperiment} style={styles.headerIconBtn}>
                             <Ionicons name="ellipsis-horizontal" size={24} color="#FFFFFF" />
                         </TouchableOpacity>
@@ -359,38 +386,14 @@ export default function ExperimentDetailScreen() {
                             </View>
                         </View>
 
-                        {/* Log Actions */}
-                        {experiment.status === 'active' && (
-                            <View style={styles.actionsCard}>
-                                <TouchableOpacity
-                                    style={styles.actionButton}
-                                    onPress={() => setShowExposureModal(true)}
-                                >
-                                    <Ionicons name="add-circle-outline" size={24} color="#3494D9" />
-                                    <Text style={styles.actionButtonText}>Log Exposure</Text>
-                                </TouchableOpacity>
-                                <View style={styles.actionDivider} />
-                                <TouchableOpacity
-                                    style={styles.actionButton}
-                                    onPress={() => {
-                                        if (variants.length > 0) {
-                                            setSelectedVariant(variants[0]);
-                                            setShowCheckinModal(true);
-                                        }
-                                    }}
-                                >
-                                    <Ionicons name="chatbubble-outline" size={24} color="#3494D9" />
-                                    <Text style={styles.actionButtonText}>Check-in</Text>
-                                </TouchableOpacity>
-                            </View>
-                        )}
+                        {/* Actions moved to footer */}
 
                         {/* Results Card */}
                         {(analysisMetrics || isAnalyzing) && (
                             <View style={styles.card}>
                                 <View style={styles.cardHeader}>
                                     <Text style={styles.cardTitle}>Results</Text>
-                                    <TouchableOpacity onPress={fetchAnalysis} disabled={isAnalyzing}>
+                                    <TouchableOpacity onPress={() => fetchAnalysis()} disabled={isAnalyzing}>
                                         <Ionicons
                                             name="refresh-outline"
                                             size={20}
@@ -538,12 +541,37 @@ export default function ExperimentDetailScreen() {
 
                         <View style={{ height: 100 }} />
                     </ScrollView>
+
+                    {/* Sticky Footer Actions */}
+                    {experiment.status === 'active' && (
+                        <View style={styles.footerActions}>
+                            <TouchableOpacity
+                                style={styles.footerButton}
+                                onPress={() => setShowExposureModal(true)}
+                            >
+                                <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+                                <Text style={styles.footerButtonText}>Log Exposure</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.footerButton, styles.footerButtonSecondary]}
+                                onPress={() => {
+                                    if (variants.length > 0) {
+                                        setSelectedVariant(variants[0]);
+                                        setShowCheckinModal(true);
+                                    }
+                                }}
+                            >
+                                <Ionicons name="chatbubble-outline" size={20} color="#3494D9" />
+                                <Text style={[styles.footerButtonText, styles.footerButtonTextSecondary]}>Check-in</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
                 </SafeAreaView>
 
                 {/* Exposure Modal */}
                 <Modal
                     visible={showExposureModal}
-                    animationType="slide"
+                    animationType="fade"
                     transparent={true}
                     onRequestClose={() => setShowExposureModal(false)}
                 >
@@ -582,7 +610,7 @@ export default function ExperimentDetailScreen() {
                 {/* Check-in Modal */}
                 <Modal
                     visible={showCheckinModal}
-                    animationType="slide"
+                    animationType="fade"
                     transparent={true}
                     onRequestClose={() => {
                         setShowCheckinModal(false);
@@ -1152,6 +1180,38 @@ const styles = StyleSheet.create({
         fontFamily: fonts.semiBold,
         fontSize: 16,
         color: '#FFFFFF',
+    },
+    footerActions: {
+        flexDirection: 'row',
+        padding: 16,
+        gap: 12,
+        backgroundColor: 'rgba(26, 31, 36, 0.95)',
+        borderTopWidth: 1,
+        borderTopColor: '#2A2D30',
+        paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+    },
+    footerButton: {
+        flex: 1,
+        backgroundColor: '#3494D9',
+        borderRadius: 12,
+        height: 50,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+    },
+    footerButtonSecondary: {
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderColor: '#3494D9',
+    },
+    footerButtonText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 15,
+        color: '#FFFFFF',
+    },
+    footerButtonTextSecondary: {
+        color: '#3494D9',
     },
 });
 

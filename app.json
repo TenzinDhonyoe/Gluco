@@ -1,19 +1,25 @@
 {
   "expo": {
-    "name": "GlucoFigma",
-    "slug": "GlucoFigma",
+    "name": "Gluco",
+    "slug": "Gluco",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "glucofigma",
+    "scheme": "gluco",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.GlucoFigma",
+      "bundleIdentifier": "ca.gluco.solutions.gluco",
+      "usesAppleSignIn": true,
       "infoPlist": {
-        "NSHealthShareUsageDescription": "GlucoFigma needs access to your sleep data to help track how sleep affects your glucose levels.",
-        "NSHealthUpdateUsageDescription": "GlucoFigma needs access to record health data."
+        "NSHealthShareUsageDescription": "Gluco needs access to your health data to help track how sleep, steps, and activity affect your wellness.",
+        "NSHealthUpdateUsageDescription": "Gluco needs access to record health data.",
+        "NSCameraUsageDescription": "Gluco needs camera access to scan food labels and log meals.",
+        "NSPhotoLibraryUsageDescription": "Gluco needs photo library access to select meal photos."
       },
       "entitlements": {
         "com.apple.developer.healthkit": true,
@@ -29,7 +35,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.GlucoFigma"
+      "package": "ca.gluco.solutions.gluco"
     },
     "web": {
       "output": "static",
@@ -37,6 +43,12 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "react-native-health",
+        {
+          "isBackgroundEnabled": true
+        }
+      ],
       [
         "expo-splash-screen",
         {

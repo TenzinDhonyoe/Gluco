@@ -1,23 +1,27 @@
 import { AnimatedFAB, type AnimatedFABRef } from '@/components/animated-fab';
 import { AnimatedInteger, AnimatedNumber } from '@/components/animated-number';
 import { AnimatedScreen } from '@/components/animated-screen';
+import { ActiveExperimentWidget } from '@/components/experiments/ActiveExperimentWidget';
 import { GlucoseTrendChart, type TrendPoint } from '@/components/glucose-trend-chart';
+import { MealCheckinCard } from '@/components/MealCheckinCard';
+import { PersonalInsightsCarousel } from '@/components/PersonalInsightsCarousel';
 import { SegmentedControl } from '@/components/segmented-control';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { useDailyContext } from '@/hooks/useDailyContext';
 import { fonts } from '@/hooks/useFonts';
+import { usePersonalInsights } from '@/hooks/usePersonalInsights';
 import { SleepData, useSleepData } from '@/hooks/useSleepData';
 import { useGlucoseTargetRange, useTodayScreenData } from '@/hooks/useTodayScreenData';
-import { GlucoseLog, PostMealReview } from '@/lib/supabase';
+import { InsightData, TrackingMode } from '@/lib/insights';
+import { GlucoseLog, MealWithCheckin } from '@/lib/supabase';
 import { getDateRange, getRangeDays, getRangeLabel, getRangeShortLabel, RangeKey } from '@/lib/utils/dateRanges';
-import { convertFromMmol, formatGlucose, formatGlucoseWithUnit, formatTargetRange, GlucoseUnit } from '@/lib/utils/glucoseUnits';
+import { convertFromMmol, formatTargetRange, GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
     Animated,
     Dimensions,
     KeyboardAvoidingView,
@@ -33,7 +37,6 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -274,88 +277,6 @@ function StatCard({ icon, iconColor, title, value, unit, description }: {
     );
 }
 
-// CGM Connection Card
-function CGMConnectionCard() {
-    const { user } = useAuth();
-    const [isConnected, setIsConnected] = React.useState(false);
-    const [isSyncing, setIsSyncing] = React.useState(false);
-
-    // Check connection status on mount
-    React.useEffect(() => {
-        const checkStatus = async () => {
-            if (!user) return;
-            try {
-                // Dynamic import to avoid issues if dexcom module not ready
-                const { getDexcomStatus } = await import('@/lib/dexcom');
-                const status = await getDexcomStatus();
-                setIsConnected(status.connected);
-            } catch (error) {
-                console.log('Dexcom status check failed:', error);
-            }
-        };
-        checkStatus();
-    }, [user]);
-
-    const handlePress = () => {
-        router.push('/connect-dexcom' as never);
-    };
-
-    const handleSync = async () => {
-        setIsSyncing(true);
-        try {
-            const { syncDexcom } = await import('@/lib/dexcom');
-            await syncDexcom(24);
-        } catch (error) {
-            console.log('Sync failed:', error);
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
-    return (
-        <TouchableOpacity
-            style={styles.cgmCard}
-            onPress={handlePress}
-            activeOpacity={0.8}
-        >
-            <View style={styles.cgmCardContent}>
-                <View style={styles.cgmIconContainer}>
-                    <Ionicons
-                        name={isConnected ? 'checkmark-circle' : 'bluetooth'}
-                        size={28}
-                        color={isConnected ? '#4CAF50' : '#3494D9'}
-                    />
-                </View>
-                <View style={styles.cgmTextContainer}>
-                    <Text style={styles.cgmCardTitle}>
-                        {isConnected ? 'Dexcom Connected' : 'Connect Your CGM'}
-                    </Text>
-                    <Text style={styles.cgmCardSubtitle}>
-                        {isConnected
-                            ? 'Tap to manage or sync'
-                            : 'Import glucose readings automatically'}
-                    </Text>
-                </View>
-                {isConnected ? (
-                    <TouchableOpacity
-                        style={styles.cgmSyncButton}
-                        onPress={handleSync}
-                        disabled={isSyncing}
-                    >
-                        {isSyncing ? (
-                            <ActivityIndicator color="#FFFFFF" size="small" />
-                        ) : (
-                            <Ionicons name="sync" size={18} color="#FFFFFF" />
-                        )}
-                    </TouchableOpacity>
-                ) : (
-                    <Ionicons name="chevron-forward" size={20} color="#878787" />
-                )}
-            </View>
-        </TouchableOpacity>
-    );
-}
-
 // Spike threshold - readings above this are considered a spike (mmol/L)
 const SPIKE_THRESHOLD = 10.0;
 // Memoized In Range Stat Card - calculates % of days where glucose was in target range
@@ -421,44 +342,76 @@ const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
     );
 }, (prev, next) => prev.range === next.range && prev.glucoseLogs === next.glucoseLogs);
 
-// Memoized Activity Stat Card - shows total activity duration from logged activities
-const ActivityStatCard = React.memo(({ range, activityLogs }: {
+// Memoized Activity Stat Card - Unified (HealthKit + Manual)
+const ActivityStatCard = React.memo(({
+    range,
+    activityLogs,
+    healthKitMinutes,
+    isHealthKitAuthorized,
+    isHealthKitAvailable
+}: {
     range: RangeKey;
     activityLogs: any[];
+    healthKitMinutes: number | null;
+    isHealthKitAuthorized: boolean;
+    isHealthKitAvailable: boolean;
 }) => {
-    const totalMinutes = useMemo(() => {
+    // Calculate average from manual logs
+    const manualAvgMinutes = useMemo(() => {
         const { startDate, endDate } = getDateRange(range);
         const filteredLogs = activityLogs.filter(log => {
             const logDate = new Date(log.logged_at);
             return logDate >= startDate && logDate <= endDate;
         });
-        return filteredLogs.reduce((sum, log) => sum + log.duration_minutes, 0);
+
+        const total = filteredLogs.reduce((sum, log) => sum + log.duration_minutes, 0);
+        const days = getRangeDays(range);
+        return days > 0 ? Math.round(total / days) : 0;
     }, [activityLogs, range]);
 
-    // Format minutes as hours if over 60
-    const formatDuration = useCallback((minutes: number) => {
-        if (minutes >= 60) {
-            const hours = Math.floor(minutes / 60);
-            const mins = minutes % 60;
-            return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    // Determine values to display
+    const showHealthKit = isHealthKitAuthorized && isHealthKitAvailable;
+    const avgMinutes = showHealthKit ? (healthKitMinutes ?? 0) : manualAvgMinutes;
+
+    // Display value formatting
+    const displayValue = Math.round(avgMinutes).toString();
+    const sourceLabel = showHealthKit ? 'Apple Health' : 'Manual Entry';
+
+    const handlePress = () => {
+        // Allow connecting if available but not authorized
+        if (isHealthKitAvailable && !isHealthKitAuthorized) {
+            router.push('/data-sources');
         }
-        return `${minutes}`;
-    }, []);
+    };
 
     return (
-        <View style={styles.statCard}>
+        <TouchableOpacity
+            style={styles.statCard}
+            onPress={handlePress}
+            activeOpacity={isHealthKitAvailable && !isHealthKitAuthorized ? 0.7 : 1}
+        >
             <View style={styles.statHeader}>
                 <Ionicons name="flame" size={32} color="#E55D5D" />
                 <Text style={[styles.statTitle, { color: '#E55D5D' }]}>ACTIVITY</Text>
             </View>
             <View style={styles.statValueContainer}>
-                <Text style={styles.statValue}>{formatDuration(totalMinutes)}</Text>
-                {totalMinutes < 60 && <Text style={styles.statUnit}>mins</Text>}
+                <Text style={styles.statValue}>{displayValue}</Text>
+                <Text style={styles.statUnit}>min/day</Text>
             </View>
-            <Text style={styles.statDescription}>{getRangeShortLabel(range)}</Text>
-        </View>
+            <Text style={styles.statDescription}>
+                {isHealthKitAvailable && !isHealthKitAuthorized
+                    ? 'Tap to connect'
+                    : getRangeShortLabel(range)}
+            </Text>
+            <Text style={styles.dataSourceLabel}>{sourceLabel}</Text>
+        </TouchableOpacity>
     );
-}, (prev, next) => prev.range === next.range && prev.activityLogs === next.activityLogs);
+}, (prev, next) =>
+    prev.range === next.range &&
+    prev.activityLogs === next.activityLogs &&
+    prev.healthKitMinutes === next.healthKitMinutes &&
+    prev.isHealthKitAuthorized === next.isHealthKitAuthorized
+);
 
 // Fibre thresholds based on Canada DV (25g/day target)
 const FIBRE_TARGET = 25;
@@ -570,11 +523,9 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
                 <Text style={styles.statUnit}>hr/night</Text>
             </View>
             <Text style={styles.statDescription}>
-                {!isAvailable
-                    ? 'iOS only'
-                    : isAuthorized
-                        ? getRangeShortLabel(range)
-                        : 'Tap to connect'}
+                {isAvailable && !isAuthorized
+                    ? 'Tap to connect'
+                    : getRangeShortLabel(range)}
             </Text>
         </TouchableOpacity>
     );
@@ -613,60 +564,16 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
                 <Text style={styles.statUnit}>/day</Text>
             </View>
             <Text style={styles.statDescription}>
-                {!isAvailable
-                    ? 'Not available'
-                    : isAuthorized
-                        ? getRangeShortLabel(range)
-                        : 'Not connected'}
+                {isAvailable && !isAuthorized
+                    ? 'Tap to connect'
+                    : getRangeShortLabel(range)}
             </Text>
             <Text style={styles.dataSourceLabel}>Apple Health</Text>
         </TouchableOpacity>
     );
 });
 
-// Active Minutes Stat Card - for wearables_only mode (Apple Health)
-const ActiveMinutesStatCard = React.memo(({ avgMinutes, isAuthorized, isAvailable, range }: {
-    avgMinutes: number | null;
-    isAuthorized: boolean;
-    isAvailable: boolean;
-    range: RangeKey;
-}) => {
-    const displayValue = isAuthorized && avgMinutes !== null
-        ? Math.round(avgMinutes).toString()
-        : '—';
 
-    const handlePress = () => {
-        if (!isAuthorized && isAvailable) {
-            router.push('/data-sources');
-        }
-    };
-
-    return (
-        <TouchableOpacity
-            style={styles.statCard}
-            onPress={handlePress}
-            disabled={isAuthorized}
-            activeOpacity={isAuthorized ? 1 : 0.7}
-        >
-            <View style={styles.statHeader}>
-                <Ionicons name="flame" size={32} color="#FF6B35" />
-                <Text style={[styles.statTitle, { color: '#FF6B35' }]}>ACTIVE</Text>
-            </View>
-            <View style={styles.statValueContainer}>
-                <Text style={styles.statValue}>{displayValue}</Text>
-                <Text style={styles.statUnit}>min/day</Text>
-            </View>
-            <Text style={styles.statDescription}>
-                {!isAvailable
-                    ? 'Not available'
-                    : isAuthorized
-                        ? getRangeShortLabel(range)
-                        : 'Not connected'}
-            </Text>
-            <Text style={styles.dataSourceLabel}>Apple Health</Text>
-        </TouchableOpacity>
-    );
-});
 
 // Connect Apple Health CTA Card
 const ConnectHealthCTA = () => {
@@ -689,7 +596,7 @@ const ConnectHealthCTA = () => {
 
 
 // Meal Response Input Sheet - Bottom sheet for quick meal input
-function SpikeRiskInputSheet({
+function MealReflectionSheet({
     visible,
     onClose,
     onAnalyze
@@ -958,7 +865,7 @@ function SwipeableTipCards({ onMealPress, onExercisePress }: {
             icon: 'bulb' as const,
             iconColor: '#CAA163',
             text: 'Planning your next lunch?',
-            linkText: 'Tap to check meal response',
+            linkText: 'Tap to check impact',
             onPress: onMealPress,
         },
         {
@@ -1051,244 +958,9 @@ function SwipeableTipCards({ onMealPress, onExercisePress }: {
     );
 }
 // Meal Card Component with Mini Chart
-const MINI_CHART_WIDTH = 280;
+// const MINI_CHART_WIDTH = 280;
 const MINI_CHART_HEIGHT = 130;
 
-function MealCard({ review, onPress, glucoseUnit }: {
-    review: PostMealReview;
-    onPress?: () => void;
-    glucoseUnit: GlucoseUnit;
-}) {
-    const predictedCurve = review.predicted_curve || [];
-    const actualCurve = review.actual_curve || [];
-
-    // Format time
-    const formatTime = (dateStr: string | null) => {
-        if (!dateStr) return '';
-        const date = new Date(dateStr);
-        const h = date.getHours();
-        const m = date.getMinutes();
-        return `${(h % 12 || 12).toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-    };
-
-    // Determine meal type from time
-    const getMealType = (dateStr: string | null) => {
-        if (!dateStr) return 'Meal';
-        const h = new Date(dateStr).getHours();
-        if (h < 11) return 'Breakfast';
-        if (h < 15) return 'Lunch';
-        if (h < 18) return 'Snack';
-        return 'Dinner';
-    };
-
-    // Status tag styling
-    const getStatusStyle = () => {
-        switch (review.status_tag) {
-            case 'steady':
-                return { bg: '#1E4D2B', text: '#4CAF50', label: 'Steady' };
-            case 'mild_elevation':
-                return { bg: '#3D5A1F', text: '#8BC34A', label: 'Mild Elevation' };
-            case 'spike':
-                return { bg: '#4D1E1E', text: '#F44336', label: 'Spike' };
-            default:
-                return { bg: '#2D2D2D', text: '#878787', label: 'Unknown' };
-        }
-    };
-
-    // Render mini chart
-    const renderMiniChart = () => {
-        if (predictedCurve.length === 0 && actualCurve.length === 0) {
-            return (
-                <View style={styles.miniChartEmpty}>
-                    <Text style={styles.miniChartEmptyText}>No data</Text>
-                </View>
-            );
-        }
-
-        const padding = { left: 30, right: 10, top: 20, bottom: 30 };
-        const yTicks = [0, 3, 5, 7, 9, 11, 15];
-        const maxTime = 120;
-
-        const chartW = MINI_CHART_WIDTH - padding.left - padding.right;
-        const chartH = MINI_CHART_HEIGHT - padding.top - padding.bottom;
-
-        const scaleX = (time: number) => padding.left + (time / maxTime) * chartW;
-        const scaleY = (value: number) => padding.top + chartH - ((value - 0) / 15) * chartH;
-
-        const createPath = (curve: { time: number; value: number }[]) => {
-            if (curve.length === 0) return '';
-            const sorted = [...curve].sort((a, b) => a.time - b.time);
-            return sorted.map((p, i) =>
-                `${i === 0 ? 'M' : 'L'} ${scaleX(p.time)} ${scaleY(p.value)}`
-            ).join(' ');
-        };
-
-        const predictedPeak = predictedCurve.length > 0
-            ? predictedCurve.reduce((max, p) => p.value > max.value ? p : max, predictedCurve[0])
-            : null;
-        const actualPeak = actualCurve.length > 0
-            ? actualCurve.reduce((max, p) => p.value > max.value ? p : max, actualCurve[0])
-            : null;
-
-        return (
-            <View style={styles.miniChartContainer}>
-                {/* Legend */}
-                <View style={styles.miniChartLegend}>
-                    <Text style={styles.miniChartYLabel}>{glucoseUnit}</Text>
-                    <View style={styles.miniChartLegendItems}>
-                        <View style={styles.miniChartLegendItem}>
-                            <View style={[styles.legendDot, { backgroundColor: '#3494D9' }]} />
-                            <Text style={styles.legendText}>Actual</Text>
-                        </View>
-                        <View style={styles.miniChartLegendItem}>
-                            <View style={[styles.legendDot, { backgroundColor: '#6B6B6B' }]} />
-                            <Text style={styles.legendText}>Predicted</Text>
-                        </View>
-                    </View>
-                </View>
-
-                <Svg width={MINI_CHART_WIDTH} height={MINI_CHART_HEIGHT}>
-                    {/* Grid lines */}
-                    {[0, 5, 9, 15].map(val => (
-                        <Line
-                            key={`grid-${val}`}
-                            x1={padding.left}
-                            y1={scaleY(val)}
-                            x2={MINI_CHART_WIDTH - padding.right}
-                            y2={scaleY(val)}
-                            stroke="#2D2D2D"
-                            strokeWidth={1}
-                        />
-                    ))}
-
-                    {/* Target zone line */}
-                    <Line
-                        x1={padding.left}
-                        y1={scaleY(9)}
-                        x2={MINI_CHART_WIDTH - padding.right}
-                        y2={scaleY(9)}
-                        stroke="#4A4A4A"
-                        strokeWidth={1}
-                        strokeDasharray="3,3"
-                    />
-
-                    {/* Y-axis labels */}
-                    {[0, 5, 9, 15].map(val => (
-                        <SvgText
-                            key={`y-${val}`}
-                            x={padding.left - 5}
-                            y={scaleY(val) + 3}
-                            fontSize={9}
-                            fill="#878787"
-                            textAnchor="end"
-                        >
-                            {formatGlucose(val, glucoseUnit)}
-                        </SvgText>
-                    ))}
-
-                    {/* Predicted curve (gray) */}
-                    {predictedCurve.length > 0 && (
-                        <Path
-                            d={createPath(predictedCurve)}
-                            stroke="#6B6B6B"
-                            strokeWidth={1.5}
-                            fill="none"
-                        />
-                    )}
-
-                    {/* Actual curve (blue) */}
-                    {actualCurve.length > 0 && (
-                        <Path
-                            d={createPath(actualCurve)}
-                            stroke="#3494D9"
-                            strokeWidth={2}
-                            fill="none"
-                        />
-                    )}
-
-                    {/* Peak markers */}
-                    {predictedPeak && (
-                        <>
-                            <Circle
-                                cx={scaleX(predictedPeak.time)}
-                                cy={scaleY(predictedPeak.value)}
-                                r={3}
-                                fill="#6B6B6B"
-                            />
-                            <SvgText
-                                x={scaleX(predictedPeak.time)}
-                                y={scaleY(predictedPeak.value) - 6}
-                                fontSize={9}
-                                fill="#878787"
-                                textAnchor="middle"
-                            >
-                                {formatGlucose(predictedPeak.value, glucoseUnit)}
-                            </SvgText>
-                        </>
-                    )}
-
-                    {actualPeak && (
-                        <>
-                            <Circle
-                                cx={scaleX(actualPeak.time)}
-                                cy={scaleY(actualPeak.value)}
-                                r={4}
-                                fill="#3494D9"
-                            />
-                            <SvgText
-                                x={scaleX(actualPeak.time)}
-                                y={scaleY(actualPeak.value) - 8}
-                                fontSize={10}
-                                fill="#FFFFFF"
-                                textAnchor="middle"
-                                fontWeight="600"
-                            >
-                                {formatGlucose(actualPeak.value, glucoseUnit)}
-                            </SvgText>
-                        </>
-                    )}
-                </Svg>
-            </View>
-        );
-    };
-
-    const statusStyle = getStatusStyle();
-
-    return (
-        <TouchableOpacity style={styles.mealCard} onPress={onPress} activeOpacity={0.8}>
-            {/* Header */}
-            <View style={styles.mealHeader}>
-                <View style={styles.mealIconContainer}>
-                    <Ionicons name="restaurant" size={24} color="#E7E8E9" />
-                </View>
-                <View style={styles.mealInfo}>
-                    <View style={styles.mealMetaRow}>
-                        <Text style={styles.mealType}>{getMealType(review.meal_time)}</Text>
-                        <Text style={styles.mealTime}>{formatTime(review.meal_time)}</Text>
-                    </View>
-                    <Text style={styles.mealName} numberOfLines={1}>{review.meal_name || 'Meal'}</Text>
-                </View>
-            </View>
-
-            {/* Chart */}
-            {renderMiniChart()}
-
-            {/* Status */}
-            <View style={styles.mealStatus}>
-                <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
-                    <Text style={[styles.statusBadgeText, { color: statusStyle.text }]}>{statusStyle.label}</Text>
-                </View>
-                <Text style={styles.statusDescription}>
-                    Peaked at {formatGlucoseWithUnit(review.actual_peak || 0, glucoseUnit)} - {
-                        review.status_tag === 'steady' ? 'steady response' :
-                            review.status_tag === 'mild_elevation' ? 'smoother than expected' :
-                                'higher than expected'
-                    }
-                </Text>
-            </View>
-        </TouchableOpacity>
-    );
-}
 
 export default function TodayScreen() {
     const { profile, user } = useAuth();
@@ -1301,7 +973,18 @@ export default function TodayScreen() {
     const fabRef = React.useRef<AnimatedFABRef>(null);
 
     // Use unified data fetching hook - batches all queries
-    const { glucoseLogs, activityLogs, fibreSummary, mealReviews, isLoading } = useTodayScreenData(range);
+    const { glucoseLogs, activityLogs, fibreSummary, recentMeals, isLoading } = useTodayScreenData(range);
+    const { targetMin, targetMax } = useGlucoseTargetRange();
+
+    // DEBUG: Log what data we're getting
+    React.useEffect(() => {
+        console.log('[DEBUG] useTodayScreenData result:', {
+            glucoseLogsCount: glucoseLogs?.length,
+            recentMealsCount: recentMeals?.length,
+            fibreSummary: fibreSummary?.avgPerDay,
+            isLoading,
+        });
+    }, [glucoseLogs, recentMeals, fibreSummary, isLoading]);
 
     // Fetch sleep data from HealthKit
     const { data: sleepData } = useSleepData(range);
@@ -1313,98 +996,67 @@ export default function TodayScreen() {
     // Check if user is in wearables_only mode
     const isWearablesOnly = profile?.tracking_mode === 'wearables_only';
 
-    // Process meal reviews - show completed ones or mock data
-    const pastMealReviews = useMemo(() => {
-        if (!user?.id) return [];
+    // Determine which tracking mode category the user is in
+    const trackingMode = (profile?.tracking_mode || 'meals_wearables') as TrackingMode;
+    const showWearableStats = trackingMode === 'meals_wearables' || trackingMode === 'wearables_only';
+    // Show glucose UI for all modes since this is a prediabetes management app
+    const showGlucoseUI = true;
+    const showMealsOnlyStats = trackingMode === 'meals_only';
 
-        const completedReviews = mealReviews.filter(r => r.status === 'opened' && r.actual_peak !== null);
+    // Stable fallback data for rules-based insights (memoized to prevent re-renders)
+    const fallbackData = useMemo((): InsightData => {
+        // Calculate Time in Zone %
+        let timeInZonePercent = undefined;
+        let lowFibreMealsAboveZone = false; // Simplified placeholder
 
-        // If no real reviews, show mock data for UI demonstration
-        if (completedReviews.length === 0) {
-            return [
-                {
-                    id: 'mock-1',
-                    user_id: user.id,
-                    meal_id: 'meal-1',
-                    scheduled_for: new Date().toISOString(),
-                    status: 'opened' as const,
-                    meal_name: 'Butter chicken with butter naan',
-                    meal_time: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-                    predicted_curve: [
-                        { time: 0, value: 5.2 }, { time: 15, value: 5.8 }, { time: 30, value: 6.5 },
-                        { time: 45, value: 7.2 }, { time: 60, value: 7.5 }, { time: 75, value: 7.1 },
-                        { time: 90, value: 6.8 }, { time: 105, value: 6.2 }, { time: 120, value: 5.8 }
-                    ],
-                    actual_curve: [
-                        { time: 0, value: 5.0 }, { time: 15, value: 5.5 }, { time: 30, value: 6.8 },
-                        { time: 45, value: 7.8 }, { time: 60, value: 8.4 }, { time: 75, value: 7.9 },
-                        { time: 90, value: 7.2 }, { time: 105, value: 6.5 }, { time: 120, value: 5.9 }
-                    ],
-                    predicted_peak: 7.5,
-                    actual_peak: 8.4,
-                    status_tag: 'mild_elevation' as const,
-                    summary: 'Peaked at 8.4 mmol/L - smoother than expected',
-                    contributors: [{ title: 'Carb-rich meal', detail: 'The naan bread contributed to a moderate glucose rise.', impact: 'moderate' }],
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                },
-                {
-                    id: 'mock-2',
-                    user_id: user.id,
-                    meal_id: 'meal-2',
-                    scheduled_for: new Date().toISOString(),
-                    status: 'opened' as const,
-                    meal_name: 'Grilled salmon with vegetables',
-                    meal_time: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-                    predicted_curve: [
-                        { time: 0, value: 5.0 }, { time: 15, value: 5.3 }, { time: 30, value: 5.6 },
-                        { time: 45, value: 5.9 }, { time: 60, value: 6.0 }, { time: 75, value: 5.8 },
-                        { time: 90, value: 5.5 }, { time: 105, value: 5.2 }, { time: 120, value: 5.0 }
-                    ],
-                    actual_curve: [
-                        { time: 0, value: 5.1 }, { time: 15, value: 5.4 }, { time: 30, value: 5.7 },
-                        { time: 45, value: 5.8 }, { time: 60, value: 5.9 }, { time: 75, value: 5.7 },
-                        { time: 90, value: 5.4 }, { time: 105, value: 5.2 }, { time: 120, value: 5.0 }
-                    ],
-                    predicted_peak: 6.0,
-                    actual_peak: 5.9,
-                    status_tag: 'steady' as const,
-                    summary: 'Peaked at 5.9 mmol/L - steady response',
-                    contributors: [{ title: 'High protein, low carb', detail: 'Protein and healthy fats kept glucose stable.', impact: 'positive' }],
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                },
-                {
-                    id: 'mock-3',
-                    user_id: user.id,
-                    meal_id: 'meal-3',
-                    scheduled_for: new Date().toISOString(),
-                    status: 'opened' as const,
-                    meal_name: 'Pasta with marinara sauce',
-                    meal_time: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-                    predicted_curve: [
-                        { time: 0, value: 5.5 }, { time: 15, value: 6.5 }, { time: 30, value: 8.0 },
-                        { time: 45, value: 9.2 }, { time: 60, value: 9.5 }, { time: 75, value: 8.8 },
-                        { time: 90, value: 7.8 }, { time: 105, value: 6.8 }, { time: 120, value: 6.0 }
-                    ],
-                    actual_curve: [
-                        { time: 0, value: 5.3 }, { time: 15, value: 7.0 }, { time: 30, value: 9.2 },
-                        { time: 45, value: 10.5 }, { time: 60, value: 11.2 }, { time: 75, value: 10.0 },
-                        { time: 90, value: 8.5 }, { time: 105, value: 7.2 }, { time: 120, value: 6.3 }
-                    ],
-                    predicted_peak: 9.5,
-                    actual_peak: 11.2,
-                    status_tag: 'spike' as const,
-                    summary: 'Peaked at 11.2 mmol/L - higher than expected',
-                    contributors: [{ title: 'Refined carbohydrates', detail: 'White pasta caused a significant spike.', impact: 'negative' }],
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                },
-            ] as PostMealReview[];
+        if (glucoseLogs && glucoseLogs.length > 0) {
+            const inZoneCount = glucoseLogs.filter(l => l.glucose_level >= targetMin && l.glucose_level <= targetMax).length;
+            timeInZonePercent = Math.round((inZoneCount / glucoseLogs.length) * 100);
         }
 
-        return completedReviews.slice(0, 10);
-    }, [mealReviews, user?.id]);
+        return {
+            glucoseLogs: glucoseLogs,
+            glucoseLogsCount: glucoseLogs?.length ?? 0,
+            timeInZonePercent,
+            userTargetMin: targetMin,
+            userTargetMax: targetMax,
+            meals: recentMeals,
+            avgSleepHours: sleepData?.avgHoursPerNight,
+            avgSteps: dailyContext.avgSteps ?? undefined,
+            avgActiveMinutes: dailyContext.avgActiveMinutes ?? undefined,
+            avgFibrePerDay: fibreSummary?.avgPerDay,
+            mealsWithWalkAfter: recentMeals?.filter(m =>
+                m.meal_checkins?.some(c => c.movement_after)
+            ).length,
+            totalMealsThisWeek: recentMeals?.length,
+            checkinsThisWeek: recentMeals?.filter(m =>
+                m.meal_checkins && m.meal_checkins.length > 0
+            ).length,
+        };
+    }, [glucoseLogs, recentMeals, sleepData?.avgHoursPerNight, dailyContext.avgSteps, dailyContext.avgActiveMinutes, fibreSummary?.avgPerDay, targetMin, targetMax]);
+
+    // LLM-powered personal insights with stable hook (no infinite loops)
+    const { insights: personalInsights, loading: insightsLoading } = usePersonalInsights({
+        userId: user?.id,
+        trackingMode,
+        rangeKey: '7d',
+        enabled: !!user?.id,
+        fallbackData,
+    });
+
+
+    // Process meal reviews - show completed ones
+    const displayMeals = useMemo(() => {
+        if (!user?.id) return [];
+        return recentMeals || [];
+    }, [user?.id, recentMeals]);
+
+    const handleMealPress = (meal: MealWithCheckin) => {
+        router.push({
+            pathname: '/meal-checkin',
+            params: { mealId: meal.id, mealName: meal.name }
+        });
+    };
 
     // Get user initials from profile
     const getInitials = () => {
@@ -1464,14 +1116,20 @@ export default function TodayScreen() {
                             />
                         </View>
 
-                        <View style={styles.trendsSection}>
-                            <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} glucoseUnit={glucoseUnit} />
-                        </View>
+                        {/* Glucose Trends - only show for glucose tracking users */}
+                        {showGlucoseUI && (
+                            <View style={styles.trendsSection}>
+                                <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} glucoseUnit={glucoseUnit} />
+                            </View>
+                        )}
+
+                        {/* Active Experiment Widget */}
+                        <ActiveExperimentWidget />
 
                         {/* Stats Grid */}
                         <View style={styles.statsGrid}>
                             <View style={styles.statsRow}>
-                                {isWearablesOnly ? (
+                                {showWearableStats ? (
                                     <>
                                         <StepsStatCard
                                             avgSteps={dailyContext.avgSteps}
@@ -1479,37 +1137,66 @@ export default function TodayScreen() {
                                             isAvailable={dailyContext.isAvailable}
                                             range={range}
                                         />
-                                        <ActiveMinutesStatCard
-                                            avgMinutes={dailyContext.avgActiveMinutes}
-                                            isAuthorized={dailyContext.isAuthorized}
-                                            isAvailable={dailyContext.isAvailable}
+                                        <ActivityStatCard
                                             range={range}
+                                            activityLogs={activityLogs}
+                                            healthKitMinutes={dailyContext.avgActiveMinutes}
+                                            isHealthKitAuthorized={dailyContext.isAuthorized}
+                                            isHealthKitAvailable={dailyContext.isAvailable}
                                         />
                                     </>
-                                ) : (
+                                ) : showGlucoseUI ? (
                                     <>
                                         <DaysInRangeCard range={range} glucoseLogs={glucoseLogs} />
                                         <FibreStatCard range={range} fibreSummary={fibreSummary} />
                                     </>
+                                ) : (
+                                    <>
+                                        <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                        <ActivityStatCard
+                                            range={range}
+                                            activityLogs={activityLogs}
+                                            healthKitMinutes={dailyContext.avgActiveMinutes}
+                                            isHealthKitAuthorized={dailyContext.isAuthorized}
+                                            isHealthKitAvailable={dailyContext.isAvailable}
+                                        />
+                                    </>
                                 )}
                             </View>
                             <View style={styles.statsRow}>
-                                {isWearablesOnly ? (
+                                {showWearableStats ? (
                                     <>
                                         <SleepStatCard range={range} sleepData={sleepData} />
                                         <FibreStatCard range={range} fibreSummary={fibreSummary} />
                                     </>
+                                ) : showGlucoseUI ? (
+                                    <>
+                                        <ActivityStatCard
+                                            range={range}
+                                            activityLogs={activityLogs}
+                                            healthKitMinutes={dailyContext.avgActiveMinutes}
+                                            isHealthKitAuthorized={dailyContext.isAuthorized}
+                                            isHealthKitAvailable={dailyContext.isAvailable}
+                                        />
+                                        <SleepStatCard range={range} sleepData={sleepData} />
+                                    </>
                                 ) : (
                                     <>
-                                        <ActivityStatCard range={range} activityLogs={activityLogs} />
                                         <SleepStatCard range={range} sleepData={sleepData} />
+                                        <StatCard
+                                            icon={<Ionicons name="restaurant-outline" size={20} color="#4CAF50" />}
+                                            iconColor="#4CAF50"
+                                            title="Meals"
+                                            value="--"
+                                            description="Logged this week"
+                                        />
                                     </>
                                 )}
                             </View>
                         </View>
 
-                        {/* Connect Apple Health CTA - show for wearables_only if not authorized */}
-                        {isWearablesOnly && !dailyContext.isAuthorized && dailyContext.isAvailable && (
+                        {/* Connect Apple Health CTA - show for wearables mode if not authorized */}
+                        {showWearableStats && !dailyContext.isAuthorized && dailyContext.isAvailable && (
                             <ConnectHealthCTA />
                         )}
 
@@ -1519,46 +1206,37 @@ export default function TodayScreen() {
                             onExercisePress={() => setExerciseSheetVisible(true)}
                         />
 
-                        {/* Meal Cards */}
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            style={styles.mealCardsScroll}
-                            contentContainerStyle={styles.mealCardsContainer}
-                        >
-                            {pastMealReviews.length > 0 ? (
-                                pastMealReviews.map((review) => (
-                                    <MealCard
-                                        key={review.id}
-                                        review={review}
-                                        glucoseUnit={glucoseUnit}
-                                        onPress={() => {
-                                            // For mock reviews, pass data directly; for real reviews, just pass ID
-                                            if (review.id.startsWith('mock-')) {
-                                                router.push({
-                                                    pathname: '/post-meal-review' as any,
-                                                    params: {
-                                                        reviewId: review.id,
-                                                        mockData: JSON.stringify(review)
-                                                    }
-                                                });
-                                            } else {
-                                                router.push({
-                                                    pathname: '/post-meal-review' as any,
-                                                    params: { reviewId: review.id }
-                                                });
-                                            }
-                                        }}
-                                    />
-                                ))
-                            ) : (
-                                <View style={styles.noMealsCard}>
-                                    <Ionicons name="restaurant-outline" size={32} color="#878787" />
-                                    <Text style={styles.noMealsText}>No meal reviews yet</Text>
-                                    <Text style={styles.noMealsSubtext}>Log a meal to see your glucose response</Text>
-                                </View>
-                            )}
-                        </ScrollView>
+                        {/* Personal Insights Carousel */}
+                        <PersonalInsightsCarousel
+                            insights={personalInsights}
+                            isLoading={insightsLoading}
+                        />
+
+                        {/* Today's Meals Section */}
+                        <View style={styles.mealSection}>
+                            <Text style={styles.mealSectionTitle}>Meal Check-ins</Text>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={styles.mealCardsContainer}
+                            >
+                                {displayMeals.length > 0 ? (
+                                    displayMeals.map((meal) => (
+                                        <MealCheckinCard
+                                            key={meal.id}
+                                            meal={meal}
+                                            onPress={() => handleMealPress(meal)}
+                                        />
+                                    ))
+                                ) : (
+                                    <View style={styles.noMealsCard}>
+                                        <Ionicons name="restaurant-outline" size={32} color="#878787" />
+                                        <Text style={styles.noMealsText}>No meal reviews yet</Text>
+                                        <Text style={styles.noMealsSubtext}>Log a meal to see your glucose response</Text>
+                                    </View>
+                                )}
+                            </ScrollView>
+                        </View>
                     </ScrollView>
 
                     {/* Dark Overlay when FAB is open */}
@@ -1597,7 +1275,7 @@ export default function TodayScreen() {
             </View>
 
             {/* Meal Response Input Sheet */}
-            <SpikeRiskInputSheet
+            <MealReflectionSheet
                 visible={spikeSheetVisible}
                 onClose={() => setSpikeSheetVisible(false)}
                 onAnalyze={(text) => {
@@ -1909,12 +1587,20 @@ const styles = StyleSheet.create({
     indicatorDotActive: {
         backgroundColor: Colors.textPrimary,
     },
+    mealSection: {
+        marginBottom: 24,
+    },
+    mealSectionTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 18,
+        color: '#E7E8E9',
+        marginBottom: 16,
+    },
     mealCardsScroll: {
         marginTop: 16,
     },
     mealCardsContainer: {
-        gap: 16,
-        paddingRight: 16,
+        gap: 12,
     },
     mealCard: {
         width: SCREEN_WIDTH - 72,

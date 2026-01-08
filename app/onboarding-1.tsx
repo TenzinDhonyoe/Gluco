@@ -1,5 +1,3 @@
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -8,11 +6,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
+    ActivityIndicator,
     Alert,
     Dimensions,
     ImageBackground,
-    KeyboardAvoidingView,
-    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -23,31 +20,52 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
+// Wellness-focused goals (no medical language)
+const GOALS = [
+    'Understand meal patterns',
+    'More consistent energy',
+    'Better sleep routine',
+    'Build a walking habit',
+    'Fibre and nutrition',
+    'General wellness tracking',
+];
+
+const MAX_SELECTIONS = 3;
+
 export default function Onboarding1Screen() {
-    const [firstName, setFirstName] = useState('');
-    const [lastName, setLastName] = useState('');
+    const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const scrollViewRef = React.useRef<ScrollView>(null);
     const { user } = useAuth();
-    const currentStep = 1;
+    const currentStep = 2;
     const totalSteps = 5;
 
+    const handleToggleGoal = (goal: string) => {
+        setSelectedGoals(prev => {
+            if (prev.includes(goal)) {
+                return prev.filter(g => g !== goal);
+            }
+            if (prev.length >= MAX_SELECTIONS) {
+                return prev; // Don't add if at max
+            }
+            return [...prev, goal];
+        });
+    };
+
     const handleContinue = async () => {
-        if (!firstName.trim() || !lastName.trim()) return;
-        
+        if (selectedGoals.length === 0) return;
+
         setIsLoading(true);
         try {
             if (user) {
                 await updateUserProfile(user.id, {
-                    first_name: firstName.trim(),
-                    last_name: lastName.trim(),
+                    goals: selectedGoals,
                 });
             }
-            // Navigate to next onboarding screen
-            router.push('/onboarding-2' as never);
+            router.push('/onboarding-3' as never);
         } catch (error) {
-            Alert.alert('Error', 'Failed to save your information. Please try again.');
-            console.error('Error saving profile:', error);
+            Alert.alert('Error', 'Failed to save your goals. Please try again.');
+            console.error('Error saving goals:', error);
         } finally {
             setIsLoading(false);
         }
@@ -57,28 +75,20 @@ export default function Onboarding1Screen() {
         router.back();
     };
 
-    const isContinueEnabled = firstName.trim().length > 0 && lastName.trim().length > 0;
+    const isContinueEnabled = selectedGoals.length > 0;
 
     return (
         <View style={styles.container}>
-            {/* Background Image */}
             <ImageBackground
                 source={require('../assets/images/background.png')}
                 style={styles.backgroundImage}
                 resizeMode="cover"
             >
                 <SafeAreaView style={styles.safeArea}>
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-                    style={styles.keyboardView}
-                >
                     <ScrollView
                         ref={scrollViewRef}
                         contentContainerStyle={styles.scrollContent}
                         showsVerticalScrollIndicator={false}
-                        keyboardShouldPersistTaps="handled"
-                        keyboardDismissMode="on-drag"
                     >
                         {/* Back Button */}
                         <TouchableOpacity
@@ -89,7 +99,7 @@ export default function Onboarding1Screen() {
                             <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
                         </TouchableOpacity>
 
-                        {/* Progress Indicator - Below Back Button */}
+                        {/* Progress Indicator */}
                         <View style={styles.progressContainer}>
                             {Array.from({ length: totalSteps }).map((_, index) => (
                                 <View
@@ -107,65 +117,81 @@ export default function Onboarding1Screen() {
                         <View style={styles.content}>
                             {/* Title Section */}
                             <View style={styles.titleSection}>
-                                <Text style={styles.titleLabel}>TELL US ABOUT YOU</Text>
-                                <Text style={styles.description}>
-                                    This helps us personalize your Gluco experience and keep your profile accurate.
-                                </Text>
+                                <Text style={styles.titleLabel}>WHAT ARE YOU HERE FOR?</Text>
+                                <View style={styles.descriptionContainer}>
+                                    <Text style={styles.description}>
+                                        Pick the goals that matter most. We'll personalize your daily nudges.
+                                    </Text>
+                                    <Text style={styles.descriptionSpacing}></Text>
+                                    <Text style={styles.descriptionSecondary}>Choose up to three.</Text>
+                                </View>
                             </View>
 
-                            {/* Form Fields */}
-                            <View style={styles.formContainer}>
-                                {/* First Name Input */}
-                                <View style={styles.inputGroup}>
-                                    <Text style={styles.inputLabel}>First Name</Text>
-                                    <Input
-                                        placeholder="First Name"
-                                        value={firstName}
-                                        onChangeText={setFirstName}
-                                        onFocus={() => {
-                                            setTimeout(() => {
-                                                scrollViewRef.current?.scrollTo({ y: 100, animated: true });
-                                            }, 100);
-                                        }}
-                                        autoCapitalize="words"
-                                        autoCorrect={false}
-                                    />
-                                </View>
-
-                                {/* Last Name Input */}
-                                <View style={styles.inputGroup}>
-                                    <Text style={styles.inputLabel}>Last Name</Text>
-                                    <Input
-                                        placeholder="Last Name"
-                                        value={lastName}
-                                        onChangeText={setLastName}
-                                        onFocus={() => {
-                                            setTimeout(() => {
-                                                scrollViewRef.current?.scrollTo({ y: 200, animated: true });
-                                            }, 100);
-                                        }}
-                                        autoCapitalize="words"
-                                        autoCorrect={false}
-                                    />
-                                </View>
+                            {/* Goals List */}
+                            <View style={styles.goalsContainer}>
+                                {GOALS.map((goal) => {
+                                    const isSelected = selectedGoals.includes(goal);
+                                    const isDisabled = !isSelected && selectedGoals.length >= MAX_SELECTIONS;
+                                    return (
+                                        <TouchableOpacity
+                                            key={goal}
+                                            style={[
+                                                styles.goalItem,
+                                                isSelected && styles.goalItemSelected,
+                                                isDisabled && styles.goalItemDisabled,
+                                            ]}
+                                            onPress={() => handleToggleGoal(goal)}
+                                            activeOpacity={0.7}
+                                            disabled={isDisabled}
+                                        >
+                                            <Text style={[
+                                                styles.goalItemText,
+                                                isSelected && styles.goalItemTextSelected,
+                                                isDisabled && styles.goalItemTextDisabled,
+                                            ]}>
+                                                {goal}
+                                            </Text>
+                                            {isSelected && (
+                                                <Ionicons
+                                                    name="checkmark-circle"
+                                                    size={24}
+                                                    color={Colors.textPrimary}
+                                                />
+                                            )}
+                                            {!isSelected && (
+                                                <View style={styles.checkmarkPlaceholder} />
+                                            )}
+                                        </TouchableOpacity>
+                                    );
+                                })}
                             </View>
                         </View>
                     </ScrollView>
 
                     {/* Continue Button - Fixed at Bottom */}
                     <View style={styles.buttonContainer}>
-                        <Button
+                        <TouchableOpacity
+                            style={[
+                                styles.continueButton,
+                                !isContinueEnabled && styles.continueButtonDisabled,
+                            ]}
                             onPress={handleContinue}
-                            disabled={!isContinueEnabled}
-                            loading={isLoading}
-                            variant="primary"
-                            style={styles.continueButton}
+                            activeOpacity={0.8}
+                            disabled={!isContinueEnabled || isLoading}
                         >
-                            Continue
-                        </Button>
+                            {isLoading ? (
+                                <ActivityIndicator color={Colors.textPrimary} />
+                            ) : (
+                                <Text style={[
+                                    styles.continueButtonText,
+                                    !isContinueEnabled && styles.continueButtonTextDisabled,
+                                ]}>
+                                    Continue
+                                </Text>
+                            )}
+                        </TouchableOpacity>
                     </View>
-                </KeyboardAvoidingView>
-            </SafeAreaView>
+                </SafeAreaView>
             </ImageBackground>
         </View>
     );
@@ -184,13 +210,10 @@ const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
     },
-    keyboardView: {
-        flex: 1,
-    },
     scrollContent: {
         flexGrow: 1,
         paddingHorizontal: 16,
-        paddingBottom: 200, // Extra space for keyboard and fixed button
+        paddingBottom: 120,
     },
     backButton: {
         width: 48,
@@ -202,10 +225,7 @@ const styles = StyleSheet.create({
         marginTop: 16,
         marginBottom: 20,
         shadowColor: '#000',
-        shadowOffset: {
-            width: 0,
-            height: 1,
-        },
+        shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.25,
         shadowRadius: 2,
         elevation: 2,
@@ -213,7 +233,7 @@ const styles = StyleSheet.create({
     progressContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 24, // Spacing below progress bar
+        marginBottom: 24,
     },
     progressBar: {
         height: 2,
@@ -223,7 +243,7 @@ const styles = StyleSheet.create({
         marginRight: 5,
     },
     progressBarActive: {
-        backgroundColor: Colors.textPrimary, // White
+        backgroundColor: Colors.textPrimary,
         width: 68,
     },
     progressBarInactive: {
@@ -231,49 +251,98 @@ const styles = StyleSheet.create({
         width: 68,
     },
     content: {
-        width: 361, // Match Figma width
+        flex: 1,
     },
     titleSection: {
-        marginBottom: 32, // gap-[32px] between title section and form
+        marginBottom: 32,
     },
     titleLabel: {
-        fontFamily: fonts.medium, // Outfit Medium (500)
+        fontFamily: fonts.medium,
         fontSize: 16,
-        lineHeight: 16 * 1.2, // 1.2 line-height
+        lineHeight: 16 * 1.2,
         color: '#878787',
         textTransform: 'uppercase',
-        marginBottom: 12, // gap-[12px] between title and description
+        marginBottom: 12,
     },
+    descriptionContainer: {},
     description: {
-        fontFamily: fonts.medium, // Outfit Medium (500)
+        fontFamily: fonts.medium,
         fontSize: 16,
-        lineHeight: 16 * 1.2, // 1.2 line-height
+        lineHeight: 16 * 1.4,
         color: Colors.textPrimary,
     },
-    formContainer: {
-        // gap-[24px] between input groups handled by marginBottom
+    descriptionSpacing: {
+        height: 8,
     },
-    inputGroup: {
-        marginBottom: 24, // gap-[24px] between input groups
+    descriptionSecondary: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        lineHeight: 14 * 1.4,
+        color: '#878787',
     },
-    inputLabel: {
-        fontFamily: fonts.medium, // Outfit Medium (500)
+    goalsContainer: {
+        gap: 12,
+    },
+    goalItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 16,
+        borderWidth: 1,
+        borderColor: 'transparent',
+    },
+    goalItemSelected: {
+        backgroundColor: 'rgba(40, 94, 42, 0.3)',
+        borderColor: Colors.buttonPrimary,
+    },
+    goalItemDisabled: {
+        opacity: 0.5,
+    },
+    goalItemText: {
+        fontFamily: fonts.medium,
         fontSize: 16,
-        lineHeight: 16 * 0.95, // 0.95 line-height
         color: Colors.textPrimary,
-        marginBottom: 24, // gap-[24px] between label and input
+        flex: 1,
     },
-    // Input styling is now provided by <Input />
+    goalItemTextSelected: {
+        color: Colors.textPrimary,
+    },
+    goalItemTextDisabled: {
+        color: '#878787',
+    },
+    checkmarkPlaceholder: {
+        width: 24,
+        height: 24,
+    },
     buttonContainer: {
         position: 'absolute',
         bottom: 42,
         left: 16,
         right: 16,
-        paddingHorizontal: 0,
     },
     continueButton: {
         width: '100%',
+        height: 48,
+        backgroundColor: Colors.buttonPrimary,
+        borderWidth: 1,
+        borderColor: Colors.buttonBorder,
+        borderRadius: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    // Button styling is now provided by <Button />
+    continueButtonDisabled: {
+        backgroundColor: '#3f4243',
+        borderColor: '#3f4243',
+    },
+    continueButtonText: {
+        fontFamily: fonts.medium,
+        fontSize: 15,
+        color: Colors.textPrimary,
+    },
+    continueButtonTextDisabled: {
+        color: '#878787',
+    },
 });
-

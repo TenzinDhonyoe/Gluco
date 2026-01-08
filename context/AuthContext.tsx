@@ -1,6 +1,8 @@
 import { getUserProfile, GlucoseUnit, supabase, UserProfile } from '@/lib/supabase';
 import { Session, User } from '@supabase/supabase-js';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 
 // Default glucose unit when user hasn't set a preference
 const DEFAULT_GLUCOSE_UNIT: GlucoseUnit = 'mmol/L';
@@ -12,6 +14,7 @@ interface AuthContextType {
     loading: boolean;
     signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
     signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+    signInWithApple: () => Promise<{ error: Error | null }>;
     signOut: () => Promise<void>;
     refreshProfile: () => Promise<void>;
     resetPassword: (email: string) => Promise<{ error: Error | null }>;
@@ -123,6 +126,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    const signInWithApple = async (): Promise<{ error: Error | null }> => {
+        // Only available on iOS
+        if (Platform.OS !== 'ios') {
+            return { error: new Error('Apple Sign-In is only available on iOS') };
+        }
+
+        try {
+            setLoading(true);
+
+            // Request Apple authentication
+            const credential = await AppleAuthentication.signInAsync({
+                requestedScopes: [
+                    AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+                    AppleAuthentication.AppleAuthenticationScope.EMAIL,
+                ],
+            });
+
+            // Check if we got the identity token
+            if (!credential.identityToken) {
+                return { error: new Error('No identity token received from Apple') };
+            }
+
+            // Sign in with Supabase using the Apple identity token
+            const { data, error } = await supabase.auth.signInWithIdToken({
+                provider: 'apple',
+                token: credential.identityToken,
+            });
+
+            if (error) {
+                return { error };
+            }
+
+            // Load the user's profile
+            if (data.user) {
+                await loadProfile(data.user.id);
+            }
+
+            return { error: null };
+        } catch (error: any) {
+            // Handle user cancellation
+            if (error.code === 'ERR_REQUEST_CANCELED') {
+                return { error: null }; // User cancelled, not an error
+            }
+            console.error('Apple Sign-In error:', error);
+            return { error: error as Error };
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const signOut = async () => {
         try {
             setLoading(true);
@@ -162,6 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 loading,
                 signUp,
                 signIn,
+                signInWithApple,
                 signOut,
                 refreshProfile,
                 resetPassword,

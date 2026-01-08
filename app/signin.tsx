@@ -9,7 +9,6 @@ import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
     Alert,
-    Image,
     ImageBackground,
     KeyboardAvoidingView,
     Platform,
@@ -26,7 +25,8 @@ export default function SignInScreen() {
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
-    const { signIn } = useAuth();
+    const [isAppleLoading, setIsAppleLoading] = useState(false);
+    const { signIn, signInWithApple } = useAuth();
 
     const handleContinue = async () => {
         if (!email.trim() || !password.trim()) {
@@ -53,15 +53,31 @@ export default function SignInScreen() {
         }
     };
 
-    const handleGoogleSignIn = () => {
-        // TODO: Implement Google Sign In with Supabase OAuth
-        Alert.alert('Coming Soon', 'Google Sign In will be available soon');
+    const handleAppleSignIn = async () => {
+        if (Platform.OS !== 'ios') {
+            Alert.alert('Not Available', 'Apple Sign-In is only available on iOS devices.');
+            return;
+        }
+
+        setIsAppleLoading(true);
+        try {
+            const { error } = await signInWithApple();
+
+            if (error) {
+                Alert.alert('Apple Sign-In Error', error.message);
+                return;
+            }
+
+            // Navigate to index which will handle routing based on profile status
+            router.replace('/' as never);
+        } catch (err) {
+            Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+            console.error('Apple sign in error:', err);
+        } finally {
+            setIsAppleLoading(false);
+        }
     };
 
-    const handleAppleSignIn = () => {
-        // TODO: Implement Apple Sign In with Supabase OAuth
-        Alert.alert('Coming Soon', 'Apple Sign In will be available soon');
-    };
 
     const handleBack = () => {
         router.replace('/');
@@ -198,47 +214,32 @@ export default function SignInScreen() {
                                 Continue
                             </Button>
 
-                            {/* Divider */}
-                            <View style={styles.dividerContainer}>
-                                <View style={styles.dividerDashed} />
-                                <Text style={styles.dividerText}>OR</Text>
-                                <View style={styles.dividerDashed} />
-                            </View>
+                            {/* Social Sign-In - iOS only for Apple */}
+                            {Platform.OS === 'ios' && (
+                                <>
+                                    {/* OR Divider */}
+                                    <View style={styles.dividerContainer}>
+                                        <View style={styles.dividerDashed} />
+                                        <Text style={styles.dividerText}>OR</Text>
+                                        <View style={styles.dividerDashed} />
+                                    </View>
 
-                            {/* Social Sign In Buttons */}
-                            <View style={styles.socialContainer}>
-                                {/* Google Button */}
-                                <TouchableOpacity
-                                    style={[styles.googleButton, styles.socialButtonDisabled]}
-                                    onPress={handleGoogleSignIn}
-                                    activeOpacity={0.8}
-                                >
-                                    <Image
-                                        source={require('../assets/images/google-logo.png')}
-                                        style={[styles.googleLogo, { opacity: 0.5 }]}
-                                        resizeMode="contain"
-                                    />
-                                    <Text style={[styles.googleButtonText, { opacity: 0.5 }]}>Continue with Google</Text>
-                                    <View style={styles.comingSoonBadge}>
-                                        <Text style={styles.comingSoonText}>Soon</Text>
-                                    </View>
-                                </TouchableOpacity>
-
-                                {/* Apple Button */}
-                                <TouchableOpacity
-                                    style={[styles.appleButton, styles.socialButtonDisabled]}
-                                    onPress={handleAppleSignIn}
-                                    activeOpacity={0.8}
-                                >
-                                    <View style={[styles.appleIconContainer, { opacity: 0.5 }]}>
-                                        <Ionicons name="logo-apple" size={24} color={Colors.textPrimary} />
-                                    </View>
-                                    <Text style={[styles.appleButtonText, { opacity: 0.5 }]}>Continue with Apple</Text>
-                                    <View style={styles.comingSoonBadge}>
-                                        <Text style={styles.comingSoonText}>Soon</Text>
-                                    </View>
-                                </TouchableOpacity>
-                            </View>
+                                    {/* Apple Sign-In Button */}
+                                    <TouchableOpacity
+                                        style={[styles.appleButton, isAppleLoading && styles.socialButtonDisabled]}
+                                        onPress={handleAppleSignIn}
+                                        disabled={isAppleLoading}
+                                        activeOpacity={0.8}
+                                    >
+                                        <View style={styles.appleIconContainer}>
+                                            <Ionicons name="logo-apple" size={22} color="#FFFFFF" />
+                                        </View>
+                                        <Text style={styles.appleButtonText}>
+                                            {isAppleLoading ? 'Signing in...' : 'Continue with Apple'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </>
+                            )}
 
                             {/* Sign Up Link */}
                             <Text style={styles.signUpText}>
@@ -378,7 +379,7 @@ const styles = StyleSheet.create({
     // Apple Button - #080b12 background, #171a1f border, 13px radius
     appleButton: {
         width: '100%',
-        height: 50,
+        height: 56,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
@@ -387,6 +388,7 @@ const styles = StyleSheet.create({
         borderColor: '#171a1f',
         borderRadius: 13,
         paddingHorizontal: 25,
+        marginBottom: 24,
     },
     appleIconContainer: {
         marginRight: 50,

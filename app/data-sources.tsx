@@ -1,10 +1,9 @@
-import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { DexcomStatus, getDexcomStatus } from '@/lib/dexcom';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
     Image,
     ScrollView,
@@ -17,37 +16,28 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function DataSourcesScreen() {
-    const { user } = useAuth();
-    const [dexcomStatus, setDexcomStatus] = useState<DexcomStatus | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
+    // Toggle state for Apple Health integration
+    const [appleHealthEnabled, setAppleHealthEnabled] = useState(true);
 
-    // Toggle states for other integrations (placeholder)
-    const [appleHealthActivity, setAppleHealthActivity] = useState(true);
-    const [myFitnessPal, setMyFitnessPal] = useState(true);
-    const [appleHealthSleep, setAppleHealthSleep] = useState(true);
+    // Load initial state
+    React.useEffect(() => {
+        AsyncStorage.getItem('apple_health_enabled').then(value => {
+            if (value !== null) {
+                setAppleHealthEnabled(value === 'true');
+            }
+        });
+    }, []);
 
-    const loadDexcomStatus = useCallback(async () => {
-        if (!user) return;
-        try {
-            const status = await getDexcomStatus();
-            setDexcomStatus(status);
-        } catch (error) {
-            console.log('Failed to load Dexcom status:', error);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [user]);
+    const handleToggle = async (value: boolean) => {
+        setAppleHealthEnabled(value);
+        await AsyncStorage.setItem('apple_health_enabled', value.toString());
 
-    useEffect(() => {
-        loadDexcomStatus();
-    }, [loadDexcomStatus]);
+        // If disabling, we might want to clear local state/cache or notify context
+        // For now, simpler is better: strictly gate fetching
+    };
 
     const handleBack = () => {
         router.back();
-    };
-
-    const handleConnectCGM = () => {
-        router.push('/connect-dexcom' as never);
     };
 
     return (
@@ -78,84 +68,42 @@ export default function DataSourcesScreen() {
                     contentContainerStyle={styles.scrollContent}
                     showsVerticalScrollIndicator={false}
                 >
-                    {/* CGM DEVICE Section */}
-                    <Text style={styles.sectionTitle}>CGM DEVICE</Text>
-                    <TouchableOpacity
-                        style={styles.cgmCard}
-                        onPress={handleConnectCGM}
-                        activeOpacity={0.7}
-                    >
-                        <Text style={styles.cgmCardText}>
-                            {dexcomStatus?.connected
-                                ? 'Dexcom Connected'
-                                : 'Connect your CGM Device'}
+                    {/* CONNECTED SERVICES Section */}
+                    <Text style={styles.sectionTitle}>CONNECTED SERVICES</Text>
+                    <View style={styles.integrationCard}>
+                        <View style={styles.integrationRow}>
+                            <View style={styles.integrationIconContainer}>
+                                <Image
+                                    source={require('@/assets/images/apple-health-icon.png')}
+                                    style={styles.integrationIcon}
+                                    defaultSource={require('@/assets/images/apple-health-icon.png')}
+                                />
+                            </View>
+                            <View style={styles.integrationInfo}>
+                                <Text style={styles.integrationLabel}>Apple Health</Text>
+                                <Text style={styles.integrationDescription}>
+                                    Activity, sleep, steps & heart rate
+                                </Text>
+                            </View>
+                            <Switch
+                                value={appleHealthEnabled}
+                                onValueChange={handleToggle}
+                                trackColor={{ false: '#3A3D40', true: '#3494D9' }}
+                                thumbColor="#FFFFFF"
+                            />
+                        </View>
+                    </View>
+
+                    {/* GLUCOSE Section */}
+                    <View style={styles.sectionTitleRow}>
+                        <Text style={styles.sectionTitle}>GLUCOSE</Text>
+                        <Text style={styles.sectionSubtitle}>(Manual Entry)</Text>
+                    </View>
+                    <View style={styles.infoCard}>
+                        <Ionicons name="finger-print-outline" size={24} color="#878787" />
+                        <Text style={styles.infoText}>
+                            Log your glucose readings manually using the Log tab. CGM integrations coming soon.
                         </Text>
-                        <Ionicons name="chevron-forward" size={20} color="#E7E8E9" />
-                    </TouchableOpacity>
-
-                    {/* ACTIVITY & MOVEMENT Section */}
-                    <Text style={styles.sectionTitle}>ACTIVITY & MOVEMENT</Text>
-                    <View style={styles.integrationCard}>
-                        <View style={styles.integrationRow}>
-                            <View style={styles.integrationIconContainer}>
-                                <Image
-                                    source={require('@/assets/images/apple-health-icon.png')}
-                                    style={styles.integrationIcon}
-                                    defaultSource={require('@/assets/images/apple-health-icon.png')}
-                                />
-                            </View>
-                            <Text style={styles.integrationLabel}>Apple Health</Text>
-                            <Switch
-                                value={appleHealthActivity}
-                                onValueChange={setAppleHealthActivity}
-                                trackColor={{ false: '#3A3D40', true: '#3494D9' }}
-                                thumbColor="#FFFFFF"
-                            />
-                        </View>
-                    </View>
-
-                    {/* NUTRITION Section */}
-                    <View style={styles.sectionTitleRow}>
-                        <Text style={styles.sectionTitle}>NUTRITION</Text>
-                        <Text style={styles.sectionSubtitle}>(Meals Only)</Text>
-                    </View>
-                    <View style={styles.integrationCard}>
-                        <View style={styles.integrationRow}>
-                            <View style={[styles.integrationIconContainer, styles.mfpIconContainer]}>
-                                <Ionicons name="barbell" size={20} color="#3494D9" />
-                            </View>
-                            <Text style={styles.integrationLabel}>MyFitnessPal</Text>
-                            <Switch
-                                value={myFitnessPal}
-                                onValueChange={setMyFitnessPal}
-                                trackColor={{ false: '#3A3D40', true: '#3494D9' }}
-                                thumbColor="#FFFFFF"
-                            />
-                        </View>
-                    </View>
-
-                    {/* SLEEP Section */}
-                    <View style={styles.sectionTitleRow}>
-                        <Text style={styles.sectionTitle}>SLEEP</Text>
-                        <Text style={styles.sectionSubtitle}>(Duration Only)</Text>
-                    </View>
-                    <View style={styles.integrationCard}>
-                        <View style={styles.integrationRow}>
-                            <View style={styles.integrationIconContainer}>
-                                <Image
-                                    source={require('@/assets/images/apple-health-icon.png')}
-                                    style={styles.integrationIcon}
-                                    defaultSource={require('@/assets/images/apple-health-icon.png')}
-                                />
-                            </View>
-                            <Text style={styles.integrationLabel}>Apple Health</Text>
-                            <Switch
-                                value={appleHealthSleep}
-                                onValueChange={setAppleHealthSleep}
-                                trackColor={{ false: '#3A3D40', true: '#3494D9' }}
-                                thumbColor="#FFFFFF"
-                            />
-                        </View>
                     </View>
                 </ScrollView>
             </SafeAreaView>
@@ -235,22 +183,6 @@ const styles = StyleSheet.create({
         color: '#878787',
         fontStyle: 'italic',
     },
-    cgmCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        backgroundColor: '#1A1D1F',
-        borderRadius: 12,
-        paddingHorizontal: 16,
-        paddingVertical: 16,
-        borderWidth: 1,
-        borderColor: '#2A2D30',
-    },
-    cgmCardText: {
-        fontFamily: fonts.regular,
-        fontSize: 16,
-        color: '#FFFFFF',
-    },
     integrationCard: {
         backgroundColor: '#1A1D1F',
         borderRadius: 12,
@@ -271,19 +203,39 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         marginRight: 12,
     },
-    mfpIconContainer: {
-        backgroundColor: 'rgba(52, 148, 217, 0.15)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
     integrationIcon: {
         width: 36,
         height: 36,
     },
-    integrationLabel: {
+    integrationInfo: {
         flex: 1,
-        fontFamily: fonts.regular,
+    },
+    integrationLabel: {
+        fontFamily: fonts.medium,
         fontSize: 16,
         color: '#FFFFFF',
+    },
+    integrationDescription: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#878787',
+        marginTop: 2,
+    },
+    infoCard: {
+        backgroundColor: '#1A1D1F',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#2A2D30',
+        padding: 16,
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+    },
+    infoText: {
+        flex: 1,
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#878787',
+        lineHeight: 20,
     },
 });

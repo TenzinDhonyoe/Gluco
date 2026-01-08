@@ -5,14 +5,14 @@
 
 import { useAuth } from '@/context/AuthContext';
 import {
+    ActivityLog,
+    FibreIntakeSummary,
     getActivityLogsByDateRange,
     getFibreIntakeSummary,
     getGlucoseLogsByDateRange,
-    getPendingReviews,
+    getMealsWithCheckinsByDateRange,
     GlucoseLog,
-    ActivityLog,
-    PostMealReview,
-    FibreIntakeSummary,
+    MealWithCheckin,
 } from '@/lib/supabase';
 import { getDateRange, getExtendedDateRange, RangeKey } from '@/lib/utils/dateRanges';
 import { useFocusEffect } from '@react-navigation/native';
@@ -22,7 +22,7 @@ export interface TodayScreenData {
     glucoseLogs: GlucoseLog[];
     activityLogs: ActivityLog[];
     fibreSummary: FibreIntakeSummary | null;
-    mealReviews: PostMealReview[];
+    recentMeals: MealWithCheckin[];
     isLoading: boolean;
     error: Error | null;
 }
@@ -53,7 +53,7 @@ export function useTodayScreenData(range: RangeKey): TodayScreenData {
         glucoseLogs: [],
         activityLogs: [],
         fibreSummary: null,
-        mealReviews: [],
+        recentMeals: [],
         isLoading: true,
         error: null,
     });
@@ -78,24 +78,28 @@ export function useTodayScreenData(range: RangeKey): TodayScreenData {
             const { startDate, endDate } = getDateRange(range);
             // Extended range for glucose logs (needed for chart comparisons)
             const { startDate: extendedStart } = getExtendedDateRange(range, 2);
-            
+
+            // Use the selected range for meals (not just 3 days) so insights reflect full data
+            const mealsStartDate = startDate;
+            const mealsEndDate = endDate;
+
             // Batch all queries in parallel
-            const [glucoseLogs, activityLogs, fibreSummary, mealReviews] = await Promise.all([
+            const [glucoseLogs, activityLogs, fibreSummary, recentMeals] = await Promise.all([
                 // Fetch extended range for glucose to support period comparisons
                 getGlucoseLogsByDateRange(user.id, extendedStart, endDate),
                 // Fetch activity logs for current range
                 getActivityLogsByDateRange(user.id, startDate, endDate),
                 // Fetch fibre summary (maps range appropriately)
                 getFibreIntakeSummary(user.id, mapRangeToFibreRange(range)),
-                // Fetch pending meal reviews
-                getPendingReviews(user.id),
+                // Fetch recent meals with check-ins
+                getMealsWithCheckinsByDateRange(user.id, mealsStartDate, mealsEndDate),
             ]);
 
             setData({
                 glucoseLogs,
                 activityLogs,
                 fibreSummary,
-                mealReviews,
+                recentMeals,
                 isLoading: false,
                 error: null,
             });
@@ -132,10 +136,9 @@ export function useGlucoseTargetRange() {
     const { profile } = useAuth();
     const TARGET_MIN_MMOL = 3.9;
     const TARGET_MAX_MMOL = 10.0;
-    
+
     return {
         targetMin: profile?.target_min ?? TARGET_MIN_MMOL,
         targetMax: profile?.target_max ?? TARGET_MAX_MMOL,
     };
 }
-

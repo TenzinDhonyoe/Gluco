@@ -6,9 +6,10 @@ import { SegmentedControl } from '@/components/segmented-control';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import {
+    ExperimentTemplate,
     getExperimentTemplates,
     getUserExperiments,
-    ExperimentTemplate,
+    startUserExperiment,
     UserExperiment,
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +19,7 @@ import { router } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     ScrollView,
     StyleSheet,
     Text,
@@ -35,6 +37,9 @@ export default function ExperimentsListScreen() {
     const [experiments, setExperiments] = useState<UserExperiment[]>([]);
     const [templates, setTemplates] = useState<ExperimentTemplate[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [startingId, setStartingId] = useState<string | null>(null);
+    const [successId, setSuccessId] = useState<string | null>(null);
+
 
     // Fetch experiments
     const fetchExperiments = useCallback(async () => {
@@ -76,11 +81,11 @@ export default function ExperimentsListScreen() {
         }
     });
 
-    // Get template IDs that user has already started
-    const startedTemplateIds = new Set(experiments.map((e) => e.template_id));
+    // Get template IDs that are currently ACTIVE
+    const activeTemplateIds = new Set(experiments.filter(e => e.status === 'active').map((e) => e.template_id));
 
-    // Templates user hasn't tried yet
-    const newTemplates = templates.filter((t) => !startedTemplateIds.has(t.id));
+    // Templates user can start (not currently active)
+    const availableTemplates = templates.filter((t) => !activeTemplateIds.has(t.id));
 
     // Calculate progress percentage
     const getProgressPct = (exp: UserExperiment) => {
@@ -99,6 +104,31 @@ export default function ExperimentsListScreen() {
                 return '#666';
             default:
                 return '#FF9800';
+        }
+    };
+
+    const handleStartExperiment = async (templateId: string) => {
+        if (!user || startingId) return;
+        setStartingId(templateId);
+
+        try {
+            const exp = await startUserExperiment(user.id, templateId);
+            if (exp) {
+                setStartingId(null);
+                setSuccessId(templateId);
+
+                // Show checkmark then navigate
+                setTimeout(() => {
+                    setSuccessId(null);
+                    router.push('/(tabs)/' as any);
+                }, 1500);
+            } else {
+                throw new Error('Failed to create experiment');
+            }
+        } catch (error) {
+            console.error('Start error:', error);
+            setStartingId(null);
+            Alert.alert('Error', 'Could not start experiment. Please try again.');
         }
     };
 
@@ -150,31 +180,46 @@ export default function ExperimentsListScreen() {
                 )}
 
                 <View style={styles.cardFooter}>
-                    <Text style={styles.cardDate}>
-                        Started {exp.start_at ? new Date(exp.start_at).toLocaleDateString() : 'N/A'}
-                    </Text>
-                    <Ionicons name="chevron-forward" size={20} color="#878787" />
+                    <View style={styles.viewProgressButton}>
+                        <Text style={styles.viewProgressText}>View Progress</Text>
+                        <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+                    </View>
                 </View>
             </TouchableOpacity>
         );
     };
 
     // Render template card for explore section
-    const renderTemplateCard = (template: ExperimentTemplate) => (
-        <TouchableOpacity
-            key={template.id}
-            style={styles.templateCard}
-            onPress={() => router.push('/(tabs)/insights' as any)}
-            activeOpacity={0.7}
-        >
-            <Text style={styles.templateIcon}>{template.icon || '🧪'}</Text>
-            <View style={styles.templateContent}>
-                <Text style={styles.templateTitle}>{template.title}</Text>
-                <Text style={styles.templateSubtitle}>{template.subtitle}</Text>
-            </View>
-            <Ionicons name="add-circle-outline" size={24} color="#3494D9" />
-        </TouchableOpacity>
-    );
+    const renderTemplateCard = (template: ExperimentTemplate) => {
+        const isStarting = startingId === template.id;
+        const isSuccess = successId === template.id;
+
+        return (
+            <TouchableOpacity
+                key={template.id}
+                style={styles.templateCard}
+                onPress={() => handleStartExperiment(template.id)}
+                activeOpacity={0.7}
+                disabled={isStarting || isSuccess}
+            >
+                <Text style={styles.templateIcon}>{template.icon || '🧪'}</Text>
+                <View style={styles.templateContent}>
+                    <Text style={styles.templateTitle}>{template.title}</Text>
+                    <Text style={styles.templateSubtitle}>{template.subtitle}</Text>
+                </View>
+
+                {isStarting ? (
+                    <ActivityIndicator size="small" color="#3494D9" />
+                ) : isSuccess ? (
+                    <View style={styles.successIcon}>
+                        <Ionicons name="checkmark-circle" size={28} color="#4CAF50" />
+                    </View>
+                ) : (
+                    <Ionicons name="add-circle-outline" size={24} color="#3494D9" />
+                )}
+            </TouchableOpacity>
+        );
+    };
 
     return (
         <AnimatedScreen>
@@ -213,60 +258,9 @@ export default function ExperimentsListScreen() {
                         contentContainerStyle={styles.scrollContent}
                         showsVerticalScrollIndicator={false}
                     >
-                        {isLoading ? (
-                            <ActivityIndicator size="large" color="#3494D9" style={{ marginVertical: 60 }} />
-                        ) : filteredExperiments.length > 0 ? (
-                            <View style={styles.experimentsList}>
-                                {filteredExperiments.map(renderExperimentCard)}
-                            </View>
-                        ) : (
-                            <View style={styles.emptyState}>
-                                <Ionicons
-                                    name={activeFilter === 'completed' ? 'trophy-outline' : 'flask-outline'}
-                                    size={48}
-                                    color="#666"
-                                />
-                                <Text style={styles.emptyTitle}>
-                                    {activeFilter === 'active'
-                                        ? 'No Active Experiments'
-                                        : activeFilter === 'completed'
-                                        ? 'No Completed Experiments'
-                                        : 'No Experiments Yet'}
-                                </Text>
-                                <Text style={styles.emptySubtitle}>
-                                    {activeFilter === 'active'
-                                        ? 'Start an experiment from the suggestions to begin tracking.'
-                                        : activeFilter === 'completed'
-                                        ? 'Complete your active experiments to see results here.'
-                                        : 'Explore experiments below to find what works for your glucose.'}
-                                </Text>
-                            </View>
-                        )}
-
-                        {/* Explore New Experiments Section */}
-                        {newTemplates.length > 0 && (
-                            <View style={styles.exploreSection}>
-                                <Text style={styles.sectionTitle}>Explore New Experiments</Text>
-                                <View style={styles.templatesList}>
-                                    {newTemplates.slice(0, 4).map(renderTemplateCard)}
-                                </View>
-                                {newTemplates.length > 4 && (
-                                    <TouchableOpacity
-                                        style={styles.seeAllButton}
-                                        onPress={() => router.push('/(tabs)/insights' as any)}
-                                    >
-                                        <Text style={styles.seeAllText}>
-                                            See All {newTemplates.length} Experiments
-                                        </Text>
-                                        <Ionicons name="arrow-forward" size={16} color="#3494D9" />
-                                    </TouchableOpacity>
-                                )}
-                            </View>
-                        )}
-
                         {/* Stats Summary */}
                         {experiments.length > 0 && (
-                            <View style={styles.statsCard}>
+                            <View style={[styles.statsCard, { marginTop: 0, marginBottom: 24 }]}>
                                 <Text style={styles.statsTitle}>Your Progress</Text>
                                 <View style={styles.statsRow}>
                                     <View style={styles.statItem}>
@@ -292,6 +286,59 @@ export default function ExperimentsListScreen() {
                                 </View>
                             </View>
                         )}
+
+                        {isLoading ? (
+                            <ActivityIndicator size="large" color="#3494D9" style={{ marginVertical: 60 }} />
+                        ) : filteredExperiments.length > 0 ? (
+                            <View style={styles.experimentsList}>
+                                {filteredExperiments.map(renderExperimentCard)}
+                            </View>
+                        ) : (
+                            <View style={styles.emptyState}>
+                                <Ionicons
+                                    name={activeFilter === 'completed' ? 'trophy-outline' : 'flask-outline'}
+                                    size={48}
+                                    color="#666"
+                                />
+                                <Text style={styles.emptyTitle}>
+                                    {activeFilter === 'active'
+                                        ? 'No Active Experiments'
+                                        : activeFilter === 'completed'
+                                            ? 'No Completed Experiments'
+                                            : 'No Experiments Yet'}
+                                </Text>
+                                <Text style={styles.emptySubtitle}>
+                                    {activeFilter === 'active'
+                                        ? 'Start an experiment from the suggestions to begin tracking.'
+                                        : activeFilter === 'completed'
+                                            ? 'Complete your active experiments to see results here.'
+                                            : 'Explore experiments below to find what works for your glucose.'}
+                                </Text>
+                            </View>
+                        )}
+
+                        {/* Explore New Experiments Section */}
+                        {availableTemplates.length > 0 && (
+                            <View style={styles.exploreSection}>
+                                <Text style={styles.sectionTitle}>Explore New Experiments</Text>
+                                <View style={styles.templatesList}>
+                                    {availableTemplates.slice(0, 4).map(renderTemplateCard)}
+                                </View>
+                                {availableTemplates.length > 4 && (
+                                    <TouchableOpacity
+                                        style={styles.seeAllButton}
+                                        onPress={() => router.push('/(tabs)/insights?tab=experiments' as any)}
+                                    >
+                                        <Text style={styles.seeAllText}>
+                                            See All {availableTemplates.length} Experiments
+                                        </Text>
+                                        <Ionicons name="arrow-forward" size={16} color="#3494D9" />
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        )}
+
+
 
                         <View style={{ height: 100 }} />
                     </ScrollView>
@@ -430,13 +477,21 @@ const styles = StyleSheet.create({
         color: '#4CAF50',
     },
     cardFooter: {
+        marginTop: 16,
+    },
+    viewProgressButton: {
+        backgroundColor: '#3494D9',
+        borderRadius: 8,
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
-        borderTopWidth: 1,
-        borderTopColor: '#2A2D30',
-        paddingTop: 12,
-        marginTop: 4,
+        justifyContent: 'center',
+        paddingVertical: 10,
+        gap: 8,
+    },
+    viewProgressText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: '#FFFFFF',
     },
     cardDate: {
         fontFamily: fonts.regular,
@@ -487,6 +542,12 @@ const styles = StyleSheet.create({
     },
     templateContent: {
         flex: 1,
+    },
+    successIcon: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 32,
+        height: 32,
     },
     templateTitle: {
         fontFamily: fonts.medium,

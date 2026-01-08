@@ -10,10 +10,8 @@ import { searchWithOrchestration } from '@/lib/foodSearch/orchestrator';
 import {
     invokePremealAnalyze,
     NormalizedFood,
-    PremealAdjustmentTip,
-    PremealCurvePoint,
-    PremealDriver,
     PremealMealDraft,
+    PremealResult
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,7 +32,6 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle } from 'react-native-svg';
 
 // Types
 interface ResolvedFood {
@@ -43,87 +40,7 @@ interface ResolvedFood {
     quantity: number;
 }
 
-interface AnalysisResult {
-    spike_risk_pct: number;
-    drivers: PremealDriver[];
-    adjustment_tips: PremealAdjustmentTip[];
-    predicted_curve: PremealCurvePoint[];
-}
 
-// Meal Response Gauge Component (reused from pre-meal-check)
-function MealResponseGauge({ risk }: { risk: number }) {
-    const size = 80;
-    const strokeWidth = 8;
-    const radius = (size - strokeWidth) / 2;
-    const circumference = radius * 2 * Math.PI;
-    const strokeDashoffset = circumference - (risk / 100) * circumference;
-
-    const getColor = () => {
-        if (risk < 50) return '#4CAF50';
-        if (risk < 75) return '#FF9800';
-        return '#F44336';
-    };
-
-    const getLabel = () => {
-        if (risk < 50) return 'Low';
-        if (risk < 75) return 'Moderate';
-        return 'Higher';
-    };
-
-    return (
-        <View style={gaugeStyles.container}>
-            <Svg width={size} height={size}>
-                <Circle
-                    stroke="#2A2D30"
-                    fill="none"
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={radius}
-                    strokeWidth={strokeWidth}
-                />
-                <Circle
-                    stroke={getColor()}
-                    fill="none"
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={radius}
-                    strokeWidth={strokeWidth}
-                    strokeDasharray={`${circumference} ${circumference}`}
-                    strokeDashoffset={strokeDashoffset}
-                    strokeLinecap="round"
-                    transform={`rotate(-90 ${size / 2} ${size / 2})`}
-                />
-            </Svg>
-            <View style={gaugeStyles.textOverlay}>
-                <Text style={[gaugeStyles.percentText, { color: getColor() }]}>{risk}%</Text>
-                <Text style={gaugeStyles.labelText}>{getLabel()}</Text>
-            </View>
-        </View>
-    );
-}
-
-const gaugeStyles = StyleSheet.create({
-    container: {
-        width: 80,
-        height: 80,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    textOverlay: {
-        position: 'absolute',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    percentText: {
-        fontFamily: fonts.bold,
-        fontSize: 18,
-    },
-    labelText: {
-        fontFamily: fonts.regular,
-        fontSize: 10,
-        color: '#878787',
-    },
-});
 
 // AI Loading Screen - matches pre-meal-check.tsx
 function AILoadingScreen({ message }: { message: string }) {
@@ -429,7 +346,7 @@ export default function MealResponseCheckScreen() {
     const [isSearching, setIsSearching] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [resolvedFoods, setResolvedFoods] = useState<ResolvedFood[]>([]);
-    const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+    const [analysisResult, setAnalysisResult] = useState<PremealResult | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [hasAutoAnalyzed, setHasAutoAnalyzed] = useState(false);
 
@@ -549,14 +466,9 @@ export default function MealResponseCheckScreen() {
             const result = await invokePremealAnalyze(user.id, mealDraft);
 
             if (result) {
-                setAnalysisResult({
-                    spike_risk_pct: result.spike_risk_pct,
-                    drivers: result.drivers,
-                    adjustment_tips: result.adjustment_tips,
-                    predicted_curve: result.predicted_curve,
-                });
+                setAnalysisResult(result);
             } else {
-                setError('Analysis failed. Please try again.');
+                throw new Error('Analysis failed');
             }
         } catch (err) {
             console.error('Analysis error:', err);
@@ -637,15 +549,17 @@ export default function MealResponseCheckScreen() {
                         >
                             {/* Results */}
                             <View style={styles.resultCard}>
-                                {/* Spike Risk */}
-                                <View style={styles.riskSection}>
-                                    <MealResponseGauge risk={analysisResult.spike_risk_pct} />
-                                    <View style={styles.riskInfo}>
-                                        <Text style={styles.riskTitle}>Meal Response</Text>
-                                        <Text style={styles.riskDescription}>
-                                            Based on your planned meal
-                                        </Text>
+                                {/* Balance Summary */}
+                                <View style={{ marginBottom: 20 }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                        <Text style={{ fontFamily: fonts.semiBold, fontSize: 18, color: '#E7E8E9' }}>Meal Balance</Text>
+                                        <View style={{ backgroundColor: '#E8F5E9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+                                            <Text style={{ fontFamily: fonts.medium, fontSize: 12, color: '#2E7D32' }}>ANALYZED</Text>
+                                        </View>
                                     </View>
+                                    <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: '#B0BEC5', lineHeight: 20 }}>
+                                        Here is how this meal aligns with your metabolic wellness.
+                                    </Text>
                                 </View>
 
                                 {/* Macros */}
@@ -689,14 +603,22 @@ export default function MealResponseCheckScreen() {
                             {/* Tips */}
                             {analysisResult.adjustment_tips.length > 0 && (
                                 <View style={styles.section}>
-                                    <Text style={styles.sectionTitle}>Tips for a better response</Text>
+                                    <Text style={styles.sectionTitle}>Suggestions for Balance</Text>
                                     {analysisResult.adjustment_tips.map((tip, i) => (
                                         <View key={i} style={styles.tipCard}>
-                                            <Ionicons name="bulb-outline" size={20} color="#CAA163" />
-                                            <View style={styles.tipContent}>
+                                            <View style={styles.tipHeader}>
                                                 <Text style={styles.tipTitle}>{tip.title}</Text>
-                                                <Text style={styles.tipDescription}>{tip.detail}</Text>
+                                                <View style={[styles.benefitBadge, {
+                                                    backgroundColor: tip.benefit_level === 'high' ? '#E3F2FD' : '#F5F5F5'
+                                                }]}>
+                                                    <Text style={[styles.benefitText, {
+                                                        color: tip.benefit_level === 'high' ? '#1565C0' : '#616161'
+                                                    }]}>
+                                                        {tip.benefit_level ? tip.benefit_level.toUpperCase() : 'MEDIUM'} IMPACT
+                                                    </Text>
+                                                </View>
                                             </View>
+                                            <Text style={styles.tipDescription}>{tip.detail}</Text>
                                         </View>
                                     ))}
                                 </View>
@@ -876,25 +798,107 @@ const styles = StyleSheet.create({
         padding: 20,
         marginBottom: 16,
     },
-    riskSection: {
+    scoreCard: {
+        backgroundColor: '#1E1E1E',
+        borderRadius: 16,
+        padding: 20,
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+    },
+    scoreHeader: {
         flexDirection: 'row',
+        justifyContent: 'space-between',
         alignItems: 'center',
-        gap: 16,
-        marginBottom: 20,
+        marginBottom: 12,
     },
-    riskInfo: {
-        flex: 1,
-    },
-    riskTitle: {
+    scoreTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
         color: '#E7E8E9',
     },
-    riskDescription: {
+    scoreBadge: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 20,
+    },
+    scoreBadgeText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 12,
+    },
+    scoreDescription: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
-        marginTop: 4,
+        color: '#B0BEC5',
+        lineHeight: 20,
+        marginBottom: 10,
+    },
+    driversList: {
+        gap: 8,
+    },
+    driverItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        borderRadius: 8,
+    },
+    driverText: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#E7E8E9',
+        flex: 1,
+    },
+    tipCard: {
+        backgroundColor: '#1A1B1C',
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+    },
+    tipHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    tipTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 15,
+        color: '#E7E8E9',
+        flex: 1,
+        marginRight: 8,
+    },
+    benefitBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
+    },
+    benefitText: {
+        fontFamily: fonts.medium,
+        fontSize: 10,
+        letterSpacing: 0.5,
+    },
+    tipDescription: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: '#909090',
+        lineHeight: 18,
+    },
+    logButton: {
+        backgroundColor: '#3494D9',
+        borderRadius: 12,
+        paddingVertical: 16,
+        alignItems: 'center',
+        marginTop: 12,
+    },
+    logButtonText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
+        color: '#FFFFFF',
     },
     macrosRow: {
         flexDirection: 'row',
@@ -925,41 +929,6 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#E7E8E9',
         marginBottom: 12,
-    },
-    driverItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        paddingVertical: 8,
-    },
-    driverText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#E7E8E9',
-        flex: 1,
-    },
-    tipCard: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: 12,
-        backgroundColor: '#1A1B1C',
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 8,
-    },
-    tipContent: {
-        flex: 1,
-    },
-    tipTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#E7E8E9',
-    },
-    tipDescription: {
-        fontFamily: fonts.regular,
-        fontSize: 13,
-        color: '#878787',
-        marginTop: 4,
     },
     tryAgainButton: {
         borderWidth: 1,

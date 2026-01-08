@@ -64,13 +64,12 @@ export default function RootLayout() {
           <Stack.Screen name="log-activity" />
           <Stack.Screen name="settings" />
           <Stack.Screen name="customization" />
-          <Stack.Screen name="connect-dexcom" />
           <Stack.Screen name="data-sources" />
           <Stack.Screen name="account-privacy" />
           <Stack.Screen name="labs-health-info" />
           <Stack.Screen name="pre-meal-check" />
           <Stack.Screen name="scan-label" />
-          <Stack.Screen name="post-meal-review" />
+          <Stack.Screen name="meal-checkin" />
           <Stack.Screen name="notifications-list" />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         </Stack>

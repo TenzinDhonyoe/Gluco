@@ -1,6 +1,7 @@
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -37,18 +38,18 @@ export default function WelcomeScreen() {
                     } as never);
                 } else if (!profile || !profile.onboarding_completed) {
                     // Email confirmed but onboarding not complete
-                    // Check which step they're on based on profile data
+                    // New order: Step 1 (profile) → Step 2 (goals) → Step 3 → Step 4 → Step 5
                     if (!profile?.first_name || !profile?.last_name) {
-                        router.replace('/onboarding-1' as never);
-                    } else if (!profile?.region) {
+                        // Step 1: Profile info
                         router.replace('/onboarding-2' as never);
-                    } else if (!profile?.birth_date || !profile?.biological_sex) {
-                        router.replace('/onboarding-3' as never);
                     } else if (!profile?.goals || profile.goals.length === 0) {
-                        // Skip onboarding-4 (CGM device is optional) and go to goals
-                        router.replace('/onboarding-5' as never);
+                        // Step 2: Goals
+                        router.replace('/onboarding-1' as never);
+                    } else if (profile?.tracking_mode === undefined) {
+                        // Step 4: Tracking setup
+                        router.replace('/onboarding-4' as never);
                     } else {
-                        // All data filled but onboarding_completed is false - go to last step
+                        // Step 5: Coaching style (last step)
                         router.replace('/onboarding-5' as never);
                     }
                 } else {
@@ -85,7 +86,7 @@ export default function WelcomeScreen() {
                 resizeMode="cover"
             >
                 <View style={styles.darkOverlay} />
-                
+
                 <SafeAreaView style={styles.content}>
                     {/* Logo Section */}
                     <View style={styles.logoContainer}>
@@ -99,7 +100,7 @@ export default function WelcomeScreen() {
                     {/* Heading Section */}
                     <View style={styles.headingContainer}>
                         <Text style={styles.headingText}>
-                            See what shapes your glucose.
+                            See what shapes{'\n'}your metabolic health.
                         </Text>
                     </View>
 
@@ -173,6 +174,11 @@ const styles = StyleSheet.create({
         letterSpacing: 0,
         textAlign: 'center',
         color: Colors.textPrimary, // White
+    },
+    yourText: {
+        textTransform: 'uppercase',
+        letterSpacing: 2,
+        color: '#3BA5A5', // Teal from logo
     },
     bottomSection: {
         position: 'absolute',

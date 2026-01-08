@@ -73,7 +73,7 @@ GlucoFigma/
 │   ├── log-meal-items.tsx       # Meal items search (placeholder)
 │   ├── log-glucose.tsx          # Glucose logging screen
 │   ├── log-activity.tsx         # Activity logging screen
-│   ├── check-spike-risk.tsx     # Pre-meal glucose spike risk analysis
+│   ├── meal-response-check.tsx  # Pre-meal response analysis (renamed from check-spike-risk)
 │   ├── check-exercise-impact.tsx # Exercise impact analysis
 │   └── (tabs)/                  # Tab navigator group
 │       ├── _layout.tsx          # Tab navigator configuration
@@ -90,7 +90,8 @@ GlucoFigma/
 │       ├── dropdown-menu.tsx    # Custom dropdown component
 │       ├── sheet.tsx            # Bottom sheet modal
 │       ├── input.tsx            # Text input component
-│       └── button.tsx           # Button component
+│       ├── button.tsx           # Button component
+│       └── Disclaimer.tsx       # Regulatory disclaimer component
 │
 ├── context/                      # React Context providers
 │   ├── AuthContext.tsx          # Authentication state management
@@ -105,7 +106,8 @@ GlucoFigma/
 │   ├── use-color-scheme.ts      # Color scheme detection
 │   ├── use-theme-color.ts       # Theme color utilities
 │   ├── useTodayScreenData.ts    # Unified data fetching for Today screen
-│   └── useSleepData.ts          # HealthKit sleep data hook
+│   ├── useSleepData.ts          # HealthKit sleep data hook
+│   └── useDailyContext.ts       # HealthKit daily context (steps, active mins, HR, HRV)
 │
 ├── lib/
 │   ├── supabase.ts              # Supabase client & database helpers
@@ -119,7 +121,8 @@ GlucoFigma/
 │   ├── activity_logs.sql       # Activity logs table
 │   ├── migrations/
 │   │   ├── 20241224_fibre_intake_function.sql  # Fibre calculation function
-│   │   └── 20241224_add_performance_indexes.sql  # Performance indexes
+│   │   ├── 20241224_add_performance_indexes.sql  # Performance indexes
+│   │   └── 20241231_wearables_mode.sql  # Wearables-only tracking mode
 │   └── functions/               # Supabase Edge Functions
 │       ├── premeal-analyze/     # Pre-meal glucose spike prediction
 │       ├── exercise-analyze/    # Exercise impact analysis
@@ -241,6 +244,54 @@ Recently used food items with timestamp for "quick add" functionality.
 
 **RLS Policies**: Users can only view/insert/update/delete their own recents.
 
+#### 6. `daily_context`
+Daily wellness context from wearables (HealthKit integration ready).
+
+```sql
+- user_id (UUID, REFERENCES auth.users, NOT NULL)
+- date (DATE, NOT NULL)
+- steps (INTEGER, nullable)
+- active_minutes (INTEGER, nullable)
+- sleep_hours (NUMERIC(4,2), nullable)
+- resting_hr (NUMERIC(5,2), nullable)
+- hrv_ms (NUMERIC(6,2), nullable)
+- source (TEXT, DEFAULT 'apple_health', CHECK: 'apple_health'|'manual'|'estimated')
+- last_synced_at (TIMESTAMP WITH TIME ZONE)
+- created_at (TIMESTAMP WITH TIME ZONE)
+- updated_at (TIMESTAMP WITH TIME ZONE)
+- PRIMARY KEY (user_id, date)
+```
+
+**RLS Policies**: Users can only view/insert/update/delete their own context.
+**Indexes**: `user_id, date DESC` for range queries.
+
+#### 7. `lab_snapshots`
+User-entered lab results for wellness score calculation.
+
+```sql
+- id (UUID, PRIMARY KEY)
+- user_id (UUID, REFERENCES auth.users, NOT NULL)
+- collected_at (TIMESTAMP WITH TIME ZONE, NOT NULL)
+- fasting_glucose_value (NUMERIC, nullable)
+- fasting_glucose_unit (TEXT, DEFAULT 'mmol/L')
+- fasting_insulin_value (NUMERIC, nullable)
+- fasting_insulin_unit (TEXT, DEFAULT 'uIU/mL')
+- triglycerides_value (NUMERIC, nullable)
+- triglycerides_unit (TEXT, DEFAULT 'mmol/L')
+- hdl_value (NUMERIC, nullable)
+- hdl_unit (TEXT, DEFAULT 'mmol/L')
+- alt_value (NUMERIC, nullable)
+- alt_unit (TEXT, DEFAULT 'U/L')
+- weight_kg (NUMERIC, nullable)
+- height_cm (NUMERIC, nullable)
+- notes (TEXT, nullable)
+- source (TEXT, DEFAULT 'manual')
+- created_at (TIMESTAMP WITH TIME ZONE)
+```
+
+**RLS Policies**: Users can only view/insert/delete their own lab snapshots.
+**Indexes**: `user_id`, `collected_at DESC`.
+
 ### Database Functions (in `lib/supabase.ts`)
 
 #### User Profile
@@ -278,6 +329,20 @@ Recently used food items with timestamp for "quick add" functionality.
   - Uses optimized database function `calculate_fibre_intake_summary()` (see Performance Optimizations)
   - Queries meals + meal_items within date range via efficient JOIN
   - Returns `{ totalFibre, avgPerDay, startDate, endDate }`
+
+#### Daily Context (Wearables)
+- `upsertDailyContext(userId, date, data)`: Insert/update wearable data for a date
+- `getDailyContext(userId, startDate, endDate)`: Fetch wearable data for date range
+
+#### Lab Snapshots
+- `createLabSnapshot(userId, input)`: Insert new lab snapshot
+- `getLatestLabSnapshot(userId)`: Fetch most recent lab entry
+- `getLabSnapshots(userId, limit?)`: Fetch all lab entries
+
+#### Metabolic Score
+- `invokeMetabolicScore(userId, range?)`: Invoke metabolic-score Edge Function
+  - Range options: '7d', '14d', '30d' (default), '90d'
+  - Returns `MetabolicScoreResult` with score, band, confidence, drivers, components
 
 ---
 
@@ -834,7 +899,68 @@ POST /functions/v1/premeal-analyze
 
 ---
 
-#### 2. `personalized-tips` - AI-Powered Log Screen Tips
+#### 2. `metabolic-score` - Wellness Score Calculation
+
+**Location**: `supabase/functions/metabolic-score/index.ts`
+
+**Purpose**: Computes a deterministic wellness score (0-100) based on wearable data and optional lab values. Higher score = better wellness patterns.
+
+**API**:
+```typescript
+// Request
+POST /functions/v1/metabolic-score
+{
+  user_id: string,
+  range?: '7d' | '14d' | '30d' | '90d'  // Default: '30d'
+}
+
+// Response
+{
+  status: 'ok' | 'insufficient',
+  range: '7d' | '14d' | '30d' | '90d',
+  metabolic_response_score: number | null,  // 0-100, higher = better
+  strain_score: number | null,              // 0-100, lower = better
+  band: 'low' | 'medium' | 'high' | null,   // Based on strain
+  confidence: 'high' | 'medium' | 'low',
+  wearables_days: number,
+  lab_present: boolean,
+  drivers: Array<{ key: string, points: number, text: string }>,
+  components: {
+    base: number,
+    sleep_pen: number,
+    act_pen: number,
+    steps_pen: number,
+    rhr_pen: number,
+    hrv_pen: number,
+    fibre_bonus: number,
+    lab_pen: number
+  }
+}
+```
+
+**Features**:
+- Deterministic scoring (no LLM) using smooth ramp functions
+- Data sufficiency gating: requires 5+ wearable days OR lab data
+- Confidence levels based on data availability
+- Banned terms safety check (`assertNoBannedTerms`)
+- Unit conversion: mg/dL → mmol/L for glucose
+
+**Scoring Components**:
+| Component | Good Value | Bad Value | Max Points |
+|-----------|------------|-----------|------------|
+| Sleep | 7.5h | 5.5h | 15 |
+| Active Minutes | 35 | 10 | 15 |
+| Steps | 9000 | 4000 | 10 |
+| Resting HR | 60 | 80 | 10 |
+| HRV | 55ms | 25ms | 10 |
+| Fibre (bonus) | 25g | 10g | -8 |
+| Lab (glucose) | 4.8 mmol/L | 6.3 mmol/L | 6 |
+
+**IMPORTANT - Banned Terms**: Never use: insulin resistance, HOMA-IR, prediabetes, diabetes, diagnose, detect, treat, prevent, medical device, clinical, reverse.
+
+---
+
+#### 3. `personalized-tips` - AI-Powered Log Screen Tips
 
 **Location**: `supabase/functions/personalized-tips/index.ts`
 
@@ -1213,7 +1339,7 @@ if (result) {
 
 ### Overview
 
-The app integrates with Apple HealthKit to fetch sleep data, recognizing that sleep quality is a critical factor in prediabetes reversal. This integration provides users with personalized sleep insights directly from their Apple Health data.
+The app integrates with Apple HealthKit to fetch sleep data, recognizing that sleep quality can support overall metabolic wellness. This integration provides users with personalized sleep insights directly from their Apple Health data.
 
 ### Setup Requirements
 
@@ -3307,6 +3433,142 @@ Set in Supabase Dashboard → Edge Functions → Secrets:
 
 ---
 
+## 📱 Wearables-Only Tracking Mode
+
+### Overview
+
+Users who don't log glucose can still use the app to track meals, activity, and sleep via Apple HealthKit. This "wearables-only" mode adjusts the UI and AI responses accordingly.
+
+### Database Changes
+
+**profiles table additions:**
+```sql
+tracking_mode TEXT DEFAULT 'glucose_tracking' CHECK (tracking_mode IN ('glucose_tracking', 'wearables_only')),
+has_cgm BOOLEAN DEFAULT FALSE,
+manual_glucose_enabled BOOLEAN DEFAULT TRUE
+```
+
+**New table: `daily_context`**
+```sql
+CREATE TABLE daily_context (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) NOT NULL,
+    date DATE NOT NULL,
+    sleep_hours NUMERIC(4,2),
+    steps INTEGER,
+    active_minutes INTEGER,
+    resting_hr INTEGER,
+    hrv_ms NUMERIC(6,2),
+    last_synced_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, date)
+);
+```
+
+### HealthKit Integration
+
+**`hooks/useDailyContext.ts`** - Fetches and syncs daily context data:
+- Steps (via `StepCount`)
+- Active minutes (prefers `AppleExerciseTime`, falls back to workouts)
+- Resting heart rate
+- HRV (SDNN)
+
+**`lib/healthkit.ts` additions:**
+- `getSteps(startDate, endDate)`
+- `getActiveMinutes(startDate, endDate)`
+- `getRestingHeartRate(startDate, endDate)`
+- `getHRV(startDate, endDate)`
+
+### Onboarding Flow
+
+**`app/onboarding-5.tsx`:**
+1. "Do you use a CGM?" toggle
+2. "Plan to log glucose manually?" toggle (conditional)
+3. HealthKit permission request for wearables_only users
+4. Saves `tracking_mode`, `has_cgm`, `manual_glucose_enabled` to profile
+
+### Conditional UI Rendering
+
+**Today Tab (`app/(tabs)/index.tsx`):**
+- `wearables_only` users see: Steps, Active Minutes, Sleep, Fibre stat cards
+- `glucose_tracking` users see: Days In Range, Fibre, Activity, Sleep stat cards
+- Shows "—" for unavailable data with "Not connected"/"Not available" helper text
+
+---
+
+## 📋 Regulatory Copy Audit
+
+### Positioning
+
+GlucoFigma is positioned as a **wellness/coaching app** that helps users understand patterns, NOT as a medical device for diagnosis or treatment.
+
+### Banned Terms
+
+The following terms must **never** appear in user-facing UI or AI-generated content:
+- prediabetes, diabetes, insulin resistance
+- diagnose, detect, treat, prevent (in medical context)
+- medical device, clinical, therapeutic, prescription
+- "reverse" (in disease context)
+
+### Safe Replacements
+
+| Don't Use | Use Instead |
+|-----------|-------------|
+| Spike Risk | Meal Response |
+| Post-Meal Review | After-Meal Check-in |
+| Prediction | Estimate / Expected pattern |
+| blood glucose spike | meal response |
+| glucose prediction | estimated pattern |
+
+### Disclaimer Component
+
+**`components/ui/Disclaimer.tsx`**
+
+Reusable component with two variants:
+
+```tsx
+// Full variant (for screens with space)
+<Disclaimer variant="full" />
+// → "This is not medical advice and is not intended to diagnose, 
+//    treat, or prevent any condition. Consult a healthcare provider 
+//    for medical questions."
+
+// Short variant (for cramped UIs)
+<Disclaimer variant="short" />
+// → "Not medical advice. Not for diagnosis."
+```
+
+**Placement:**
+- Onboarding final step
+- Meal Response Check screen (results section)
+- Post-meal review screen (optional)
+
+### Edge Function Prompt Safety
+
+All AI-generating Edge Functions include this instruction:
+
+```
+IMPORTANT: Use behavioral, wellness-focused language. 
+Do NOT imply diagnosis, detection, or prediction of any disease. 
+Avoid clinical terminology.
+```
+
+**Functions updated:**
+- `experiments-evaluate`
+- `premeal-analyze`
+- `personalized-tips`
+- `weekly-meal-comparison`
+- `experiments-suggest`
+
+### Wearables-Only Language Gating
+
+When `profile.tracking_mode === 'wearables_only'`:
+- Hide: "glucose", "blood sugar", "spike", "mmol/L", "Time in Range"
+- Show: "meal response", "energy stability", "habits", "patterns"
+
+---
+
 ## 🚀 Deployment Commands
 
 ```bash
@@ -3355,6 +3617,6 @@ triggerCalibrationUpdate(user.id, reviewId).catch(console.warn);
 
 ---
 
-**Last Updated**: December 24, 2024
-**Version**: 1.4.0 (Added HealthKit Integration & Performance Optimizations)
+**Last Updated**: January 4, 2025
+**Version**: 1.5.0 (Wearables-Only Mode, Regulatory Copy Audit, Disclaimer Component)
 

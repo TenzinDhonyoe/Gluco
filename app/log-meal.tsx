@@ -5,15 +5,23 @@ import { SheetItem } from '@/components/ui/sheet-item';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { schedulePostMealReviewNotification } from '@/lib/notifications';
 import {
   addMealItems,
   createMeal,
   CreateMealItemInput,
+  MealPhotoAnalysisResult,
+  MealPhotoAnalysisStatus,
   NormalizedFood,
-  uploadMealPhoto,
+  supabase,
+  uploadMealPhoto
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import { decode } from 'base64-arraybuffer';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
+import uuid from 'react-native-uuid';
+
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
@@ -103,6 +111,12 @@ export default function LogMealScreen() {
   const [imageUri, setImageUri] = React.useState<string | null>(null);
   const [mealItems, setMealItems] = React.useState<SelectedFood[]>([]);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [analysisStatus, setAnalysisStatus] = React.useState<MealPhotoAnalysisStatus | 'idle'>('idle');
+  const [analysisResult, setAnalysisResult] = React.useState<MealPhotoAnalysisResult | null>(null);
+
+  // Stable meal ID for this session
+  const mealIdRef = React.useRef(uuid.v4() as string);
+  const mealId = mealIdRef.current;
 
   const [typeModalOpen, setTypeModalOpen] = React.useState(false);
   const [timeModalOpen, setTimeModalOpen] = React.useState(false);
@@ -114,7 +128,7 @@ export default function LogMealScreen() {
   // Restore form state from params (when returning from log-meal-items)
   React.useEffect(() => {
     // Create a unique key for the current params to detect changes
-    const paramsKey = `${params.selectedFoods || ''}-${params.mealName || ''}`;
+    const paramsKey = `${params.selectedFoods || ''}-${params.mealName || ''}-${params.analyzedItems || ''}`;
 
     // Skip if we've already processed these exact params
     if (paramsConsumedRef.current === paramsKey) {
@@ -147,6 +161,18 @@ export default function LogMealScreen() {
         console.error('Failed to parse existing items:', e);
       }
     }
+    // Handle analyzed items from photo estimate
+    if (params.analyzedItems && typeof params.analyzedItems === 'string') {
+      try {
+        const items = JSON.parse(params.analyzedItems) as SelectedFood[];
+        setMealItems(prev => [...prev, ...items]);
+        // Reset analysis state as items are now imported
+        setAnalysisStatus('idle');
+        setAnalysisResult(null);
+      } catch (e) {
+        console.error('Failed to parse analyzed items:', e);
+      }
+    }
     // Handle selected foods from log-meal-items screen
     if (params.selectedFoods && typeof params.selectedFoods === 'string') {
       try {
@@ -161,7 +187,7 @@ export default function LogMealScreen() {
         console.error('Failed to parse selected foods:', e);
       }
     }
-  }, [params.selectedFoods, params.mealName, params.mealType, params.mealTime, params.imageUri, params.existingItems]);
+  }, [params.selectedFoods, params.mealName, params.mealType, params.mealTime, params.imageUri, params.existingItems, params.analyzedItems]);
 
   const handleSaveMeal = async () => {
     if (!user) {
@@ -220,6 +246,16 @@ export default function LogMealScreen() {
         await addMealItems(user.id, meal.id, items);
       }
 
+      // Schedule check-in notification for 2 hours after meal time
+      // If meal was in the past, schedule for 1 hour from now
+      const eatingTime = mealTime || new Date();
+      let checkInTime = new Date(eatingTime.getTime() + 2 * 60 * 60 * 1000); // +2 hours
+      if (checkInTime.getTime() <= Date.now()) {
+        checkInTime = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
+      }
+
+      await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime);
+
       Alert.alert('Success', 'Meal saved successfully!', [
         { text: 'OK', onPress: () => router.back() },
       ]);
@@ -257,6 +293,36 @@ export default function LogMealScreen() {
   const ITEM_H = 44; // More compact standard size
   const V_PAD = ITEM_H * 1; // one item above/below visible center
 
+  const processPhoto = async (uri: string) => {
+    setImageUri(uri);
+    // AI analysis disabled for now - just upload and display
+    setAnalysisStatus('idle');
+
+    try {
+      if (!user) return;
+
+      // Upload photo to storage
+      const ext = uri.split('.').pop()?.toLowerCase() || 'jpg';
+      const fileName = `${user.id}/${Date.now()}.${ext}`;
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+
+      const { error: uploadError } = await supabase.storage
+        .from('meal-photos')
+        .upload(fileName, decode(base64), {
+          contentType: `image/${ext}`,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error('Photo upload failed:', uploadError);
+        // Still show the local image even if upload fails
+      }
+    } catch (e) {
+      console.error('Photo processing failed:', e);
+      // Still show the local image even if processing fails
+    }
+  };
+
   const pickFromCamera = React.useCallback(async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) return;
@@ -265,8 +331,10 @@ export default function LogMealScreen() {
       allowsEditing: true,
       aspect: [4, 3],
     });
-    if (!res.canceled) setImageUri(res.assets?.[0]?.uri ?? null);
-  }, []);
+    if (!res.canceled && res.assets?.[0]?.uri) {
+      processPhoto(res.assets[0].uri);
+    }
+  }, [user, mealName, mealTime, mealType]);
 
   const pickFromLibrary = React.useCallback(async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -276,8 +344,10 @@ export default function LogMealScreen() {
       allowsEditing: true,
       aspect: [4, 3],
     });
-    if (!res.canceled) setImageUri(res.assets?.[0]?.uri ?? null);
-  }, []);
+    if (!res.canceled && res.assets?.[0]?.uri) {
+      processPhoto(res.assets[0].uri);
+    }
+  }, [user, mealName, mealTime, mealType]);
 
   // Initialize temp picker values when opening the time sheet
   React.useEffect(() => {
@@ -396,14 +466,45 @@ export default function LogMealScreen() {
             </View>
           </View>
 
-          {/* Add Image */}
-          <Pressable onPress={() => setImageSheetOpen(true)} style={styles.actionRow}>
-            <Text style={styles.actionText}>Add Image</Text>
-            <View style={styles.actionRight}>
-              {imageUri ? <Image source={{ uri: imageUri }} style={styles.thumb} /> : null}
-              <ChevronRight />
+          {/* Add Image - Camera first */}
+          {imageUri ? (
+            <View style={styles.imagePreviewSection}>
+              <Image source={{ uri: imageUri }} style={styles.imagePreview} />
+              <View style={styles.imageActions}>
+                <Pressable
+                  onPress={() => setImageSheetOpen(true)}
+                  style={styles.imageActionBtn}
+                >
+                  <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.imageActionText}>Replace</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setImageUri(null)}
+                  style={[styles.imageActionBtn, styles.imageActionBtnDanger]}
+                >
+                  <Ionicons name="trash-outline" size={18} color="#F44336" />
+                  <Text style={[styles.imageActionText, { color: '#F44336' }]}>Remove</Text>
+                </Pressable>
+              </View>
             </View>
-          </Pressable>
+          ) : (
+            <Pressable onPress={pickFromCamera} style={styles.actionRow}>
+              <View style={styles.actionLeft}>
+                <Ionicons name="camera" size={20} color="#4CAF50" />
+                <Text style={styles.actionText}>Add Photo</Text>
+              </View>
+              <View style={styles.actionRight}>
+                <Pressable
+                  onPress={(e) => { e.stopPropagation(); setImageSheetOpen(true); }}
+                  style={styles.libraryBtn}
+                  hitSlop={8}
+                >
+                  <Ionicons name="images-outline" size={18} color="#878787" />
+                </Pressable>
+                <ChevronRight />
+              </View>
+            </Pressable>
+          )}
 
           {/* Add Meal Items */}
           <Pressable onPress={() => navigateToMealItems()} style={styles.actionRow}>
@@ -758,6 +859,53 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  actionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  libraryBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePreviewSection: {
+    backgroundColor: 'rgba(63,66,67,0.25)',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  imagePreview: {
+    width: '100%',
+    height: 180,
+    backgroundColor: '#1b1b1c',
+  },
+  imageActions: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  imageActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  imageActionBtnDanger: {
+    backgroundColor: 'rgba(244,67,54,0.1)',
+  },
+  imageActionText: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: '#FFFFFF',
   },
   thumb: {
     width: 28,
