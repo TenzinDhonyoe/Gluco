@@ -427,7 +427,7 @@ export default function ExperimentDetailScreen() {
                                                                 ? `+${formatGlucose(metrics.median_peak_delta, glucoseUnit)}`
                                                                 : '--'}
                                                         </Text>
-                                                        <Text style={styles.metricLabel}>median spike</Text>
+                                                        <Text style={styles.metricLabel}>median rise</Text>
                                                         <Text style={styles.metricSubtext}>
                                                             {metrics.n_with_glucose_data} of {metrics.n_exposures} with data
                                                         </Text>

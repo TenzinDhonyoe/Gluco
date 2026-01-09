@@ -4,6 +4,7 @@
  */
 
 import { Disclaimer } from '@/components/ui/Disclaimer';
+import { Images } from '@/constants/Images';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { searchWithOrchestration } from '@/lib/foodSearch/orchestrator';
@@ -112,7 +113,7 @@ function AILoadingScreen({ message }: { message: string }) {
                 style={loadingStyles.gradient}
             />
             <Image
-                source={require('@/assets/images/mascot-thinking.png')}
+                source={Images.mascots.cook}
                 style={loadingStyles.mascot}
                 resizeMode="contain"
             />

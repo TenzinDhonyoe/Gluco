@@ -5,6 +5,7 @@
  * Includes disclaimer and matches app design language.
  */
 
+import { Images } from '@/constants/Images';
 import { fonts } from '@/hooks/useFonts';
 import { PersonalInsight } from '@/lib/insights';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,11 +14,12 @@ import { router } from 'expo-router';
 import React from 'react';
 import {
     ActivityIndicator,
+    Image,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 
 // ============================================
@@ -118,7 +120,10 @@ const InsightCard = React.memo(({ insight }: { insight: PersonalInsight }) => {
 
 const EmptyState = () => (
     <View style={styles.emptyContainer}>
-        <Ionicons name="sparkles-outline" size={32} color="#878787" />
+        <Image
+            source={Images.mascots.thinking}
+            style={{ width: 80, height: 80, resizeMode: 'contain', marginBottom: 16 }}
+        />
         <Text style={styles.emptyTitle}>Insights Coming Soon</Text>
         <Text style={styles.emptyText}>
             Keep logging to unlock personalized insights

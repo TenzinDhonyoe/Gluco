@@ -1,3 +1,4 @@
+import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import {
@@ -120,7 +121,7 @@ function AILoadingScreen() {
 
             {/* Mascot Image */}
             <Image
-                source={require('@/assets/images/mascot-thinking.png')}
+                source={Images.mascots.cook}
                 style={loadingStyles.mascot}
                 resizeMode="contain"
             />
@@ -565,7 +566,11 @@ export default function PreMealCheckScreen() {
                         {/* Data Source Footer */}
                         <View style={styles.dataSourceRow}>
                             <Text style={styles.dataSourceLabel}>Food Data Source</Text>
-                            <Text style={styles.dataSourceValue}>MyFitnessPal Database</Text>
+                            <Text style={styles.dataSourceValue}>
+                                {mealItems.length > 0
+                                    ? (mealItems[0].provider === 'off' ? 'Open Food Facts' : 'USDA FoodData Central')
+                                    : 'Database'}
+                            </Text>
                         </View>
                     </View>
 

@@ -272,8 +272,8 @@ function generateLocalSummary(
         summaryParts.push('Both options triggered a similar glucose response.');
         suggestions.push('Choose based on taste and convenience');
     } else if (comparison.winner) {
-        summaryParts.push(`${comparison.winner === 'variant_a' ? 'Option A' : 'Option B'} resulted in a lower glucose spike.`);
-        suggestions.push(`Prioritize ${comparison.winner === 'variant_a' ? 'Option A' : 'Option B'} for better energy`);
+        summaryParts.push(`${comparison.winner === 'variant_a' ? 'Option A' : 'Option B'} resulted in a lower glucose rise.`);
+        suggestions.push(`Prioritize ${comparison.winner === 'variant_a' ? 'Option A' : 'Option B'} for steadier energy`);
     }
 
     return {

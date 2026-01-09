@@ -1,3 +1,4 @@
+import { Images } from '@/constants/Images';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import {
@@ -10,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
+    Image,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -93,9 +95,14 @@ export function ActiveExperimentWidget() {
         <View style={styles.container}>
             <TouchableOpacity onPress={handlePressHeader} activeOpacity={0.8}>
                 <View style={styles.header}>
-                    <View>
-                        <Text style={styles.label}>ACTIVE EXPERIMENT • DAY {dayNumber}</Text>
-                        <Text style={styles.title} numberOfLines={1}>{template.title}</Text>
+                    <View style={styles.headerContent}>
+                        <View style={styles.mascotContainer}>
+                            <Image source={Images.mascots.thinking} style={styles.mascotImage} />
+                        </View>
+                        <View style={styles.headerTextContainer}>
+                            <Text style={styles.label}>ACTIVE EXPERIMENT • DAY {dayNumber}</Text>
+                            <Text style={styles.title} numberOfLines={1}>{template.title}</Text>
+                        </View>
                     </View>
                     <View style={styles.progressBadge}>
                         <Text style={styles.progressText}>{progress} / {requiredExposures}</Text>
@@ -143,6 +150,26 @@ const styles = StyleSheet.create({
         color: '#3494D9',
         letterSpacing: 0.5,
         marginBottom: 4,
+    },
+    headerContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+        gap: 12,
+    },
+    headerTextContainer: {
+        flex: 1,
+    },
+    mascotContainer: {
+        width: 60,
+        height: 60,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    mascotImage: {
+        width: 56,
+        height: 56,
+        resizeMode: 'contain',
     },
     title: {
         fontSize: 16,

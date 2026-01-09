@@ -1,19 +1,21 @@
 import { Colors } from '@/constants/Colors';
+import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 
+import { ResizeMode, Video } from 'expo-av';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Dimensions,
-    Image,
-    ImageBackground,
+    Linking,
     SafeAreaView,
     StyleSheet,
     Text,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 
 const { width } = Dimensions.get('window');
@@ -63,10 +65,30 @@ export default function WelcomeScreen() {
         };
 
         checkAuthState();
+
+        // Safety timeout: If auth check takes too long (e.g. 5 seconds), 
+        // stop loading and show welcome screen to prevent infinite spinner.
+        // If auth eventually resolves to a user, the useEffect above will redirect them.
+        const timeoutId = setTimeout(() => {
+            if (loading || isCheckingAuth) {
+                console.log('Auth check timed out, showing welcome screen fallback');
+                setIsCheckingAuth(false);
+            }
+        }, 5000);
+
+        return () => clearTimeout(timeoutId);
     }, [user, profile, loading]);
 
     const handleGetStarted = () => {
-        router.push('/signin');
+        router.push('/privacy-intro');
+    };
+
+    const handleTermsPress = () => {
+        Linking.openURL(LEGAL_URLS.termsAndConditions);
+    };
+
+    const handlePrivacyPress = () => {
+        Linking.openURL(LEGAL_URLS.privacyPolicy);
     };
 
     // Show loading while checking auth
@@ -80,48 +102,48 @@ export default function WelcomeScreen() {
 
     return (
         <View style={styles.container}>
-            <ImageBackground
-                source={require('../assets/images/welcome.jpg')}
-                style={styles.backgroundImage}
-                resizeMode="cover"
-            >
-                <View style={styles.darkOverlay} />
+            <Video
+                source={require('../assets/videos/gluco_video.mp4')}
+                style={styles.backgroundVideo}
+                resizeMode={ResizeMode.COVER}
+                shouldPlay
+                isLooping
+                isMuted
+            />
+            {/* Bottom gradient for text readability */}
+            <LinearGradient
+                colors={['transparent', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.85)']}
+                locations={[0, 0.5, 1]}
+                style={styles.bottomGradient}
+            />
 
-                <SafeAreaView style={styles.content}>
-                    {/* Logo Section */}
-                    <View style={styles.logoContainer}>
-                        <Image
-                            source={require('../assets/images/gluco-logo.png')}
-                            style={styles.logo}
-                            resizeMode="contain"
-                        />
-                    </View>
+            <SafeAreaView style={styles.content}>
 
-                    {/* Heading Section */}
-                    <View style={styles.headingContainer}>
-                        <Text style={styles.headingText}>
-                            See what shapes{'\n'}your metabolic health.
-                        </Text>
-                    </View>
 
-                    {/* Bottom Section - CTA Button + Footer */}
-                    <View style={styles.bottomSection}>
-                        <TouchableOpacity
-                            style={styles.getStartedButton}
-                            onPress={handleGetStarted}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.buttonText}>Let&apos;s Get Started</Text>
-                        </TouchableOpacity>
+                {/* Heading Section */}
+                <View style={styles.headingContainer}>
+                    <Text style={styles.headingText}>
+                        See what shapes your{'\n'}metabolic health.
+                    </Text>
+                </View>
 
-                        <Text style={styles.subtextText}>
-                            By clicking &quot;Let&apos;s Get Started,&quot; you agree to our{' '}
-                            <Text style={styles.linkText}>Terms of Service</Text> and acknowledge that you have read our{' '}
-                            <Text style={styles.linkText}>Privacy Policy</Text>.
-                        </Text>
-                    </View>
-                </SafeAreaView>
-            </ImageBackground>
+                {/* Bottom Section - CTA Button + Footer */}
+                <View style={styles.bottomSection}>
+                    <TouchableOpacity
+                        style={styles.getStartedButton}
+                        onPress={handleGetStarted}
+                        activeOpacity={0.8}
+                    >
+                        <Text style={styles.buttonText}>Let&apos;s Get Started</Text>
+                    </TouchableOpacity>
+
+                    <Text style={styles.subtextText}>
+                        By clicking &quot;Let&apos;s Get Started,&quot; you agree to our{' '}
+                        <Text style={styles.linkText} onPress={handleTermsPress}>Terms of Service</Text> and acknowledge that you have read our{' '}
+                        <Text style={styles.linkText} onPress={handlePrivacyPress}>Privacy Policy</Text>.
+                    </Text>
+                </View>
+            </SafeAreaView>
         </View>
     );
 }
@@ -135,14 +157,25 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    backgroundImage: {
-        ...StyleSheet.absoluteFillObject,
+    backgroundVideo: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         width: '100%',
         height: '100%',
     },
     darkOverlay: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(17, 17, 17, 0.6)', // rgba(17,17,17,0.6) from Figma
+        backgroundColor: 'transparent',
+    },
+    bottomGradient: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: '50%', // Cover bottom half
     },
     content: {
         flex: 1,
@@ -151,80 +184,89 @@ const styles = StyleSheet.create({
         position: 'absolute',
         top: 193,
         alignSelf: 'center',
-        width: 60,
-        height: 85,
+        width: 120,
+        height: 120,
         alignItems: 'center',
         justifyContent: 'center',
     },
     logo: {
-        width: 60,
-        height: 85,
+        width: 120,
+        height: 120,
+        shadowColor: '#000',
+        shadowOffset: {
+            width: 0,
+            height: 4,
+        },
+        shadowOpacity: 0.3,
+        shadowRadius: 4.65,
+        elevation: 8,
     },
     headingContainer: {
         position: 'absolute',
-        top: 394,
-        alignSelf: 'center',
-        width: Math.min(313, width - 40), // Max 313px, responsive with padding
-        alignItems: 'center',
+        bottom: 220,
+        left: 24,
+        right: 24,
+        alignItems: 'flex-start',
     },
     headingText: {
-        fontFamily: fonts.bold, // Outfit Bold (700)
-        fontSize: 32,
-        lineHeight: 32 * 1.09, // 1.09 line-height = ~35px
-        letterSpacing: 0,
-        textAlign: 'center',
-        color: Colors.textPrimary, // White
+        fontFamily: fonts.bold,
+        fontSize: 28,
+        lineHeight: 36,
+        letterSpacing: -0.3,
+        textAlign: 'left',
+        color: Colors.textPrimary,
+        textShadowColor: 'rgba(0, 0, 0, 0.6)',
+        textShadowOffset: { width: 0, height: 2 },
+        textShadowRadius: 8,
     },
     yourText: {
         textTransform: 'uppercase',
         letterSpacing: 2,
-        color: '#3BA5A5', // Teal from logo
+        color: '#3BA5A5',
     },
     bottomSection: {
         position: 'absolute',
-        bottom: 82,
+        bottom: 60,
         alignSelf: 'center',
-        width: Math.min(361, width - 32), // Max 361px, responsive with padding
+        width: Math.min(361, width - 32),
         alignItems: 'center',
     },
     getStartedButton: {
         width: '100%',
         maxWidth: 361,
-        height: 50,
-        backgroundColor: Colors.buttonPrimary, // #285e2a
+        height: 56,
+        backgroundColor: Colors.buttonPrimary,
         borderWidth: 1,
-        borderColor: Colors.buttonBorder, // #448d47
-        borderRadius: 12,
+        borderColor: Colors.buttonBorder,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 16,
-        // Multiple shadow layers from Figma: 0px 8px 12px rgba(0,0,0,0.06), 0px 4px 8px rgba(0,0,0,0.08), 0px 1px 2px rgba(0,0,0,0.12)
-        shadowColor: '#000',
+        marginBottom: 20,
+        shadowColor: '#4CAF50',
         shadowOffset: {
             width: 0,
-            height: 8,
+            height: 4,
         },
-        shadowOpacity: 0.12,
+        shadowOpacity: 0.3,
         shadowRadius: 12,
         elevation: 8,
     },
     buttonText: {
-        fontFamily: fonts.medium, // Outfit Medium (500)
-        fontSize: 15,
-        lineHeight: 15 * 0.95, // 95% line-height = ~14px
-        letterSpacing: 0,
-        color: Colors.textPrimary, // White
+        fontFamily: fonts.semiBold,
+        fontSize: 17,
+        letterSpacing: 0.3,
+        color: Colors.textPrimary,
     },
     subtextText: {
-        fontFamily: fonts.regular, // Outfit Regular (400)
-        fontSize: 11,
-        lineHeight: 11 * 1.0, // 100% line-height
-        letterSpacing: 0,
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        lineHeight: 18,
         textAlign: 'center',
-        color: 'rgba(255, 255, 255, 0.68)', // rgba(255,255,255,0.68) from Figma
-        width: Math.min(356, width - 40), // Max 356px, responsive with padding
+        color: 'rgba(255, 255, 255, 0.9)', // Brighter for readability
+        width: Math.min(356, width - 40),
     },
     linkText: {
-        color: Colors.textPrimary, // White
+        color: Colors.textPrimary,
+        textDecorationLine: 'underline',
     },
 });

@@ -7,6 +7,7 @@ import { MealCheckinCard } from '@/components/MealCheckinCard';
 import { PersonalInsightsCarousel } from '@/components/PersonalInsightsCarousel';
 import { SegmentedControl } from '@/components/segmented-control';
 import { Colors } from '@/constants/Colors';
+import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { useDailyContext } from '@/hooks/useDailyContext';
 import { fonts } from '@/hooks/useFonts';
@@ -24,6 +25,7 @@ import React, { useMemo, useState } from 'react';
 import {
     Animated,
     Dimensions,
+    Image,
     KeyboardAvoidingView,
     Modal,
     PanResponder,
@@ -34,7 +36,7 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    View
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -53,7 +55,7 @@ function getStatus(avg: number, min: number = TARGET_MIN_MMOL, max: number = TAR
     const isGood = avg >= min && avg <= max;
     return {
         isGood,
-        label: isGood ? 'In range' : 'Out of range',
+        label: isGood ? 'In target band' : 'Outside target band',
         color: isGood ? Colors.glucoseGood : Colors.glucoseHigh,
         bg: isGood ? 'rgba(76, 175, 80, 0.15)' : 'rgba(244, 67, 54, 0.15)',
     };
@@ -201,7 +203,7 @@ const GlucoseTrendsCard = React.memo(({ range, allLogs, isLoading, glucoseUnit }
             <View style={styles.trendsHeaderRow}>
                 <View style={styles.trendsHeaderLeft}>
                     <View style={styles.avgRow}>
-                        {hasEverHadData.current || hasData ? (
+                        {hasData ? (
                             <>
                                 <AnimatedNumber
                                     value={displayAvgFormatted}
@@ -277,9 +279,9 @@ function StatCard({ icon, iconColor, title, value, unit, description }: {
     );
 }
 
-// Spike threshold - readings above this are considered a spike (mmol/L)
-const SPIKE_THRESHOLD = 10.0;
-// Memoized In Range Stat Card - calculates % of days where glucose was in target range
+// Elevated reading threshold - readings above this are considered elevated (mmol/L)
+const ELEVATED_THRESHOLD = 10.0;
+// Memoized In Target Band Stat Card - calculates % of days where glucose was in target band
 const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
     range: RangeKey;
     glucoseLogs: GlucoseLog[];
@@ -327,7 +329,7 @@ const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
         <View style={styles.statCard}>
             <View style={styles.statHeader}>
                 <Ionicons name="trending-up" size={32} color={Colors.glucoseGood} />
-                <Text style={[styles.statTitle, { color: Colors.glucoseGood }]}>IN RANGE</Text>
+                <Text style={[styles.statTitle, { color: Colors.glucoseGood }]}>IN TARGET</Text>
             </View>
             <View style={styles.statValueContainer}>
                 <AnimatedInteger
@@ -391,7 +393,7 @@ const ActivityStatCard = React.memo(({
             activeOpacity={isHealthKitAvailable && !isHealthKitAuthorized ? 0.7 : 1}
         >
             <View style={styles.statHeader}>
-                <Ionicons name="flame" size={32} color="#E55D5D" />
+                <Image source={Images.mascots.exercise} style={{ width: 40, height: 40, resizeMode: 'contain' }} />
                 <Text style={[styles.statTitle, { color: '#E55D5D' }]}>ACTIVITY</Text>
             </View>
             <View style={styles.statValueContainer}>
@@ -515,7 +517,7 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
             activeOpacity={isAuthorized ? 1 : 0.7}
         >
             <View style={styles.statHeader}>
-                <Ionicons name="moon" size={32} color={SLEEP_ICON_COLOR} />
+                <Image source={Images.mascots.sleep} style={{ width: 40, height: 40, resizeMode: 'contain' }} />
                 <Text style={[styles.statTitle, { color: SLEEP_ICON_COLOR }]}>SLEEP</Text>
             </View>
             <View style={styles.statValueContainer}>
@@ -862,15 +864,13 @@ function SwipeableTipCards({ onMealPress, onExercisePress }: {
 
     const cards = [
         {
-            icon: 'bulb' as const,
-            iconColor: '#CAA163',
+            image: Images.mascots.cook,
             text: 'Planning your next lunch?',
             linkText: 'Tap to check impact',
             onPress: onMealPress,
         },
         {
-            icon: 'fitness' as const,
-            iconColor: '#4CAF50',
+            image: Images.mascots.exercise,
             text: 'Planning your next exercise?',
             linkText: 'Tap to check impact',
             onPress: onExercisePress,
@@ -934,7 +934,7 @@ function SwipeableTipCards({ onMealPress, onExercisePress }: {
                 >
                     <View style={styles.tipCardShadow} />
                     <View style={styles.tipCard}>
-                        <Ionicons name={currentCard.icon} size={24} color={currentCard.iconColor} />
+                        <Image source={currentCard.image} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
                         <Text style={styles.tipText}>
                             {currentCard.text} <Text style={styles.tipLink}>{currentCard.linkText}</Text>
                         </Text>
@@ -999,7 +999,7 @@ export default function TodayScreen() {
     // Determine which tracking mode category the user is in
     const trackingMode = (profile?.tracking_mode || 'meals_wearables') as TrackingMode;
     const showWearableStats = trackingMode === 'meals_wearables' || trackingMode === 'wearables_only';
-    // Show glucose UI for all modes since this is a prediabetes management app
+    // Show glucose UI for all modes since this is a metabolic wellness app
     const showGlucoseUI = true;
     const showMealsOnlyStats = trackingMode === 'meals_only';
 
@@ -1184,7 +1184,7 @@ export default function TodayScreen() {
                                     <>
                                         <SleepStatCard range={range} sleepData={sleepData} />
                                         <StatCard
-                                            icon={<Ionicons name="restaurant-outline" size={20} color="#4CAF50" />}
+                                            icon={<Image source={Images.mascots.cook} style={{ width: 32, height: 32, resizeMode: 'contain' }} />}
                                             iconColor="#4CAF50"
                                             title="Meals"
                                             value="--"
@@ -1230,7 +1230,7 @@ export default function TodayScreen() {
                                     ))
                                 ) : (
                                     <View style={styles.noMealsCard}>
-                                        <Ionicons name="restaurant-outline" size={32} color="#878787" />
+                                        <Image source={Images.mascots.cook} style={{ width: 60, height: 60, resizeMode: 'contain', marginBottom: 8 }} />
                                         <Text style={styles.noMealsText}>No meal reviews yet</Text>
                                         <Text style={styles.noMealsSubtext}>Log a meal to see your glucose response</Text>
                                     </View>

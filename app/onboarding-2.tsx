@@ -3,6 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -12,6 +13,7 @@ import {
     Dimensions,
     ImageBackground,
     Modal,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -20,8 +22,6 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-const { width } = Dimensions.get('window');
 
 // Regions list
 const REGIONS = [
@@ -61,23 +61,17 @@ export default function Onboarding2Screen() {
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
     const [region, setRegion] = useState('');
-    const [birthDate, setBirthDate] = useState('');
+    const [birthDate, setBirthDate] = useState<Date | null>(null);
+    const [birthDateDisplay, setBirthDateDisplay] = useState('');
     const [biologicalSex, setBiologicalSex] = useState('');
     const [showRegionPicker, setShowRegionPicker] = useState(false);
     const [showBiologicalSexPicker, setShowBiologicalSexPicker] = useState(false);
     const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
-    // Date picker state
-    const [selectedDay, setSelectedDay] = useState(15);
-    const [selectedMonth, setSelectedMonth] = useState(11);
-    const [selectedYear, setSelectedYear] = useState(1996);
-    const [activePicker, setActivePicker] = useState<'day' | 'month' | 'year' | null>(null);
-
     // Animation values
     const regionSlideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
     const sexSlideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
-    const dateSlideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
 
     React.useEffect(() => {
         if (showRegionPicker) {
@@ -103,18 +97,6 @@ export default function Onboarding2Screen() {
         }
     }, [showBiologicalSexPicker]);
 
-    React.useEffect(() => {
-        if (showBirthDatePicker) {
-            dateSlideAnim.setValue(Dimensions.get('window').height);
-            Animated.spring(dateSlideAnim, {
-                toValue: 0,
-                useNativeDriver: true,
-                damping: 20,
-                stiffness: 90,
-            }).start();
-        }
-    }, [showBirthDatePicker]);
-
     const closeRegionPicker = () => {
         Animated.timing(regionSlideAnim, {
             toValue: Dimensions.get('window').height,
@@ -131,28 +113,10 @@ export default function Onboarding2Screen() {
         }).start(() => setShowBiologicalSexPicker(false));
     };
 
-    const closeDatePicker = () => {
-        Animated.timing(dateSlideAnim, {
-            toValue: Dimensions.get('window').height,
-            duration: 250,
-            useNativeDriver: true,
-        }).start(() => {
-            setShowBirthDatePicker(false);
-            setActivePicker(null);
-        });
-    };
-
     const scrollViewRef = React.useRef<ScrollView>(null);
-    const { user } = useAuth();
+    const { user, signOut } = useAuth();
     const currentStep = 1;
     const totalSteps = 5;
-
-    const currentYear = new Date().getFullYear();
-    const years = Array.from({ length: currentYear - 1899 }, (_, i) => currentYear - i);
-
-    const getDaysInMonth = (year: number, month: number) => {
-        return new Date(year, month, 0).getDate();
-    };
 
     const handleContinue = async () => {
         if (!firstName.trim() || !lastName.trim()) return;
@@ -160,7 +124,13 @@ export default function Onboarding2Screen() {
         setIsLoading(true);
         try {
             if (user) {
-                const dateForStorage = birthDate ? `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}` : null;
+                let dateForStorage: string | null = null;
+                if (birthDate) {
+                    const year = birthDate.getFullYear();
+                    const month = String(birthDate.getMonth() + 1).padStart(2, '0');
+                    const day = String(birthDate.getDate()).padStart(2, '0');
+                    dateForStorage = `${year}-${month}-${day}`;
+                }
                 await updateUserProfile(user.id, {
                     first_name: firstName.trim(),
                     last_name: lastName.trim(),
@@ -178,8 +148,15 @@ export default function Onboarding2Screen() {
         }
     };
 
-    const handleBack = () => {
-        router.back();
+    const handleBack = async () => {
+        if (router.canGoBack()) {
+            router.back();
+        } else {
+            // If we can't go back, it means we're at the start of the flow (from replace)
+            // So we should sign out and go to welcome screen
+            await signOut();
+            router.replace('/');
+        }
     };
 
     const handleSelectRegion = (selectedRegion: string) => {
@@ -192,48 +169,27 @@ export default function Onboarding2Screen() {
         closeSexPicker();
     };
 
-    const handleOpenDatePicker = () => {
-        setShowBirthDatePicker(true);
-        setActivePicker(null);
+    const handleDateChange = (event: any, selectedDate?: Date) => {
+        if (Platform.OS === 'android') {
+            setShowBirthDatePicker(false);
+        }
+        if (selectedDate) {
+            setBirthDate(selectedDate);
+            const formattedDate = `${MONTH_NAMES[selectedDate.getMonth()]} ${selectedDate.getDate()}, ${selectedDate.getFullYear()}`;
+            setBirthDateDisplay(formattedDate);
+        }
     };
 
-    const handleSaveBirthDate = () => {
-        const formattedDate = `${MONTH_NAMES[selectedMonth - 1]} ${selectedDay}, ${selectedYear}`;
-        setBirthDate(formattedDate);
-        closeDatePicker();
+    const handleOpenDatePicker = () => {
+        setShowBirthDatePicker(true);
     };
 
     const handleCloseDatePicker = () => {
-        closeDatePicker();
+        setShowBirthDatePicker(false);
     };
-
-    const handleSelectDay = (day: number) => {
-        setSelectedDay(day);
-        setActivePicker(null);
-    };
-
-    const handleSelectMonth = (month: number) => {
-        setSelectedMonth(month);
-        const maxDays = getDaysInMonth(selectedYear, month);
-        if (selectedDay > maxDays) {
-            setSelectedDay(maxDays);
-        }
-        setActivePicker(null);
-    };
-
-    const handleSelectYear = (year: number) => {
-        setSelectedYear(year);
-        const maxDays = getDaysInMonth(year, selectedMonth);
-        if (selectedDay > maxDays) {
-            setSelectedDay(maxDays);
-        }
-        setActivePicker(null);
-    };
-
-    // Auto-select item based on scroll position (48px item height)
-    const ITEM_HEIGHT = 48;
 
     const handleRegionScroll = (event: any) => {
+        const ITEM_HEIGHT = 48;
         const offsetY = event.nativeEvent.contentOffset.y;
         const index = Math.round(offsetY / ITEM_HEIGHT);
         if (index >= 0 && index < REGIONS.length) {
@@ -242,6 +198,7 @@ export default function Onboarding2Screen() {
     };
 
     const handleBiologicalSexScroll = (event: any) => {
+        const ITEM_HEIGHT = 48;
         const offsetY = event.nativeEvent.contentOffset.y;
         const index = Math.round(offsetY / ITEM_HEIGHT);
         if (index >= 0 && index < BIOLOGICAL_SEX_OPTIONS.length) {
@@ -249,41 +206,12 @@ export default function Onboarding2Screen() {
         }
     };
 
-    const handleMonthScroll = (event: any) => {
-        const offsetY = event.nativeEvent.contentOffset.y;
-        const index = Math.round(offsetY / 44); // 44px for date picker items
-        if (index >= 0 && index < 12) {
-            setSelectedMonth(index + 1);
-        }
-    };
-
-    const handleDayScroll = (event: any) => {
-        const offsetY = event.nativeEvent.contentOffset.y;
-        const index = Math.round(offsetY / 44);
-        if (index >= 0 && index < daysInCurrentMonth) {
-            setSelectedDay(index + 1);
-        }
-    };
-
-    const handleYearScroll = (event: any) => {
-        const offsetY = event.nativeEvent.contentOffset.y;
-        const index = Math.round(offsetY / 44);
-        if (index >= 0 && index < years.length) {
-            setSelectedYear(years[index]);
-        }
-    };
-
-    const handleAgeScroll = (event: any) => {
-        const offsetY = event.nativeEvent.contentOffset.y;
-        const index = Math.round(offsetY / ITEM_HEIGHT);
-        const age = index + 18;
-        if (age >= 18 && age <= 99) {
-            setSelectedYear(new Date().getFullYear() - age);
-        }
-    };
-
     const isContinueEnabled = firstName.trim().length > 0 && lastName.trim().length > 0;
-    const daysInCurrentMonth = getDaysInMonth(selectedYear, selectedMonth);
+
+    // Default date for picker (30 years ago)
+    const defaultDate = birthDate || new Date(new Date().getFullYear() - 30, 0, 1);
+    const maxDate = new Date(); // Today
+    const minDate = new Date(1900, 0, 1);
 
     return (
         <View style={styles.container}>
@@ -369,8 +297,8 @@ export default function Onboarding2Screen() {
                                         onPress={handleOpenDatePicker}
                                         activeOpacity={0.7}
                                     >
-                                        <Text style={[styles.dropdownText, !birthDate && styles.dropdownPlaceholder]}>
-                                            {birthDate || 'Select birth date'}
+                                        <Text style={[styles.dropdownText, !birthDateDisplay && styles.dropdownPlaceholder]}>
+                                            {birthDateDisplay || 'Select birth date'}
                                         </Text>
                                         <Ionicons name="chevron-down" size={16} color="#878787" />
                                     </TouchableOpacity>
@@ -559,160 +487,54 @@ export default function Onboarding2Screen() {
                 </View>
             </Modal>
 
-            {/* Birth Date Picker - Bottom Sheet with Wheel Picker */}
-            <Modal
-                visible={showBirthDatePicker}
-                transparent={true}
-                animationType="fade"
-                onRequestClose={closeDatePicker}
-            >
-                <View style={styles.datePickerModalOverlay}>
-                    <TouchableOpacity
-                        style={styles.datePickerBackdrop}
-                        activeOpacity={1}
-                        onPress={closeDatePicker}
-                    />
-                    <Animated.View style={[
-                        styles.datePickerBottomSheet,
-                        { transform: [{ translateY: dateSlideAnim }] }
-                    ]}>
-                        {/* Header */}
-                        <View style={styles.datePickerHeader}>
-                            <TouchableOpacity
-                                onPress={handleCloseDatePicker}
-                                style={styles.datePickerHeaderButton}
-                            >
-                                <Text style={styles.datePickerCancelText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <Text style={styles.datePickerHeaderTitle}>Birth Date</Text>
-                            <TouchableOpacity
-                                onPress={handleSaveBirthDate}
-                                style={styles.datePickerHeaderButton}
-                            >
-                                <Text style={styles.datePickerSaveText}>Done</Text>
-                            </TouchableOpacity>
+            {/* Birth Date Picker - Native iOS/Android DateTimePicker */}
+            {showBirthDatePicker && (
+                <Modal
+                    visible={showBirthDatePicker}
+                    transparent={true}
+                    animationType="slide"
+                    onRequestClose={handleCloseDatePicker}
+                >
+                    <View style={styles.datePickerModalOverlay}>
+                        <TouchableOpacity
+                            style={styles.datePickerBackdrop}
+                            activeOpacity={1}
+                            onPress={handleCloseDatePicker}
+                        />
+                        <View style={styles.datePickerBottomSheet}>
+                            {/* Header */}
+                            <View style={styles.datePickerHeader}>
+                                <TouchableOpacity
+                                    onPress={handleCloseDatePicker}
+                                    style={styles.datePickerHeaderButton}
+                                >
+                                    <Text style={styles.datePickerCancelText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <Text style={styles.datePickerHeaderTitle}>Birth Date</Text>
+                                <TouchableOpacity
+                                    onPress={handleCloseDatePicker}
+                                    style={styles.datePickerHeaderButton}
+                                >
+                                    <Text style={styles.datePickerSaveText}>Done</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Native Date Picker */}
+                            <DateTimePicker
+                                value={defaultDate}
+                                mode="date"
+                                display="spinner"
+                                onChange={handleDateChange}
+                                maximumDate={maxDate}
+                                minimumDate={minDate}
+                                style={styles.datePicker}
+                                textColor={Colors.textPrimary}
+                                themeVariant="dark"
+                            />
                         </View>
-
-                        {/* Wheel Picker Container */}
-                        <View style={styles.wheelPickerContainer}>
-                            {/* Selection Indicator (highlighted row) */}
-                            <View style={styles.wheelSelectionIndicator} pointerEvents="none" />
-
-                            {/* Month Column */}
-                            <View style={styles.wheelColumn}>
-                                <ScrollView
-                                    showsVerticalScrollIndicator={false}
-                                    snapToInterval={44}
-                                    decelerationRate="fast"
-                                    contentContainerStyle={styles.wheelScrollContent}
-                                    onMomentumScrollEnd={handleMonthScroll}
-                                >
-                                    {MONTH_NAMES.map((month, index) => (
-                                        <TouchableOpacity
-                                            key={month}
-                                            style={styles.wheelItem}
-                                            onPress={() => handleSelectMonth(index + 1)}
-                                        >
-                                            <Text style={[
-                                                styles.wheelItemText,
-                                                selectedMonth === index + 1 && styles.wheelItemTextSelected,
-                                            ]}>
-                                                {month}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </ScrollView>
-                            </View>
-
-                            {/* Day Column */}
-                            <View style={styles.wheelColumnSmall}>
-                                <ScrollView
-                                    showsVerticalScrollIndicator={false}
-                                    snapToInterval={44}
-                                    decelerationRate="fast"
-                                    contentContainerStyle={styles.wheelScrollContent}
-                                    onMomentumScrollEnd={handleDayScroll}
-                                >
-                                    {Array.from({ length: daysInCurrentMonth }, (_, i) => i + 1).map((day) => (
-                                        <TouchableOpacity
-                                            key={day}
-                                            style={styles.wheelItem}
-                                            onPress={() => handleSelectDay(day)}
-                                        >
-                                            <Text style={[
-                                                styles.wheelItemText,
-                                                selectedDay === day && styles.wheelItemTextSelected,
-                                            ]}>
-                                                {day}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </ScrollView>
-                            </View>
-
-                            {/* Year Column */}
-                            <View style={styles.wheelColumnSmall}>
-                                <ScrollView
-                                    showsVerticalScrollIndicator={false}
-                                    snapToInterval={44}
-                                    decelerationRate="fast"
-                                    contentContainerStyle={styles.wheelScrollContent}
-                                    onMomentumScrollEnd={handleYearScroll}
-                                >
-                                    {years.map((year) => (
-                                        <TouchableOpacity
-                                            key={year}
-                                            style={styles.wheelItem}
-                                            onPress={() => handleSelectYear(year)}
-                                        >
-                                            <Text style={[
-                                                styles.wheelItemText,
-                                                selectedYear === year && styles.wheelItemTextSelected,
-                                            ]}>
-                                                {year}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </ScrollView>
-                            </View>
-                        </View>
-
-                        {/* Age Column */}
-                        <View style={styles.ageWheelSection}>
-                            <Text style={styles.ageWheelLabel}>Or select your age:</Text>
-                            <View style={styles.ageWheelContainer}>
-                                <View style={styles.ageWheelIndicator} />
-                                <ScrollView
-                                    showsVerticalScrollIndicator={false}
-                                    snapToInterval={48}
-                                    decelerationRate="fast"
-                                    contentContainerStyle={styles.ageWheelContent}
-                                    horizontal={false}
-                                    onMomentumScrollEnd={handleAgeScroll}
-                                >
-                                    {Array.from({ length: 82 }, (_, i) => i + 18).map((age) => {
-                                        const yearForAge = new Date().getFullYear() - age;
-                                        return (
-                                            <TouchableOpacity
-                                                key={age}
-                                                style={styles.ageWheelItem}
-                                                onPress={() => handleSelectYear(yearForAge)}
-                                            >
-                                                <Text style={[
-                                                    styles.ageWheelItemText,
-                                                    selectedYear === yearForAge && styles.ageWheelItemTextSelected,
-                                                ]}>
-                                                    {age}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        );
-                                    })}
-                                </ScrollView>
-                            </View>
-                        </View>
-                    </Animated.View>
-                </View>
-            </Modal>
+                    </View>
+                </Modal>
+            )}
         </View>
     );
 }
@@ -865,25 +687,20 @@ const styles = StyleSheet.create({
     buttonTextDisabled: {
         color: '#878787',
     },
-    sheetTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 18,
-        color: Colors.textPrimary,
-        marginBottom: 8,
-    },
     // Date picker styles
     datePickerModalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
+        justifyContent: 'flex-end',
     },
-    datePickerContainer: {
-        backgroundColor: 'rgba(63, 66, 67, 0.95)',
-        borderRadius: 16,
-        paddingHorizontal: 16,
-        paddingVertical: 20,
-        width: 326,
+    datePickerBackdrop: {
+        ...StyleSheet.absoluteFillObject,
+    },
+    datePickerBottomSheet: {
+        backgroundColor: '#1c1c1e',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        paddingBottom: 34,
     },
     datePickerHeader: {
         flexDirection: 'row',
@@ -892,109 +709,6 @@ const styles = StyleSheet.create({
         paddingVertical: 4,
         borderBottomWidth: 1,
         borderBottomColor: 'rgba(63, 66, 67, 0.5)',
-    },
-    datePickerSaveButton: {
-        paddingVertical: 8,
-        paddingHorizontal: 8,
-    },
-    datePickerSaveText: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
-        color: '#3494d9',
-    },
-    datePickerFields: {
-        flexDirection: 'row',
-        gap: 8,
-    },
-    datePickerField: {
-        backgroundColor: '#1b1b1c',
-        borderWidth: 1,
-        borderColor: '#313135',
-        borderRadius: 8,
-        paddingHorizontal: 16,
-        paddingVertical: 16,
-        width: 67,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    datePickerFieldFlex: {
-        flex: 1,
-        width: 'auto',
-    },
-    datePickerFieldActive: {
-        borderColor: '#3494d9',
-    },
-    datePickerFieldText: {
-        fontFamily: fonts.regular,
-        fontSize: 16,
-        color: Colors.textPrimary,
-        textAlign: 'center',
-    },
-    selectionContainer: {
-        marginTop: 16,
-        backgroundColor: '#1b1b1c',
-        borderRadius: 8,
-        maxHeight: 200,
-        overflow: 'hidden',
-    },
-    selectionScroll: {
-        maxHeight: 200,
-    },
-    selectionItem: {
-        paddingVertical: 12,
-        paddingHorizontal: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: '#313135',
-    },
-    selectionItemSelected: {
-        backgroundColor: 'rgba(52, 148, 217, 0.2)',
-    },
-    selectionItemText: {
-        fontFamily: fonts.regular,
-        fontSize: 16,
-        color: Colors.textPrimary,
-    },
-    selectionItemTextSelected: {
-        color: '#3494d9',
-        fontFamily: fonts.medium,
-    },
-    dayGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        padding: 8,
-    },
-    dayItem: {
-        width: '14.28%',
-        aspectRatio: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRadius: 4,
-    },
-    dayItemSelected: {
-        backgroundColor: 'rgba(52, 148, 217, 0.3)',
-    },
-    dayItemText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: Colors.textPrimary,
-    },
-    dayItemTextSelected: {
-        color: '#3494d9',
-        fontFamily: fonts.medium,
-    },
-    // New wheel picker styles
-    datePickerBackdrop: {
-        ...StyleSheet.absoluteFillObject,
-    },
-    datePickerBottomSheet: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: '#1c1c1e',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        paddingBottom: 34,
     },
     datePickerHeaderButton: {
         paddingHorizontal: 16,
@@ -1010,81 +724,14 @@ const styles = StyleSheet.create({
         fontSize: 17,
         color: Colors.textPrimary,
     },
-    wheelPickerContainer: {
-        flexDirection: 'row',
-        paddingHorizontal: 16,
-        paddingVertical: 20,
-        height: 220,
-        position: 'relative',
-    },
-    wheelSelectionIndicator: {
-        position: 'absolute',
-        left: 16,
-        right: 16,
-        top: '50%',
-        height: 44,
-        marginTop: -22,
-        backgroundColor: 'rgba(63, 66, 67, 0.6)',
-        borderRadius: 10,
-    },
-    wheelColumn: {
-        flex: 2,
-        height: '100%',
-        overflow: 'hidden',
-    },
-    wheelColumnSmall: {
-        flex: 1,
-        height: '100%',
-        overflow: 'hidden',
-    },
-    wheelScrollContent: {
-        paddingVertical: 88,
-    },
-    wheelItem: {
-        height: 44,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    wheelItemText: {
-        fontFamily: fonts.regular,
-        fontSize: 20,
-        color: '#878787',
-    },
-    wheelItemTextSelected: {
+    datePickerSaveText: {
         fontFamily: fonts.medium,
-        color: Colors.textPrimary,
+        fontSize: 16,
+        color: '#3494d9',
     },
-    quickAgeContainer: {
-        paddingHorizontal: 16,
-        paddingBottom: 16,
-    },
-    quickAgeLabel: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#878787',
-        marginBottom: 12,
-    },
-    quickAgeButtons: {
-        flexDirection: 'row',
-        gap: 8,
-    },
-    quickAgeButton: {
-        flex: 1,
-        paddingVertical: 10,
-        backgroundColor: 'rgba(63, 66, 67, 0.5)',
-        borderRadius: 8,
-        alignItems: 'center',
-    },
-    quickAgeButtonSelected: {
-        backgroundColor: Colors.buttonPrimary,
-    },
-    quickAgeButtonText: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#878787',
-    },
-    quickAgeButtonTextSelected: {
-        color: Colors.textPrimary,
+    datePicker: {
+        height: 216,
+        backgroundColor: '#1c1c1e',
     },
     // Wheel Modal Styles (for Region, Biological Sex pickers)
     wheelModalOverlay: {
@@ -1171,49 +818,4 @@ const styles = StyleSheet.create({
         fontSize: 17,
         color: Colors.textPrimary,
     },
-    // Age Wheel Section (in Birth Date picker)
-    ageWheelSection: {
-        paddingHorizontal: 16,
-        paddingBottom: 16,
-    },
-    ageWheelLabel: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#878787',
-        marginBottom: 12,
-        textAlign: 'center',
-    },
-    ageWheelContainer: {
-        height: 150,
-        position: 'relative',
-    },
-    ageWheelIndicator: {
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        top: '50%',
-        height: 48,
-        marginTop: -24,
-        backgroundColor: 'rgba(63, 66, 67, 0.6)',
-        borderRadius: 12,
-    },
-    ageWheelContent: {
-        paddingVertical: 51,
-    },
-    ageWheelItem: {
-        height: 48,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    ageWheelItemText: {
-        fontFamily: fonts.regular,
-        fontSize: 20,
-        color: '#878787',
-    },
-    ageWheelItemTextSelected: {
-        fontFamily: fonts.semiBold,
-        color: Colors.textPrimary,
-        fontSize: 22,
-    },
 });
-

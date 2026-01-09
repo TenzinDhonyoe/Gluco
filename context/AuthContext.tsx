@@ -2,7 +2,7 @@ import { getUserProfile, GlucoseUnit, supabase, UserProfile } from '@/lib/supaba
 import { Session, User } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 
 // Default glucose unit when user hasn't set a preference
 const DEFAULT_GLUCOSE_UNIT: GlucoseUnit = 'mmol/L';
@@ -31,9 +31,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         // Get initial session
         supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            if (session?.user) {
+            if (session) {
+                setSession(session);
+                setUser(session.user);
                 loadProfile(session.user.id);
             } else {
                 setLoading(false);
@@ -44,11 +44,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
                 console.log('Auth state changed:', event);
+
+                if (event === 'TOKEN_REFRESHED') {
+                    // Just update session, no need to reload profile
+                    setSession(session);
+                    setUser(session?.user ?? null);
+                    return;
+                }
+
                 setSession(session);
                 setUser(session?.user ?? null);
 
                 if (session?.user) {
-                    await loadProfile(session.user.id);
+                    // Only reload profile if we don't have it or if it's a SIGN_IN event
+                    if (!profile || event === 'SIGNED_IN') {
+                        await loadProfile(session.user.id);
+                    }
                 } else {
                     setProfile(null);
                     setLoading(false);
@@ -56,8 +67,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         );
 
+        // Listen for AppState changes to refresh session when returning to app
+        const handleAppStateChange = (nextAppState: AppStateStatus) => {
+            if (nextAppState === 'active') {
+                console.log('App came to foreground, checking session...');
+                supabase.auth.getSession().then(({ data: { session }, error }) => {
+                    if (error) {
+                        console.error('Error refreshing session:', error);
+                        // If session is invalid, might want to sign out or handle gracefully
+                    }
+                    if (session) {
+                        // Session is valid, ensure local state matches
+                        if (!user) {
+                            setUser(session.user);
+                            setSession(session);
+                            loadProfile(session.user.id);
+                        }
+                    } else {
+                        // No valid session found
+                        if (user) {
+                            // We thought we had a user, but session is gone?
+                            // Maybe verify if we need to sign out
+                        }
+                    }
+                });
+            }
+        };
+
+        const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
+
         return () => {
             subscription.unsubscribe();
+            appStateSubscription.remove();
         };
     }, []);
 

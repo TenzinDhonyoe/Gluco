@@ -17,12 +17,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { getUserProfile, updateUserProfile, GlucoseUnit } from '@/lib/supabase';
-import { 
-    formatGlucose, 
-    convertToMmol, 
-    convertFromMmol,
-    getGlucoseInputPlaceholder 
+import { getUserProfile, GlucoseUnit, updateUserProfile } from '@/lib/supabase';
+import {
+    convertToMmol,
+    formatGlucose,
+    getGlucoseInputPlaceholder
 } from '@/lib/utils/glucoseUnits';
 
 // Default glucose target range (mmol/L)
@@ -52,7 +51,7 @@ export default function CustomizationScreen() {
             if (profile) {
                 const unit = profile.glucose_unit ?? 'mmol/L';
                 setSelectedUnit(unit);
-                
+
                 // Display target values in user's preferred unit
                 const minMmol = profile.target_min ?? DEFAULT_TARGET_MIN;
                 const maxMmol = profile.target_max ?? DEFAULT_TARGET_MAX;
@@ -69,25 +68,25 @@ export default function CustomizationScreen() {
     useEffect(() => {
         loadSettings();
     }, [loadSettings]);
-    
+
     // When unit changes, convert the displayed values
     const handleUnitChange = (newUnit: GlucoseUnit) => {
         if (newUnit === selectedUnit) return;
-        
+
         // Convert current values from old unit to mmol, then to new unit for display
         const minValue = parseFloat(targetMin);
         const maxValue = parseFloat(targetMax);
-        
+
         if (!isNaN(minValue)) {
             const minMmol = convertToMmol(minValue, selectedUnit);
             setTargetMin(formatGlucose(minMmol, newUnit));
         }
-        
+
         if (!isNaN(maxValue)) {
             const maxMmol = convertToMmol(maxValue, selectedUnit);
             setTargetMax(formatGlucose(maxMmol, newUnit));
         }
-        
+
         setSelectedUnit(newUnit);
     };
 
@@ -237,7 +236,7 @@ export default function CustomizationScreen() {
                     <View style={[styles.card, { marginTop: 16 }]}>
                         <Text style={styles.cardTitle}>Glucose Target Range</Text>
                         <Text style={styles.cardDescription}>
-                            Set your personal glucose target range. This will be shown on your charts as the "in range" zone.
+                            Set your personal glucose target band. This will be shown on your charts as your target zone.
                         </Text>
 
                         {/* Min Target */}
@@ -278,7 +277,7 @@ export default function CustomizationScreen() {
                             </View>
                         </View>
                     </View>
-                    
+
                     {/* Spacing at bottom for save button */}
                     <View style={{ height: 100 }} />
                 </ScrollView>

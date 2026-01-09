@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Colors } from '@/constants/Colors';
+import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +11,7 @@ import {
     Alert,
     ImageBackground,
     KeyboardAvoidingView,
+    Linking,
     Platform,
     ScrollView,
     StyleSheet,
@@ -191,7 +193,20 @@ export default function SignUpScreen() {
                                         )}
                                     </View>
                                     <Text style={styles.checkboxText}>
-                                        I agree to the Privacy Policy & Terms of Service
+                                        I agree to the{' '}
+                                        <Text
+                                            style={styles.legalLink}
+                                            onPress={() => Linking.openURL(LEGAL_URLS.privacyPolicy)}
+                                        >
+                                            Privacy Policy
+                                        </Text>
+                                        {' & '}
+                                        <Text
+                                            style={styles.legalLink}
+                                            onPress={() => Linking.openURL(LEGAL_URLS.termsAndConditions)}
+                                        >
+                                            Terms of Service
+                                        </Text>
                                     </Text>
                                 </TouchableOpacity>
 
@@ -378,6 +393,10 @@ const styles = StyleSheet.create({
     },
     signInLink: {
         color: '#0e9cff', // Blue link color from Figma
+        textDecorationLine: 'underline',
+    },
+    legalLink: {
+        color: '#47aa4b', // Green link color
         textDecorationLine: 'underline',
     },
 });

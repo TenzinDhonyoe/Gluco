@@ -360,6 +360,7 @@ User-entered lab results for wellness score calculation.
 5. **Onboarding** (`app/onboarding-1.tsx` through `onboarding-5.tsx`): Collects user profile data
    - Updates profile via `updateUserProfile()`
    - Sets `onboarding_completed = true` on final step
+   - **Navigation Handling**: Pressing "Back" on `onboarding-1` or `onboarding-2` (if no history) triggers `signOut()` to prevent navigation loops and allow returning to Welcome screen.
 6. **Main App** (`app/(tabs)/`): Tab navigator (requires authenticated user)
 
 ### AuthContext (`context/AuthContext.tsx`)
@@ -3617,6 +3618,46 @@ triggerCalibrationUpdate(user.id, reviewId).catch(console.warn);
 
 ---
 
-**Last Updated**: January 4, 2025
-**Version**: 1.5.0 (Wearables-Only Mode, Regulatory Copy Audit, Disclaimer Component)
+---
+
+## 🚀 Recent Updates (January 2026)
+
+### 1. Onboarding Navigation Fix
+- **Problem**: Users could not navigate back to the Welcome screen from onboarding after signing up (due to `router.replace` clearing history).
+- **Solution**: Implemented a check in `onboarding-1.tsx` and `onboarding-2.tsx`. If `router.canGoBack()` is false (indicating no history), pressing "Back" now triggers `signOut()` and redirects to the Welcome screen.
+- **Files**: `app/onboarding-1.tsx`, `app/onboarding-2.tsx`, `context/AuthContext.tsx`.
+
+### 2. App Hang Fix
+- **Problem**: App would hang when resuming from background on some devices.
+- **Solution**: Optimized background state handling in `app/_layout.tsx` to ensure smooth resumption.
+
+### 3. Legal Links Update
+- **Change**: Updated "Terms of Service" and "Privacy Policy" links throughout the app (Welcome screen, Signup, Settings) to point to the correct internal Notion pages rather than placeholders.
+
+### 4. Premium Redesign (Dark Mode)
+- **Strategy**: Implemented a premium, health-tech aesthetic inspired by Noze.ca.
+- **Key Elements**:
+    - Deep dark theme (`#111111` background).
+    - "Status Strip" to indicate development stage.
+    - Enhanced typography using the **Outfit** variable font family.
+    - Subtle gradients and glowing elements for a modern feel.
+
+### 5. Metabolic Score Integration
+- **Backend**: Finalized `metabolic-score` Edge Function logic.
+- **Features**: Deterministic scoring algorithm, data sufficiency gating, and integration with Apple HealthKit data.
+
+### 6. Video Asset Verification
+- **Asset**: Confirmed `gluco_video.mp4` is correctly placed in `assets/videos/` for the Welcome Screen background.
+- **Note**: Requires native build (Simulator or Device) to play correctly; may error in partial managed workflows if `expo-av` native code is missing.
+
+### 7. Known Issues: iOS Simulator Build
+- **Issue**: "No code signing certificates available" error when running `npx expo run:ios` targeting a physical device by mistake, or when native project is out of sync.
+- **Workaround**: 
+    - Target simulator explicitly: `npx expo run:ios --device "iPhone 17 Pro"`
+    - Or reset native project: `npx expo prebuild --clean --platform ios`
+
+---
+
+**Last Updated**: January 9, 2026
+**Version**: 1.6.0 (Onboarding Navigation Fix, Jan 2026 Updates)
 

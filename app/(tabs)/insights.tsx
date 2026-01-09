@@ -1,6 +1,7 @@
 import { AnimatedScreen } from '@/components/animated-screen';
 import { SegmentedControl } from '@/components/segmented-control';
 import { Disclaimer } from '@/components/ui/Disclaimer';
+import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import {
@@ -26,11 +27,12 @@ import {
     ActivityIndicator,
     Alert,
     Dimensions,
+    Image,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
-    View
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { G, Path } from 'react-native-svg';
@@ -168,7 +170,7 @@ function TimeOfDayChart({ data }: { data: { period: string; avgValue: number }[]
                 {/* Y-axis labels - rotated text */}
                 <View style={[styles.chartYAxis, { height: chartHeight }]}>
                     <View style={styles.chartYLabelRow}>
-                        <Text style={styles.chartYLabel}>Spike</Text>
+                        <Text style={styles.chartYLabel}>Elevated</Text>
                     </View>
                     <View style={styles.chartYLabelRow}>
                         <Text style={styles.chartYLabel}>Mild</Text>
@@ -287,7 +289,7 @@ function WeekdayWeekendComparison({ weekdayData, weekendData }: {
                     <Text style={styles.comparisonColumnHeader}>Mild</Text>
                     <Text style={styles.comparisonColumnHeader}>Elevation</Text>
                 </View>
-                <Text style={styles.comparisonColumnHeader}>Spike</Text>
+                <Text style={styles.comparisonColumnHeader}>Elevated</Text>
             </View>
 
             {/* Data rows */}
@@ -315,7 +317,7 @@ function BehavioralImpactItem({ title, percentage, color }: { title: string; per
 function MealComparisonEmpty() {
     return (
         <View style={styles.mealComparisonEmpty}>
-            <Ionicons name="nutrition-outline" size={48} color="#4A4A4A" />
+            <Image source={Images.mascots.cook} style={{ width: 80, height: 80, resizeMode: 'contain', marginBottom: 12 }} />
             <Text style={styles.mealComparisonEmptyTitle}>No Meal Data Yet</Text>
             <Text style={styles.mealComparisonEmptyText}>
                 Log meals and check in regularly to see patterns here.
@@ -690,7 +692,7 @@ export default function InsightsScreen() {
     const renderInsufficientData = () => (
         <View style={styles.card}>
             <View style={{ alignItems: 'center', padding: 24, gap: 12 }}>
-                <Ionicons name="bar-chart-outline" size={48} color="#3494D9" />
+                <Image source={Images.mascots.thinking} style={{ width: 80, height: 80, resizeMode: 'contain' }} />
                 <Text style={{ fontFamily: fonts.semiBold, fontSize: 18, color: '#FFFFFF', textAlign: 'center' }}>
                     Not Enough Data Yet
                 </Text>
@@ -1021,7 +1023,7 @@ export default function InsightsScreen() {
 
                     {!hasSufficientData ? (
                         <View style={{ alignItems: 'center', padding: 24, gap: 12 }}>
-                            <Ionicons name="bar-chart-outline" size={48} color="#3494D9" />
+                            <Image source={Images.mascots.thinking} style={{ width: 80, height: 80, resizeMode: 'contain' }} />
                             <Text style={{ fontFamily: fonts.semiBold, fontSize: 18, color: '#FFFFFF', textAlign: 'center' }}>
                                 Not Enough Data Yet
                             </Text>
@@ -1109,9 +1111,9 @@ export default function InsightsScreen() {
                             </View>
 
                             <View style={styles.peakComparisonContent}>
-                                {/* Time in Range */}
+                                {/* Time in Target */}
                                 <View style={styles.trendBarRow}>
-                                    <Text style={styles.trendBarLabel}>Time in Range</Text>
+                                    <Text style={styles.trendBarLabel}>Time in Target</Text>
                                     <View style={styles.trendBarContainer}>
                                         <View style={[styles.trendBar, { width: `${glucoseStats.tir}%`, backgroundColor: '#4CAF50' }]} />
                                     </View>
@@ -1229,7 +1231,7 @@ export default function InsightsScreen() {
                 >
                     <View style={styles.myExperimentsContent}>
                         <View style={styles.myExperimentsIconContainer}>
-                            <Ionicons name="flask-outline" size={20} color="#3494D9" />
+                            <Image source={Images.mascots.thinking} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
                         </View>
                         <View style={styles.myExperimentsTextContainer}>
                             <Text style={styles.myExperimentsTitle}>My Experiments</Text>
@@ -2276,8 +2278,7 @@ const styles = StyleSheet.create({
 
     // My Experiments Card (Premium)
     myExperimentsCard: {
-        marginHorizontal: 16,
-        marginVertical: 12,
+        marginBottom: 24, // Matches gap or spacing
         borderRadius: 16,
         overflow: 'hidden',
     },
@@ -2471,10 +2472,8 @@ const styles = StyleSheet.create({
         gap: 12,
     },
     myExperimentsIconContainer: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: 'rgba(52, 148, 217, 0.1)',
+        width: 56,
+        height: 56,
         alignItems: 'center',
         justifyContent: 'center',
     },

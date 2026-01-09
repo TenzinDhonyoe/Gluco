@@ -2,9 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 
@@ -46,6 +47,11 @@ export default function SettingsScreen() {
         { label: 'Customization', onPress: () => router.push('/customization') },
         { label: 'Notifications', onPress: () => router.push('/notification-settings' as never) },
         { label: 'Lab & Health Info', onPress: () => router.push('/labs-health-info' as never) },
+    ];
+
+    const legalItems: SettingsItem[] = [
+        { label: 'Privacy Policy', onPress: () => Linking.openURL(LEGAL_URLS.privacyPolicy) },
+        { label: 'Terms of Service', onPress: () => Linking.openURL(LEGAL_URLS.termsAndConditions) },
     ];
 
     const SettingsRow = ({ label, onPress, isLogout }: SettingsItem) => (
@@ -90,6 +96,16 @@ export default function SettingsScreen() {
                         <React.Fragment key={item.label}>
                             <SettingsRow {...item} />
                             {index < menuItems.length - 1 && <View style={styles.divider} />}
+                        </React.Fragment>
+                    ))}
+                </View>
+
+                {/* Legal Card */}
+                <View style={styles.settingsCard}>
+                    {legalItems.map((item, index) => (
+                        <React.Fragment key={item.label}>
+                            <SettingsRow {...item} />
+                            {index < legalItems.length - 1 && <View style={styles.divider} />}
                         </React.Fragment>
                     ))}
                 </View>

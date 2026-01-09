@@ -36,7 +36,7 @@ export default function Onboarding1Screen() {
     const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const scrollViewRef = React.useRef<ScrollView>(null);
-    const { user } = useAuth();
+    const { user, signOut } = useAuth();
     const currentStep = 2;
     const totalSteps = 5;
 
@@ -71,8 +71,15 @@ export default function Onboarding1Screen() {
         }
     };
 
-    const handleBack = () => {
-        router.back();
+    const handleBack = async () => {
+        if (router.canGoBack()) {
+            router.back();
+        } else {
+            // If we can't go back, it means we entered here directly (e.g. from app launch)
+            // So we should sign out and go to welcome screen
+            await signOut();
+            router.replace('/');
+        }
     };
 
     const isContinueEnabled = selectedGoals.length > 0;

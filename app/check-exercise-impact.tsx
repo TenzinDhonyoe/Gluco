@@ -3,6 +3,7 @@
  * Displays exercise analysis results including calories burned and glucose impact
  */
 
+import { Images } from '@/constants/Images';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import {
@@ -14,7 +15,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
+    Animated,
+    Easing,
+    Image,
     ScrollView,
     StyleSheet,
     Text,
@@ -23,6 +26,157 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
+
+
+// Exercise Loading Screen with Mascot
+function ExerciseLoadingScreen({ message }: { message: string }) {
+    const dot1Anim = React.useRef(new Animated.Value(0)).current;
+    const dot2Anim = React.useRef(new Animated.Value(0)).current;
+    const dot3Anim = React.useRef(new Animated.Value(0)).current;
+
+    React.useEffect(() => {
+        const createDotAnimation = (animValue: Animated.Value, delay: number) => {
+            return Animated.loop(
+                Animated.sequence([
+                    Animated.delay(delay),
+                    Animated.timing(animValue, {
+                        toValue: 1,
+                        duration: 400,
+                        easing: Easing.inOut(Easing.ease),
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(animValue, {
+                        toValue: 0,
+                        duration: 400,
+                        easing: Easing.inOut(Easing.ease),
+                        useNativeDriver: true,
+                    }),
+                ])
+            );
+        };
+
+        const anim1 = createDotAnimation(dot1Anim, 0);
+        const anim2 = createDotAnimation(dot2Anim, 150);
+        const anim3 = createDotAnimation(dot3Anim, 300);
+
+        anim1.start();
+        anim2.start();
+        anim3.start();
+
+        return () => {
+            anim1.stop();
+            anim2.stop();
+            anim3.stop();
+        };
+    }, [dot1Anim, dot2Anim, dot3Anim]);
+
+    const getDotStyle = (animValue: Animated.Value) => ({
+        transform: [
+            {
+                translateY: animValue.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, -12],
+                }),
+            },
+            {
+                scale: animValue.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [1, 1.2],
+                }),
+            },
+        ],
+        opacity: animValue.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.7, 1],
+        }),
+    });
+
+    return (
+        <View style={loadingStyles.container}>
+            <LinearGradient
+                colors={['#111111', '#1A1B1C', '#111111']}
+                style={loadingStyles.gradient}
+            />
+            <Image
+                source={Images.mascots.exercise}
+                style={loadingStyles.mascot}
+                resizeMode="contain"
+            />
+            <Text style={loadingStyles.thinkingText}>{message}</Text>
+            <View style={loadingStyles.dotsContainer}>
+                <Animated.View style={[loadingStyles.dot, getDotStyle(dot1Anim)]}>
+                    <LinearGradient
+                        colors={['#4CAF50', '#8BC34A']}
+                        style={loadingStyles.dotGradient}
+                    />
+                </Animated.View>
+                <Animated.View style={[loadingStyles.dot, getDotStyle(dot2Anim)]}>
+                    <LinearGradient
+                        colors={['#3494D9', '#64B5F6']}
+                        style={loadingStyles.dotGradient}
+                    />
+                </Animated.View>
+                <Animated.View style={[loadingStyles.dot, getDotStyle(dot3Anim)]}>
+                    <LinearGradient
+                        colors={['#FF9800', '#FFB74D']}
+                        style={loadingStyles.dotGradient}
+                    />
+                </Animated.View>
+            </View>
+            <Text style={loadingStyles.subText}>Calculating impact...</Text>
+        </View>
+    );
+}
+
+const loadingStyles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#111111',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    gradient: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+    },
+    mascot: {
+        width: 180,
+        height: 180,
+        marginBottom: 32,
+    },
+    thinkingText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 20,
+        color: '#FFFFFF',
+        marginBottom: 24,
+    },
+    dotsContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+        marginBottom: 16,
+    },
+    dot: {
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        overflow: 'hidden',
+    },
+    dotGradient: {
+        width: '100%',
+        height: '100%',
+        borderRadius: 8,
+    },
+    subText: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#878787',
+        marginTop: 8,
+    },
+});
 
 // Calories Gauge Component
 function CaloriesGauge({ calories, maxCalories = 500 }: { calories: number; maxCalories?: number }) {
@@ -244,11 +398,7 @@ export default function CheckExerciseImpactScreen() {
                 </View>
 
                 {isAnalyzing ? (
-                    <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="large" color="#4CAF50" />
-                        <Text style={styles.loadingText}>Analyzing exercise...</Text>
-                        <Text style={styles.loadingSubtext}>{initialText}</Text>
-                    </View>
+                    <ExerciseLoadingScreen message="Analyzing exercise..." />
                 ) : error ? (
                     <View style={styles.errorContainer}>
                         <Ionicons name="alert-circle-outline" size={48} color="#F44336" />
