@@ -127,7 +127,7 @@ export function containsBannedTerms(text: string): boolean {
  */
 export function sanitizeInsight(text: string): string | null {
     if (containsBannedTerms(text)) {
-        console.warn('Insight contained banned terms:', text);
+        if (__DEV__) console.warn('Insight contained banned terms:', text);
         return null;
     }
     return text;
@@ -460,7 +460,7 @@ export function generateInsights(
         const isSafe = !containsBannedTerms(insight.recommendation) &&
             !containsBannedTerms(insight.because) &&
             !containsBannedTerms(insight.title);
-        if (!isSafe) {
+        if (!isSafe && __DEV__) {
             console.warn('Filtered unsafe insight:', insight.id);
         }
         return isSafe;
@@ -554,7 +554,7 @@ export async function invokePersonalInsights(
             const parsed: CachedInsights = JSON.parse(cached);
             const age = Date.now() - parsed.timestamp;
             if (age < CACHE_TTL_MS) {
-                console.log('Using cached insights');
+                if (__DEV__) console.log('Using cached insights');
                 return parsed.insights;
             }
         }

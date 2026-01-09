@@ -81,7 +81,7 @@ export async function schedulePostMealReviewNotification(
             },
         });
 
-        console.log(`Scheduled after-meal check-in notification: ${notificationId} in ${secondsUntil}s`);
+        if (__DEV__) console.log(`Scheduled after-meal check-in notification: ${notificationId} in ${secondsUntil}s`);
         return notificationId;
     } catch (error) {
         console.error('Failed to schedule notification:', error);
@@ -95,7 +95,7 @@ export async function schedulePostMealReviewNotification(
 export async function cancelScheduledNotification(notificationId: string): Promise<void> {
     try {
         await Notifications.cancelScheduledNotificationAsync(notificationId);
-        console.log(`Cancelled notification: ${notificationId}`);
+        if (__DEV__) console.log(`Cancelled notification: ${notificationId}`);
     } catch (error) {
         console.error('Failed to cancel notification:', error);
     }
@@ -128,7 +128,7 @@ let responseSubscription: Notifications.EventSubscription | null = null;
 export function setupNotificationListeners(): () => void {
     // Handle notification received while app is foregrounded
     notificationSubscription = Notifications.addNotificationReceivedListener(notification => {
-        console.log('Notification received:', notification.request.content.title);
+        if (__DEV__) console.log('Notification received:', notification.request.content.title);
     });
 
     // Handle when user taps on notification

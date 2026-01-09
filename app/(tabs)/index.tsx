@@ -976,16 +976,6 @@ export default function TodayScreen() {
     const { glucoseLogs, activityLogs, fibreSummary, recentMeals, isLoading } = useTodayScreenData(range);
     const { targetMin, targetMax } = useGlucoseTargetRange();
 
-    // DEBUG: Log what data we're getting
-    React.useEffect(() => {
-        console.log('[DEBUG] useTodayScreenData result:', {
-            glucoseLogsCount: glucoseLogs?.length,
-            recentMealsCount: recentMeals?.length,
-            fibreSummary: fibreSummary?.avgPerDay,
-            isLoading,
-        });
-    }, [glucoseLogs, recentMeals, fibreSummary, isLoading]);
-
     // Fetch sleep data from HealthKit
     const { data: sleepData } = useSleepData(range);
 
