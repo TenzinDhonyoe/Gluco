@@ -341,7 +341,7 @@ function estimateMatchConfidence(query: string, result: NormalizedFood): number 
 }
 
 export default function MealResponseCheckScreen() {
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const { initialText } = useLocalSearchParams<{ initialText?: string }>();
     const [inputText, setInputText] = useState('');
     const [isSearching, setIsSearching] = useState(false);
@@ -389,7 +389,9 @@ export default function MealResponseCheckScreen() {
         const [currentItem, ...remainingItems] = items;
 
         try {
-            const searchResult = await searchWithOrchestration(currentItem);
+            const searchResult = await searchWithOrchestration(currentItem, {
+                aiEnabled: profile?.ai_enabled ?? false,
+            });
 
             if (searchResult.results.length === 0) {
                 setError(`Couldn't find "${currentItem}". Try editing your meal.`);
@@ -446,6 +448,11 @@ export default function MealResponseCheckScreen() {
         setError(null);
 
         try {
+            if (!profile?.ai_enabled) {
+                setError('AI insights are disabled. Enable them in Privacy settings.');
+                return;
+            }
+
             // Build meal draft
             const mealDraft: PremealMealDraft = {
                 name: inputText,

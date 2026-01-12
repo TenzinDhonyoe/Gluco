@@ -28,9 +28,14 @@ const inFlightRequests = new Map<string, Promise<GeminiRewriteResult | null>>();
  */
 export async function getQueryRewrite(
     query: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    aiEnabled: boolean = true
 ): Promise<GeminiRewriteResult | null> {
     const normalizedQuery = query.toLowerCase().trim();
+
+    if (!aiEnabled) {
+        return null;
+    }
 
     if (normalizedQuery.length < 2) {
         return null;

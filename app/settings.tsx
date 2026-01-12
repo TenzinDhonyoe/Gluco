@@ -2,8 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Alert, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
@@ -55,10 +57,9 @@ export default function SettingsScreen() {
     ];
 
     const SettingsRow = ({ label, onPress, isLogout }: SettingsItem) => (
-        <TouchableOpacity
+        <AnimatedPressable
             style={styles.settingsRow}
             onPress={onPress}
-            activeOpacity={0.7}
         >
             <Text style={[styles.settingsLabel, isLogout && styles.logoutLabel]}>
                 {label}
@@ -68,7 +69,7 @@ export default function SettingsScreen() {
                 size={16}
                 color="#E7E8E9"
             />
-        </TouchableOpacity>
+        </AnimatedPressable>
     );
 
     return (
@@ -83,9 +84,9 @@ export default function SettingsScreen() {
             <SafeAreaView style={styles.safeArea} edges={['top']}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <TouchableOpacity style={styles.closeButton} onPress={handleClose} activeOpacity={0.7}>
+                    <AnimatedPressable style={styles.closeButton} onPress={handleClose}>
                         <Ionicons name="close" size={20} color="#E7E8E9" />
-                    </TouchableOpacity>
+                    </AnimatedPressable>
                     <Text style={styles.headerTitle}>SETTINGS</Text>
                     <View style={styles.headerSpacer} />
                 </View>

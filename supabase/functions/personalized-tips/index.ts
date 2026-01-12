@@ -3,6 +3,9 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
+import { isAiEnabled } from '../_shared/ai.ts';
+import { sanitizeText } from '../_shared/safety.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -217,11 +220,18 @@ function generateFallbackTips(stats: UserStats): PersonalizedTip[] {
             title: 'Stay Active',
             description: stats.activity.totalMinutes > 0
                 ? `Great work! You've logged ${stats.activity.totalMinutes} minutes across ${stats.activity.activeDays} days.`
-                : 'A 10-min walk after meals can reduce glucose spikes by 15%.',
+                : 'A 10-min walk after meals can help keep energy steady.',
             articleUrl: 'https://www.healthline.com/nutrition/walking-after-eating',
             metric: `${stats.activity.totalMinutes} min`,
         },
     ];
+}
+
+function sanitizeTips(tips: PersonalizedTip[], fallback: PersonalizedTip[]): PersonalizedTip[] {
+    const safeTips = tips.filter(tip =>
+        sanitizeText(tip.title) !== null && sanitizeText(tip.description) !== null
+    );
+    return safeTips.length > 0 ? safeTips : fallback;
 }
 
 serve(async (req) => {
@@ -230,9 +240,9 @@ serve(async (req) => {
     }
 
     try {
-        const { user_id } = await req.json();
+        const { user_id: requestedUserId } = await req.json();
 
-        if (!user_id) {
+        if (!requestedUserId) {
             return new Response(
                 JSON.stringify({ error: 'Missing user_id' }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -244,15 +254,25 @@ serve(async (req) => {
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
+        const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
+        const mismatch = requireMatchingUserId(requestedUserId, user.id, corsHeaders);
+        if (mismatch) return mismatch;
+
+        const userId = user.id;
+        const aiEnabled = await isAiEnabled(supabase, userId);
+
         // Fetch user stats
-        const stats = await fetchUserStats(supabase, user_id);
-        console.log('User stats:', stats);
+        const stats = await fetchUserStats(supabase, userId);
 
         // Generate tips with Gemini
-        const tips = await generateTipsWithGemini(stats);
+        const fallback = generateFallbackTips(stats);
+        const tips = aiEnabled ? await generateTipsWithGemini(stats) : fallback;
+        const safeTips = sanitizeTips(tips, fallback);
 
         return new Response(
-            JSON.stringify({ tips, stats }),
+            JSON.stringify({ tips: safeTips, stats }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
     } catch (error) {

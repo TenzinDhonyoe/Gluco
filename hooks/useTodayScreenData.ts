@@ -16,7 +16,7 @@ import {
 } from '@/lib/supabase';
 import { getDateRange, getExtendedDateRange, RangeKey } from '@/lib/utils/dateRanges';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 export interface TodayScreenData {
     glucoseLogs: GlucoseLog[];
@@ -113,12 +113,8 @@ export function useTodayScreenData(range: RangeKey): TodayScreenData {
         }
     }, [user, range, authLoading]);
 
-    // Fetch on mount and when dependencies change (including when user becomes available)
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    // Refetch when screen comes into focus (important for when user becomes available after initial load)
+    // Fetch on mount and when screen comes into focus
+    // useFocusEffect runs on mount AND when screen gains focus - no need for separate useEffect
     useFocusEffect(
         useCallback(() => {
             fetchData();

@@ -43,9 +43,17 @@ export interface LabelScanResult {
  */
 export async function parseLabelFromImage(
     imageBase64: string,
-    options: { locale?: string; units?: 'metric' | 'us' } = {}
+    options: { locale?: string; units?: 'metric' | 'us'; aiEnabled?: boolean } = {}
 ): Promise<LabelScanResult> {
     try {
+        if (options.aiEnabled === false) {
+            return {
+                success: false,
+                error: 'AI insights disabled',
+                errorDetail: 'Enable AI insights in Privacy settings to scan labels',
+            };
+        }
+
         const { data, error } = await supabase.functions.invoke('label-parse', {
             body: {
                 image_base64: imageBase64,

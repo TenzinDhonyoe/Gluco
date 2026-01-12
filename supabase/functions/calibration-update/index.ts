@@ -4,6 +4,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { requireMatchingUserId, requireUser } from "../_shared/auth.ts";
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -397,9 +398,9 @@ Deno.serve(async (req) => {
     }
 
     try {
-        const { user_id, review_id } = await req.json();
+        const { user_id: requestedUserId, review_id } = await req.json();
 
-        if (!user_id || !review_id) {
+        if (!requestedUserId || !review_id) {
             return new Response(
                 JSON.stringify({ error: 'Missing user_id or review_id' }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -411,12 +412,20 @@ Deno.serve(async (req) => {
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
+        const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
+        const mismatch = requireMatchingUserId(requestedUserId, user.id, corsHeaders);
+        if (mismatch) return mismatch;
+
+        const userId = user.id;
+
         // Load the review
         const { data: review, error: reviewError } = await supabase
             .from('post_meal_reviews')
             .select('*, meals(carbs_g, fibre_g)')
             .eq('id', review_id)
-            .eq('user_id', user_id)
+            .eq('user_id', userId)
             .single();
 
         if (reviewError || !review) {
@@ -430,11 +439,11 @@ Deno.serve(async (req) => {
         let { data: calibration } = await supabase
             .from('user_calibration')
             .select('*')
-            .eq('user_id', user_id)
+            .eq('user_id', userId)
             .single();
 
         if (!calibration) {
-            calibration = { ...DEFAULT_CALIBRATION, user_id };
+            calibration = { ...DEFAULT_CALIBRATION, user_id: userId };
         }
 
         // Extract metrics from actual curve
@@ -455,7 +464,7 @@ Deno.serve(async (req) => {
 
         // Fetch context features
         const mealTime = new Date(review.meal_time);
-        const context = await fetchContextFeatures(supabase, user_id, mealTime);
+        const context = await fetchContextFeatures(supabase, userId, mealTime);
 
         console.log('Calibration update context:', {
             metrics,
@@ -476,7 +485,7 @@ Deno.serve(async (req) => {
         const { error: upsertError } = await supabase
             .from('user_calibration')
             .upsert({
-                user_id,
+                user_id: userId,
                 ...updatedCalibration,
             }, { onConflict: 'user_id' });
 

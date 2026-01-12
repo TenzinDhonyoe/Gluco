@@ -13,6 +13,7 @@ import {
     ImageBackground,
     ScrollView,
     StyleSheet,
+    Switch,
     Text,
     TouchableOpacity,
     View
@@ -46,6 +47,7 @@ const COACHING_OPTIONS: CoachingOption[] = [
 export default function Onboarding5Screen() {
     const [selectedStyle, setSelectedStyle] = useState<CoachingStyle>('balanced');
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+    const [aiEnabled, setAiEnabled] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const scrollViewRef = React.useRef<ScrollView>(null);
     const { user, refreshProfile } = useAuth();
@@ -83,6 +85,8 @@ export default function Onboarding5Screen() {
                 await updateUserProfile(user.id, {
                     coaching_style: selectedStyle,
                     notifications_enabled: notificationsEnabled,
+                    ai_enabled: aiEnabled,
+                    ai_consent_at: aiEnabled ? new Date().toISOString() : null,
                     onboarding_completed: true,
                 });
                 // Refresh profile to update context
@@ -206,6 +210,25 @@ export default function Onboarding5Screen() {
                                         {notificationsEnabled ? 'Notifications Enabled' : 'Enable Notifications'}
                                     </Text>
                                 </TouchableOpacity>
+                            </View>
+
+                            {/* AI Insights Section */}
+                            <View style={styles.aiSection}>
+                                <View style={styles.aiRow}>
+                                    <View style={styles.aiTextBlock}>
+                                        <Text style={styles.aiTitle}>AI Insights</Text>
+                                        <Text style={styles.aiSubtitle}>
+                                            Allow AI to analyze meals and generate tips.
+                                        </Text>
+                                    </View>
+                                    <Switch
+                                        value={aiEnabled}
+                                        onValueChange={setAiEnabled}
+                                        trackColor={{ false: '#3F4243', true: '#3494D9' }}
+                                        thumbColor={aiEnabled ? '#FFFFFF' : '#878787'}
+                                        ios_backgroundColor="#3F4243"
+                                    />
+                                </View>
                             </View>
                         </View>
                     </ScrollView>
@@ -385,6 +408,36 @@ const styles = StyleSheet.create({
     },
     notificationButtonTextEnabled: {
         color: Colors.textPrimary,
+    },
+    aiSection: {
+        backgroundColor: 'rgba(26, 29, 31, 0.6)',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#2A2D30',
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        marginBottom: 12,
+    },
+    aiRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    aiTextBlock: {
+        flex: 1,
+        marginRight: 12,
+    },
+    aiTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 15,
+        color: Colors.textPrimary,
+        marginBottom: 4,
+    },
+    aiSubtitle: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#878787',
+        lineHeight: 16,
     },
     disclaimer: {
         marginHorizontal: 16,

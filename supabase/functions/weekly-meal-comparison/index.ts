@@ -2,6 +2,10 @@
 // Edge Function for generating AI-powered meal comparison drivers using Gemini
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
+import { isAiEnabled } from '../_shared/ai.ts';
+import { sanitizeText } from '../_shared/safety.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -76,12 +80,12 @@ function formatMealSummary(review: MealReview, label: string): string {
     return `${label}:
 - Meal: "${review.meal_name || 'Unknown meal'}" at ${mealTime}
 - Macros: ${macros}
-- Baseline glucose: ${baseline} mmol/L
-- Actual peak: ${actualPeak} mmol/L (predicted: ${predictedPeak} mmol/L)
-- Spike size (peak_delta): +${peakDelta} mmol/L
+- Baseline level: ${baseline} mmol/L
+- Peak level: ${actualPeak} mmol/L (predicted: ${predictedPeak} mmol/L)
+- Peak change (peak_delta): +${peakDelta} mmol/L
 - Time to peak: ${timeToPeak} minutes
 - Status: ${review.status_tag || 'unknown'}
-- Glucose curve: ${downsampleCurve(review.actual_curve)}`;
+- Response curve: ${downsampleCurve(review.actual_curve)}`;
 }
 
 async function generateDriversWithGemini(
@@ -95,10 +99,10 @@ async function generateDriversWithGemini(
         return generateFallbackDrivers(highest, lowest);
     }
 
-    const highestSummary = highest ? formatMealSummary(highest, 'HIGHEST SPIKE MEAL') : 'No high spike meal data';
-    const lowestSummary = lowest ? formatMealSummary(lowest, 'LOWEST SPIKE MEAL') : 'No low spike meal data';
+    const highestSummary = highest ? formatMealSummary(highest, 'HIGHEST RESPONSE MEAL') : 'No high response meal data';
+    const lowestSummary = lowest ? formatMealSummary(lowest, 'LOWEST RESPONSE MEAL') : 'No low response meal data';
 
-    const prompt = `You are a wellness coach analyzing a user's weekly meal responses. Based on their two meals with the highest and lowest glucose responses, generate 2-3 short, actionable "driver" insights for each meal explaining why it may have caused that response.
+    const prompt = `You are a wellness coach analyzing a user's weekly meal responses. Based on their two meals with the highest and lowest responses, generate 2-3 short, actionable "driver" insights for each meal explaining why it may have caused that response.
 
 IMPORTANT: Use behavioral, wellness-focused language. Do NOT imply diagnosis, detection, or prediction of any disease. Avoid clinical terminology.
 
@@ -110,17 +114,17 @@ For each meal, provide 2-3 bullet-point drivers (short phrases, not sentences). 
 - Composition (carbs, fibre, protein ratios)
 - Meal timing effects
 - Portion considerations
-- What worked well (for low spike) or what to adjust (for high spike)
+- What worked well (for lower response) or what to adjust (for higher response)
 
 Be encouraging and practical. Avoid medical jargon. Use the actual data provided.
 
 Return ONLY valid JSON in this exact format:
 {
   "highest": {
-    "drivers": ["Driver 1 for high spike meal", "Driver 2", "Driver 3"]
+    "drivers": ["Driver 1 for higher response meal", "Driver 2", "Driver 3"]
   },
   "lowest": {
-    "drivers": ["Driver 1 for low spike meal", "Driver 2", "Driver 3"]
+    "drivers": ["Driver 1 for lower response meal", "Driver 2", "Driver 3"]
   }
 }`;
 
@@ -162,9 +166,20 @@ Return ONLY valid JSON in this exact format:
             return generateFallbackDrivers(highest, lowest);
         }
 
+        const safeHighest = (parsed.highest.drivers || [])
+            .filter((driver: string) => sanitizeText(driver) !== null)
+            .slice(0, 3);
+        const safeLowest = (parsed.lowest.drivers || [])
+            .filter((driver: string) => sanitizeText(driver) !== null)
+            .slice(0, 3);
+
+        if (safeHighest.length === 0 || safeLowest.length === 0) {
+            return generateFallbackDrivers(highest, lowest);
+        }
+
         return {
-            highest: { drivers: parsed.highest.drivers.slice(0, 3) },
-            lowest: { drivers: parsed.lowest.drivers.slice(0, 3) },
+            highest: { drivers: safeHighest },
+            lowest: { drivers: safeLowest },
         };
     } catch (error) {
         console.error('Gemini call failed:', error);
@@ -179,40 +194,40 @@ function generateFallbackDrivers(
     const highestDrivers: string[] = [];
     const lowestDrivers: string[] = [];
 
-    // Generate heuristic drivers for highest spike
+    // Generate heuristic drivers for highest response
     if (highest) {
         if (highest.total_carbs && highest.total_carbs > 50) {
-            highestDrivers.push('Higher carbohydrate content contributed to the spike');
+            highestDrivers.push('Higher carbohydrate content likely drove a stronger response');
         }
         if (highest.total_fibre && highest.total_fibre < 5) {
-            highestDrivers.push('Low fibre may have allowed faster glucose absorption');
+            highestDrivers.push('Low fibre may have made this meal digest faster');
         }
         if (highest.peak_delta && highest.peak_delta > 3) {
             highestDrivers.push('Consider pairing with protein or healthy fats next time');
         }
         if (highestDrivers.length === 0) {
-            highestDrivers.push('Meal composition led to elevated glucose response');
+            highestDrivers.push('Meal composition led to a stronger response');
         }
     } else {
-        highestDrivers.push('No high spike meal data available');
+        highestDrivers.push('No high response meal data available');
     }
 
-    // Generate heuristic drivers for lowest spike
+    // Generate heuristic drivers for lowest response
     if (lowest) {
         if (lowest.total_fibre && lowest.total_fibre >= 5) {
-            lowestDrivers.push('Good fibre content helped slow glucose absorption');
+            lowestDrivers.push('Good fibre content helped slow digestion');
         }
         if (lowest.total_protein && lowest.total_protein >= 15) {
-            lowestDrivers.push('Adequate protein helped stabilize the response');
+            lowestDrivers.push('Adequate protein supported steadier energy');
         }
         if (lowest.peak_delta && lowest.peak_delta < 2) {
             lowestDrivers.push('Well-balanced meal composition');
         }
         if (lowestDrivers.length === 0) {
-            lowestDrivers.push('Meal kept glucose levels steady');
+            lowestDrivers.push('Meal felt steady overall');
         }
     } else {
-        lowestDrivers.push('No low spike meal data available');
+        lowestDrivers.push('No low response meal data available');
     }
 
     return {
@@ -227,20 +242,37 @@ serve(async (req) => {
     }
 
     try {
-        const { user_id, highest_review, lowest_review } = await req.json();
+        const { user_id: requestedUserId, highest_review, lowest_review } = await req.json();
 
-        if (!user_id) {
+        if (!requestedUserId) {
             return new Response(
                 JSON.stringify({ error: 'Missing user_id' }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
         }
 
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
+        const mismatch = requireMatchingUserId(requestedUserId, user.id, corsHeaders);
+        if (mismatch) return mismatch;
+
+        const aiEnabled = await isAiEnabled(supabase, user.id);
+
         // Generate drivers with Gemini (or fallback)
-        const drivers = await generateDriversWithGemini(
-            highest_review as MealReview | null,
-            lowest_review as MealReview | null
-        );
+        const drivers = aiEnabled
+            ? await generateDriversWithGemini(
+                highest_review as MealReview | null,
+                lowest_review as MealReview | null
+            )
+            : generateFallbackDrivers(
+                highest_review as MealReview | null,
+                lowest_review as MealReview | null
+            );
 
         return new Response(
             JSON.stringify(drivers),
@@ -254,4 +286,3 @@ serve(async (req) => {
         );
     }
 });
-

@@ -32,7 +32,7 @@ interface SelectedItem extends NormalizedFood {
 }
 
 export default function LogMealItemsScreen() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const params = useLocalSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<Tab>('all');
@@ -180,6 +180,7 @@ export default function LogMealItemsScreen() {
         // Use progressive search with callback for faster perceived performance
         await searchWithProgressiveResults(searchQuery, {
           signal: controller.signal,
+          aiEnabled: profile?.ai_enabled ?? false,
           onPartialResults: (searchResult, meta) => {
             // Only update if not aborted and not stale
             if (!controller.signal.aborted) {

@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
+import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 // Get Supabase configuration from environment variables or app.json extra config
 // Priority: EXPO_PUBLIC_* env vars > app.json extra > fallback defaults
@@ -16,7 +18,32 @@ const supabaseAnonKey =
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-        storage: AsyncStorage,
+        storage: Platform.OS === 'web' ? AsyncStorage : {
+            getItem: async (key: string) => {
+                try {
+                    const secureValue = await SecureStore.getItemAsync(key);
+                    if (secureValue !== null) return secureValue;
+                    return await AsyncStorage.getItem(key);
+                } catch {
+                    return await AsyncStorage.getItem(key);
+                }
+            },
+            setItem: async (key: string, value: string) => {
+                try {
+                    await SecureStore.setItemAsync(key, value);
+                } catch {
+                    await AsyncStorage.setItem(key, value);
+                }
+            },
+            removeItem: async (key: string) => {
+                try {
+                    await SecureStore.deleteItemAsync(key);
+                } catch {
+                    // Ignore SecureStore errors and fall back to AsyncStorage
+                }
+                await AsyncStorage.removeItem(key);
+            },
+        },
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
@@ -108,6 +135,8 @@ export interface UserProfile {
     // Coaching preferences (new for wellness onboarding)
     coaching_style: CoachingStyle | null;
     notifications_enabled: boolean;
+    ai_enabled: boolean;
+    ai_consent_at: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -2089,32 +2118,155 @@ export async function uploadMealPhoto(
 // DATA EXPORT
 // ============================================================================
 
+async function fetchAllRows<T>(
+    table: string,
+    select: string,
+    filterColumn: string,
+    filterValue: string,
+    pageSize: number = 500
+): Promise<T[]> {
+    const results: T[] = [];
+    let from = 0;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from(table)
+            .select(select)
+            .eq(filterColumn, filterValue)
+            .range(from, from + pageSize - 1);
+
+        if (error) {
+            console.error(`Export query failed for ${table}:`, error);
+            break;
+        }
+
+        if (!data || data.length === 0) break;
+
+        results.push(...(data as T[]));
+
+        if (data.length < pageSize) break;
+        from += pageSize;
+    }
+
+    return results;
+}
+
+async function listMealPhotos(userId: string): Promise<{ path: string; signed_url: string | null }[]> {
+    const bucket = supabase.storage.from('meal-photos');
+    const paths: string[] = [];
+    let offset = 0;
+    const limit = 1000;
+
+    while (true) {
+        const { data, error } = await bucket.list(userId, { limit, offset });
+        if (error) {
+            console.error('Meal photo list error:', error);
+            break;
+        }
+        if (!data || data.length === 0) break;
+
+        data.forEach(item => {
+            if (item.name) paths.push(`${userId}/${item.name}`);
+        });
+
+        if (data.length < limit) break;
+        offset += limit;
+    }
+
+    if (paths.length === 0) return [];
+
+    const { data: signed, error } = await bucket.createSignedUrls(paths, 60 * 60);
+    if (error || !signed) {
+        console.error('Meal photo signing error:', error);
+        return paths.map(path => ({ path, signed_url: null }));
+    }
+
+    return signed.map(entry => ({ path: entry.path, signed_url: entry.signedUrl || null }));
+}
+
 /**
  * Export all user data as a JSON object
  */
 export async function exportUserData(userId: string): Promise<{
     profile: UserProfile | null;
     meals: Meal[];
+    meal_items: MealItem[];
+    meal_checkins: MealCheckin[];
+    post_meal_reviews: Record<string, any>[];
+    premeal_checks: Record<string, any>[];
     glucose_logs: GlucoseLog[];
     activity_logs: ActivityLog[];
+    daily_context: DailyContext[];
+    lab_snapshots: LabSnapshot[];
+    user_calibration: Record<string, any> | null;
+    favorite_foods: NormalizedFood[];
+    recent_foods: NormalizedFood[];
     experiments: UserExperiment[];
+    experiment_events: UserExperimentEvent[];
+    experiment_analysis: UserExperimentAnalysis[];
+    meal_photo_analysis: MealPhotoAnalysisRow[];
+    meal_photos: { path: string; signed_url: string | null }[];
 } | null> {
     try {
-        // Fetch all user data in parallel
-        const [profile, meals, glucoseLogs, activityLogs, experiments] = await Promise.all([
+        const [
+            profile,
+            meals,
+            mealItems,
+            mealCheckins,
+            postMealReviews,
+            premealChecks,
+            glucoseLogs,
+            activityLogs,
+            dailyContext,
+            labSnapshots,
+            userCalibrationRows,
+            favoriteFoods,
+            recentFoods,
+            experiments,
+            experimentEvents,
+            experimentAnalysis,
+            mealPhotoAnalysis,
+            mealPhotos,
+        ] = await Promise.all([
             getUserProfile(userId),
-            getMeals(userId, 1000), // Get up to 1000 meals
-            getGlucoseLogs(userId, 1000),
-            getActivityLogs(userId, 1000),
-            getUserExperiments(userId),
+            fetchAllRows<Meal>('meals', '*', 'user_id', userId),
+            fetchAllRows<MealItem>('meal_items', '*', 'user_id', userId),
+            fetchAllRows<MealCheckin>('meal_checkins', '*', 'user_id', userId),
+            fetchAllRows<Record<string, any>>('post_meal_reviews', '*', 'user_id', userId),
+            fetchAllRows<Record<string, any>>('premeal_checks', '*', 'user_id', userId),
+            fetchAllRows<GlucoseLog>('glucose_logs', '*', 'user_id', userId),
+            fetchAllRows<ActivityLog>('activity_logs', '*', 'user_id', userId),
+            fetchAllRows<DailyContext>('daily_context', '*', 'user_id', userId),
+            fetchAllRows<LabSnapshot>('lab_snapshots', '*', 'user_id', userId),
+            fetchAllRows<Record<string, any>>('user_calibration', '*', 'user_id', userId),
+            fetchAllRows<NormalizedFood>('favorite_foods', '*', 'user_id', userId),
+            fetchAllRows<NormalizedFood>('recent_foods', '*', 'user_id', userId),
+            fetchAllRows<UserExperiment>('user_experiments', '*', 'user_id', userId),
+            fetchAllRows<UserExperimentEvent>('user_experiment_events', '*', 'user_id', userId),
+            fetchAllRows<UserExperimentAnalysis>('user_experiment_analysis', '*', 'user_id', userId),
+            fetchAllRows<MealPhotoAnalysisRow>('meal_photo_analysis', '*', 'user_id', userId),
+            listMealPhotos(userId),
         ]);
 
         return {
             profile,
             meals,
+            meal_items: mealItems,
+            meal_checkins: mealCheckins,
+            post_meal_reviews: postMealReviews,
+            premeal_checks: premealChecks,
             glucose_logs: glucoseLogs,
             activity_logs: activityLogs,
+            daily_context: dailyContext,
+            lab_snapshots: labSnapshots,
+            user_calibration: userCalibrationRows?.[0] ?? null,
+            favorite_foods: favoriteFoods,
+            recent_foods: recentFoods,
             experiments,
+            experiment_events: experimentEvents,
+            experiment_analysis: experimentAnalysis,
+            meal_photo_analysis: mealPhotoAnalysis,
+            meal_photos: mealPhotos,
         };
     } catch (err) {
         console.error('Data export error:', err);
@@ -2169,81 +2321,18 @@ export async function resetUserLearning(userId: string): Promise<boolean> {
  * Delete all user data from the database
  * Note: This does not delete the auth user - that must be done separately
  */
-export async function deleteUserData(userId: string): Promise<boolean> {
+export async function deleteUserData(_userId: string): Promise<boolean> {
     try {
-        // Delete in order of dependencies (children first)
+        const { data, error } = await supabase.functions.invoke('delete-account', {
+            body: { confirm: true },
+        });
 
-        // 1. Delete meal items (depends on meals)
-        const { error: itemsError } = await supabase
-            .from('meal_items')
-            .delete()
-            .eq('user_id', userId);
-        if (itemsError) console.error('Error deleting meal items:', itemsError);
+        if (error) {
+            console.error('Delete account error:', error);
+            return false;
+        }
 
-        // 2. Delete post-meal reviews
-        const { error: reviewsError } = await supabase
-            .from('post_meal_reviews')
-            .delete()
-            .eq('user_id', userId);
-        if (reviewsError) console.error('Error deleting reviews:', reviewsError);
-
-        // 3. Delete meals
-        const { error: mealsError } = await supabase
-            .from('meals')
-            .delete()
-            .eq('user_id', userId);
-        if (mealsError) console.error('Error deleting meals:', mealsError);
-
-        // 4. Delete glucose logs
-        const { error: glucoseError } = await supabase
-            .from('glucose_logs')
-            .delete()
-            .eq('user_id', userId);
-        if (glucoseError) console.error('Error deleting glucose logs:', glucoseError);
-
-        // 5. Delete activity logs
-        const { error: activityError } = await supabase
-            .from('activity_logs')
-            .delete()
-            .eq('user_id', userId);
-        if (activityError) console.error('Error deleting activity logs:', activityError);
-
-        // 6. Delete user calibration
-        const { error: calibrationError } = await supabase
-            .from('user_calibration')
-            .delete()
-            .eq('user_id', userId);
-        if (calibrationError) console.error('Error deleting calibration:', calibrationError);
-
-        // 7. Delete experiment data
-        const { error: expError } = await supabase
-            .from('user_experiments')
-            .delete()
-            .eq('user_id', userId);
-        if (expError) console.error('Error deleting experiments:', expError);
-
-        // 8. Delete personalized tips
-        const { error: tipsError } = await supabase
-            .from('personalized_tip_seen')
-            .delete()
-            .eq('user_id', userId);
-        if (tipsError) console.error('Error deleting tips:', tipsError);
-
-        // 9. Delete dexcom tokens
-        const { error: dexcomError } = await supabase
-            .from('dexcom_tokens')
-            .delete()
-            .eq('user_id', userId);
-        if (dexcomError) console.error('Error deleting dexcom tokens:', dexcomError);
-
-        // 10. Delete profile (last, as other tables may reference it)
-        const { error: profileError } = await supabase
-            .from('profiles')
-            .delete()
-            .eq('id', userId);
-        if (profileError) console.error('Error deleting profile:', profileError);
-
-        return true;
+        return Boolean(data?.success);
     } catch (err) {
         console.error('Delete user data error:', err);
         return false;
@@ -2437,4 +2526,3 @@ export async function invokeMetabolicScore(
 ): Promise<MetabolicScoreResult | null> {
     return invokeWithRetry<MetabolicScoreResult>('metabolic-score', { user_id: userId, range });
 }
-

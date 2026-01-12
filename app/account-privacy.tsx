@@ -1,3 +1,5 @@
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { deleteUserData, exportUserData, getUserProfile, resetUserLearning, supabase, updateUserProfile, UserProfile } from '@/lib/supabase';
@@ -8,20 +10,23 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    InteractionManager,
+    Linking,
     ScrollView,
     Share,
     StyleSheet,
+    Switch,
     Text,
-    TouchableOpacity,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function AccountPrivacyScreen() {
-    const { user, signOut } = useAuth();
+    const { user, signOut, refreshProfile } = useAuth();
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [expandedSection, setExpandedSection] = useState<string | null>(null);
+    const [aiEnabled, setAiEnabled] = useState(false);
 
     // Load user profile
     const loadProfile = useCallback(async () => {
@@ -30,6 +35,7 @@ export default function AccountPrivacyScreen() {
         try {
             const data = await getUserProfile(user.id);
             setProfile(data);
+            setAiEnabled(data?.ai_enabled ?? false);
         } catch (error) {
             console.error('Failed to load profile:', error);
         } finally {
@@ -38,7 +44,10 @@ export default function AccountPrivacyScreen() {
     }, [user]);
 
     useEffect(() => {
-        loadProfile();
+        const task = InteractionManager.runAfterInteractions(() => {
+            loadProfile();
+        });
+        return () => task.cancel();
     }, [loadProfile]);
 
     const handleBack = () => {
@@ -72,6 +81,26 @@ export default function AccountPrivacyScreen() {
                 },
             ]
         );
+    };
+
+    const handleToggleAi = async (value: boolean) => {
+        if (!user) return;
+
+        setAiEnabled(value);
+        const updates: Partial<UserProfile> = {
+            ai_enabled: value,
+            ai_consent_at: value ? new Date().toISOString() : profile?.ai_consent_at ?? null,
+        };
+
+        const result = await updateUserProfile(user.id, updates);
+        if (!result) {
+            Alert.alert('Error', 'Failed to update AI preferences. Please try again.');
+            setAiEnabled(profile?.ai_enabled ?? false);
+            return;
+        }
+
+        setProfile(result);
+        await refreshProfile();
     };
 
     const handleEditProfile = (field: string, currentValue: string | null) => {
@@ -249,10 +278,9 @@ export default function AccountPrivacyScreen() {
         showDropdown?: boolean;
         isExpanded?: boolean;
     }) => (
-        <TouchableOpacity
+        <AnimatedPressable
             style={styles.row}
             onPress={onPress}
-            activeOpacity={onPress ? 0.7 : 1}
             disabled={!onPress}
         >
             <Text style={styles.rowLabel}>{label}</Text>
@@ -267,7 +295,7 @@ export default function AccountPrivacyScreen() {
                     />
                 )}
             </View>
-        </TouchableOpacity>
+        </AnimatedPressable>
     );
 
     if (isLoading) {
@@ -290,13 +318,12 @@ export default function AccountPrivacyScreen() {
             <SafeAreaView edges={['top']} style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <TouchableOpacity
+                    <AnimatedPressable
                         style={styles.backButton}
                         onPress={handleBack}
-                        activeOpacity={0.7}
                     >
                         <Ionicons name="chevron-back" size={20} color="#E7E8E9" />
-                    </TouchableOpacity>
+                    </AnimatedPressable>
                     <Text style={styles.headerTitle}>ACCOUNT & PRIVACY</Text>
                     <View style={styles.headerSpacer} />
                 </View>
@@ -366,8 +393,24 @@ export default function AccountPrivacyScreen() {
                     <View style={styles.card}>
                         <SettingsRow
                             label="Privacy Policy"
-                            onPress={() => {/* Open privacy policy */ }}
+                            onPress={() => Linking.openURL(LEGAL_URLS.privacyPolicy)}
                         />
+                        <View style={styles.divider} />
+                        <View style={styles.row}>
+                            <View style={styles.rowLabelBlock}>
+                                <Text style={styles.rowLabel}>AI-Powered Insights</Text>
+                                <Text style={styles.rowSubtext}>
+                                    Allow AI to generate tips and analyze meal photos.
+                                </Text>
+                            </View>
+                            <Switch
+                                value={aiEnabled}
+                                onValueChange={handleToggleAi}
+                                trackColor={{ false: '#3F4243', true: '#3494D9' }}
+                                thumbColor={aiEnabled ? '#FFFFFF' : '#878787'}
+                                ios_backgroundColor="#3F4243"
+                            />
+                        </View>
                         <View style={styles.divider} />
                         <SettingsRow
                             label="How Gluco Works"
@@ -394,7 +437,7 @@ export default function AccountPrivacyScreen() {
                         {expandedSection === 'data-use' && (
                             <View style={styles.expandedContent}>
                                 <Text style={styles.expandedText}>
-                                    Your data is encrypted and stored securely. We use it only to provide personalized recommendations and never share it with third parties without your consent.
+                                    We keep your data private and only use it to provide features you enable. You can turn AI insights on or off at any time.
                                 </Text>
                             </View>
                         )}
@@ -413,14 +456,13 @@ export default function AccountPrivacyScreen() {
                             onPress={handleResetLearning}
                         />
                         <View style={styles.divider} />
-                        <TouchableOpacity
+                        <AnimatedPressable
                             style={styles.row}
                             onPress={handleDeleteAccount}
-                            activeOpacity={0.7}
                         >
                             <Text style={[styles.rowLabel, styles.dangerText]}>Delete Account & Data</Text>
                             <Ionicons name="chevron-forward" size={16} color="#878787" />
-                        </TouchableOpacity>
+                        </AnimatedPressable>
                     </View>
                 </ScrollView>
             </SafeAreaView>
@@ -509,6 +551,16 @@ const styles = StyleSheet.create({
         fontFamily: fonts.regular,
         fontSize: 16,
         color: '#FFFFFF',
+    },
+    rowLabelBlock: {
+        flex: 1,
+        marginRight: 12,
+    },
+    rowSubtext: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#878787',
+        marginTop: 4,
     },
     rowLabelWithIcon: {
         flexDirection: 'row',

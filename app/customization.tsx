@@ -1,3 +1,4 @@
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -10,7 +11,6 @@ import {
     StyleSheet,
     Text,
     TextInput,
-    TouchableOpacity,
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -192,13 +192,12 @@ export default function CustomizationScreen() {
                         </Text>
 
                         <View style={styles.unitSelector}>
-                            <TouchableOpacity
+                            <AnimatedPressable
                                 style={[
                                     styles.unitOption,
                                     selectedUnit === 'mmol/L' && styles.unitOptionSelected,
                                 ]}
                                 onPress={() => handleUnitChange('mmol/L')}
-                                activeOpacity={0.7}
                             >
                                 <Text style={[
                                     styles.unitOptionText,
@@ -209,15 +208,14 @@ export default function CustomizationScreen() {
                                 <Text style={styles.unitOptionSubtext}>
                                     Used in Canada, UK, Australia
                                 </Text>
-                            </TouchableOpacity>
+                            </AnimatedPressable>
 
-                            <TouchableOpacity
+                            <AnimatedPressable
                                 style={[
                                     styles.unitOption,
                                     selectedUnit === 'mg/dL' && styles.unitOptionSelected,
                                 ]}
                                 onPress={() => handleUnitChange('mg/dL')}
-                                activeOpacity={0.7}
                             >
                                 <Text style={[
                                     styles.unitOptionText,
@@ -228,7 +226,7 @@ export default function CustomizationScreen() {
                                 <Text style={styles.unitOptionSubtext}>
                                     Used in USA, Germany, Japan
                                 </Text>
-                            </TouchableOpacity>
+                            </AnimatedPressable>
                         </View>
                     </View>
 

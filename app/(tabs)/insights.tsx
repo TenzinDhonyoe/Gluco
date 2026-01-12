@@ -1,5 +1,6 @@
 import { AnimatedScreen } from '@/components/animated-screen';
 import { SegmentedControl } from '@/components/segmented-control';
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Disclaimer } from '@/components/ui/Disclaimer';
 import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
@@ -738,12 +739,12 @@ export default function InsightsScreen() {
                         <Text style={styles.notEnoughDataText}>
                             Not enough data to compute a score. Try adding lab results or connecting your wearable for at least 5 days.
                         </Text>
-                        <TouchableOpacity
+                        <AnimatedPressable
                             style={styles.addLabsButton}
                             onPress={() => router.push('/labs-health-info' as any)}
                         >
                             <Text style={styles.addLabsButtonText}>Add Lab Results</Text>
-                        </TouchableOpacity>
+                        </AnimatedPressable>
                     </View>
                 ) : metabolicScore ? (
                     <View>
@@ -802,7 +803,7 @@ export default function InsightsScreen() {
                             </Text>
                         </View>
 
-                        <TouchableOpacity
+                        <AnimatedPressable
                             style={{
                                 flexDirection: 'row',
                                 alignItems: 'center',
@@ -814,14 +815,13 @@ export default function InsightsScreen() {
                                 gap: 8,
                                 width: '100%'
                             }}
-                            activeOpacity={0.7}
                             onPress={() => router.push('/labs-health-info' as any)}
                         >
                             <Ionicons name="add-circle-sharp" size={20} color="#3494D9" />
                             <Text style={{ fontSize: 16, fontFamily: fonts.semiBold, color: '#FFFFFF' }}>
                                 {metabolicScore.lab_present ? 'Update Lab Results' : 'Add Lab Results'}
                             </Text>
-                        </TouchableOpacity>
+                        </AnimatedPressable>
 
                         <Disclaimer variant="short" style={styles.metabolicDisclaimer} />
                     </View>
@@ -1003,14 +1003,13 @@ export default function InsightsScreen() {
                 contentContainerStyle={styles.scrollContent}
             >
                 {/* Date filter row */}
-                <TouchableOpacity
+                <AnimatedPressable
                     style={styles.trendsDateRow}
                     onPress={handleRangePress}
-                    activeOpacity={0.7}
                 >
                     <Text style={styles.trendsDateText}>Last {insightsRangeDays} Days</Text>
                     <Ionicons name="options-outline" size={20} color="#E7E8E9" />
-                </TouchableOpacity>
+                </AnimatedPressable>
 
                 {/* Daily Patterns Card (New) */}
                 <View style={styles.trendsCard}>

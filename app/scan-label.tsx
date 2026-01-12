@@ -10,6 +10,7 @@ import {
     LabelScanResult,
     parseLabelFromImage
 } from '@/lib/labelScan';
+import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -31,6 +32,7 @@ export default function ScanLabelScreen() {
     const params = useLocalSearchParams();
     const cameraRef = useRef<CameraView>(null);
     const [permission, requestPermission] = useCameraPermissions();
+    const { profile } = useAuth();
 
     const [scanState, setScanState] = useState<ScanState>('ready');
     const [scanResult, setScanResult] = useState<LabelScanResult | null>(null);
@@ -78,6 +80,38 @@ export default function ScanLabelScreen() {
         );
     }
 
+    if (!profile?.ai_enabled) {
+        return (
+            <View style={styles.container}>
+                <LinearGradient
+                    colors={['#1E3A5F', '#111111', '#111111']}
+                    style={styles.backgroundGradient}
+                />
+                <SafeAreaView style={styles.safeArea}>
+                    <View style={styles.permissionContainer}>
+                        <Ionicons name="sparkles-outline" size={64} color="#878787" />
+                        <Text style={styles.permissionTitle}>AI Insights Disabled</Text>
+                        <Text style={styles.permissionText}>
+                            Enable AI insights in Privacy settings to scan labels.
+                        </Text>
+                        <TouchableOpacity
+                            style={styles.permissionButton}
+                            onPress={() => router.push('/account-privacy')}
+                        >
+                            <Text style={styles.permissionButtonText}>Open Privacy Settings</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.cancelButton}
+                            onPress={() => router.back()}
+                        >
+                            <Text style={styles.cancelButtonText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </SafeAreaView>
+            </View>
+        );
+    }
+
     const handleCapture = async () => {
         if (!cameraRef.current || scanState !== 'ready') return;
 
@@ -96,7 +130,7 @@ export default function ScanLabelScreen() {
 
             setScanState('analyzing');
 
-            const result = await parseLabelFromImage(photo.base64);
+            const result = await parseLabelFromImage(photo.base64, { aiEnabled: profile?.ai_enabled ?? false });
 
             if (result.success && result.parsed) {
                 setScanResult(result);

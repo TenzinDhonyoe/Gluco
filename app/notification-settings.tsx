@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    InteractionManager,
     StyleSheet,
     Switch,
     Text,
@@ -37,7 +38,10 @@ export default function NotificationSettingsScreen() {
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
-        loadPreferences();
+        const task = InteractionManager.runAfterInteractions(() => {
+            loadPreferences();
+        });
+        return () => task.cancel();
     }, []);
 
     const loadPreferences = async () => {

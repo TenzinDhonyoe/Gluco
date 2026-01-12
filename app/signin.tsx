@@ -1,3 +1,4 @@
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Colors } from '@/constants/Colors';
@@ -26,7 +27,8 @@ export default function SignInScreen() {
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isAppleLoading, setIsAppleLoading] = useState(false);
-    const { signIn, signInWithApple } = useAuth();
+    const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+    const { signIn, signInWithApple, signInWithGoogle } = useAuth();
 
     const handleContinue = async () => {
         if (!email.trim() || !password.trim()) {
@@ -75,6 +77,26 @@ export default function SignInScreen() {
             console.error('Apple sign in error:', err);
         } finally {
             setIsAppleLoading(false);
+        }
+    };
+
+    const handleGoogleSignIn = async () => {
+        setIsGoogleLoading(true);
+        try {
+            const { error } = await signInWithGoogle();
+
+            if (error) {
+                Alert.alert('Google Sign-In Error', error.message);
+                return;
+            }
+
+            // Navigate to index which will handle routing based on profile status
+            router.replace('/' as never);
+        } catch (err) {
+            Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+            console.error('Google sign in error:', err);
+        } finally {
+            setIsGoogleLoading(false);
         }
     };
 
@@ -142,13 +164,12 @@ export default function SignInScreen() {
                             showsVerticalScrollIndicator={false}
                         >
                             {/* Back Button */}
-                            <TouchableOpacity
+                            <AnimatedPressable
                                 style={styles.backButton}
                                 onPress={handleBack}
-                                activeOpacity={0.7}
                             >
                                 <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                            </TouchableOpacity>
+                            </AnimatedPressable>
 
                             {/* Header Text */}
                             <Text style={styles.headerText}>
@@ -196,12 +217,12 @@ export default function SignInScreen() {
                             </View>
 
                             {/* Forgot Password Link */}
-                            <TouchableOpacity
+                            <AnimatedPressable
                                 style={styles.forgotPasswordContainer}
                                 onPress={handleForgotPassword}
                             >
                                 <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-                            </TouchableOpacity>
+                            </AnimatedPressable>
 
                             {/* Continue Button */}
                             <Button
@@ -215,21 +236,21 @@ export default function SignInScreen() {
                             </Button>
 
                             {/* Social Sign-In - iOS only for Apple */}
-                            {Platform.OS === 'ios' && (
-                                <>
-                                    {/* OR Divider */}
-                                    <View style={styles.dividerContainer}>
-                                        <View style={styles.dividerDashed} />
-                                        <Text style={styles.dividerText}>OR</Text>
-                                        <View style={styles.dividerDashed} />
-                                    </View>
+                            {/* Social Sign-In */}
+                            <View style={styles.socialContainer}>
+                                {/* OR Divider */}
+                                <View style={styles.dividerContainer}>
+                                    <View style={styles.dividerDashed} />
+                                    <Text style={styles.dividerText}>OR</Text>
+                                    <View style={styles.dividerDashed} />
+                                </View>
 
-                                    {/* Apple Sign-In Button */}
-                                    <TouchableOpacity
+                                {/* Apple Sign-In Button - iOS Only */}
+                                {Platform.OS === 'ios' && (
+                                    <AnimatedPressable
                                         style={[styles.appleButton, isAppleLoading && styles.socialButtonDisabled]}
                                         onPress={handleAppleSignIn}
-                                        disabled={isAppleLoading}
-                                        activeOpacity={0.8}
+                                        disabled={isAppleLoading || isGoogleLoading}
                                     >
                                         <View style={styles.appleIconContainer}>
                                             <Ionicons name="logo-apple" size={22} color="#FFFFFF" />
@@ -237,9 +258,23 @@ export default function SignInScreen() {
                                         <Text style={styles.appleButtonText}>
                                             {isAppleLoading ? 'Signing in...' : 'Continue with Apple'}
                                         </Text>
-                                    </TouchableOpacity>
-                                </>
-                            )}
+                                    </AnimatedPressable>
+                                )}
+
+                                {/* Google Sign-In Button */}
+                                <AnimatedPressable
+                                    style={[styles.googleButton, isGoogleLoading && styles.socialButtonDisabled]}
+                                    onPress={handleGoogleSignIn}
+                                    disabled={isGoogleLoading || isAppleLoading}
+                                >
+                                    <View style={styles.appleIconContainer}>
+                                        <Ionicons name="logo-google" size={22} color="#000000" />
+                                    </View>
+                                    <Text style={styles.googleButtonText}>
+                                        {isGoogleLoading ? 'Signing in...' : 'Continue with Google'}
+                                    </Text>
+                                </AnimatedPressable>
+                            </View>
 
                             {/* Sign Up Link */}
                             <Text style={styles.signUpText}>

@@ -36,6 +36,7 @@ export interface SearchOptions {
     signal?: AbortSignal;
     skipCache?: boolean;
     skipGemini?: boolean;
+    aiEnabled?: boolean;
 }
 
 export interface SearchResult {
@@ -125,7 +126,13 @@ export async function searchWithProgressiveResults(
     rawQuery: string,
     options: SearchOptionsProgressive = {}
 ): Promise<SearchResult> {
-    const { signal, skipCache = false, skipGemini = false, onPartialResults } = options;
+    const {
+        signal,
+        skipCache = false,
+        skipGemini = false,
+        aiEnabled = true,
+        onPartialResults,
+    } = options;
     const requestId = generateRequestId();
     const totalTimer = createTimer();
 
@@ -226,7 +233,7 @@ export async function searchWithProgressiveResults(
     };
 
     // Emit Edge results
-    const needsGemini = !skipGemini && needsGeminiFallback(
+    const needsGemini = aiEnabled && !skipGemini && needsGeminiFallback(
         edgeResults,
         typoFixedQuery,
         CONFIG.MIN_RESULTS_FOR_GOOD_SEARCH,
@@ -276,6 +283,7 @@ export async function searchWithProgressiveResults(
         cache_ms,
         edge_ms,
         signal,
+        aiEnabled,
         onPartialResults
     );
 
@@ -294,12 +302,13 @@ async function runGeminiEnhancement(
     cache_ms: number,
     edge_ms: number,
     signal: AbortSignal | undefined,
+    aiEnabled: boolean,
     onPartialResults: SearchOptionsProgressive['onPartialResults']
 ): Promise<void> {
     const geminiTimer = createTimer();
 
     try {
-        const geminiResult = await getQueryRewrite(typoFixedQuery, signal);
+        const geminiResult = await getQueryRewrite(typoFixedQuery, signal, aiEnabled);
 
         if (!geminiResult || isStaleRequest(requestId) || signal?.aborted) {
             return;

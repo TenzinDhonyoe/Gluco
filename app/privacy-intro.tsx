@@ -84,7 +84,7 @@ export default function PrivacyIntroScreen() {
                     {/* Title */}
                     <Text style={styles.title}>Privacy by design</Text>
                     <Text style={styles.subtitle}>
-                        We never sell or share your information{'\n'}with third parties.
+                        We never sell your data.{'\n'}We only share with services you enable.
                     </Text>
 
                     {/* Vault Image */}

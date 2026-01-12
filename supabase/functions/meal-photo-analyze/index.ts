@@ -3,6 +3,8 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
+import { requireAiEnabled } from '../_shared/ai.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -193,9 +195,9 @@ serve(async (req) => {
 
     try {
         const body: RequestBody = await req.json();
-        const { user_id, meal_id, photo_url, meal_time, meal_type } = body;
+        const { user_id: requestedUserId, meal_id, photo_url, meal_time, meal_type } = body;
 
-        if (!user_id || !meal_id || !photo_url) {
+        if (!requestedUserId || !meal_id || !photo_url) {
             return new Response(
                 JSON.stringify({ error: 'Missing required fields' }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -206,6 +208,31 @@ serve(async (req) => {
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
+        const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
+        const mismatch = requireMatchingUserId(requestedUserId, user.id, corsHeaders);
+        if (mismatch) return mismatch;
+
+        const aiBlocked = await requireAiEnabled(supabase, user.id, corsHeaders);
+        if (aiBlocked) return aiBlocked;
+
+        const userId = user.id;
+
+        const { data: meal, error: mealError } = await supabase
+            .from('meals')
+            .select('id')
+            .eq('id', meal_id)
+            .eq('user_id', userId)
+            .single();
+
+        if (mealError || !meal) {
+            return new Response(
+                JSON.stringify({ error: 'Meal not found' }),
+                { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
         // Run Analysis
         const result = await analyzePhotoWithLLM(photo_url, meal_type);
 
@@ -213,7 +240,7 @@ serve(async (req) => {
         const { error: dbError } = await supabase
             .from('meal_photo_analysis')
             .upsert({
-                user_id,
+                user_id: userId,
                 meal_id,
                 photo_path: photo_url, // Storing raw URL/path used for reference
                 status: result.status,

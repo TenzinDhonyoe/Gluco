@@ -62,22 +62,8 @@ export function usePersonalInsights({
 
     // Stable fetch function
     const fetchInsights = useCallback(async (key: string) => {
-        // Guard: prevent parallel fetches
-        if (inFlightRef.current) {
-            if (__DEV__) console.log('[insights] skipping, fetch in flight');
-            return;
-        }
-
-        // Guard: prevent refetching same key
-        if (lastKeyRef.current === key) {
-            if (__DEV__) console.log('[insights] skipping, same key');
-            return;
-        }
-
         inFlightRef.current = true;
         lastKeyRef.current = key;
-
-        if (__DEV__) console.log('[insights] fetch', key);
 
         try {
             // Step 1: Check cache first
@@ -89,7 +75,6 @@ export function usePersonalInsights({
                 if (age < CACHE_TTL_MS && cached.data.length > 0) {
                     // Verify cache has new schema (recommendation field exists)
                     if (cached.data[0]?.recommendation) {
-                        if (__DEV__) console.log(`[insights] using ${CACHE_VERSION} cache`, cached.data.length, 'items');
                         if (mountedRef.current) {
                             setInsights(cached.data);
                             setSource('cache');
@@ -97,8 +82,6 @@ export function usePersonalInsights({
                         }
                         inFlightRef.current = false;
                         return;
-                    } else {
-                        if (__DEV__) console.log('[insights] cache has old schema, regenerating');
                     }
                 }
             }
@@ -108,16 +91,7 @@ export function usePersonalInsights({
             if (mountedRef.current) setLoading(true);
 
             if (fallbackData) {
-                if (__DEV__) console.log('[insights] generating from fallbackData:', {
-                    meals: fallbackData.totalMealsThisWeek,
-                    checkins: fallbackData.checkinsThisWeek,
-                    fibre: fallbackData.avgFibrePerDay,
-                });
                 const rulesInsights = generateInsights(fallbackData, trackingMode);
-                if (__DEV__) console.log('[insights] generated', rulesInsights.length, 'insights');
-                if (rulesInsights.length > 0 && __DEV__) {
-                    console.log('[insights] first insight:', rulesInsights[0].title, rulesInsights[0].recommendation);
-                }
 
                 if (rulesInsights.length > 0) {
                     // Write to cache
@@ -130,7 +104,7 @@ export function usePersonalInsights({
                     }
                 }
             } else {
-                if (__DEV__) console.log('[insights] no fallbackData provided');
+                // No fallback data provided
             }
         } catch (error) {
             console.error('[insights] fetch error:', error);

@@ -65,7 +65,7 @@ export async function schedulePostMealReviewNotification(
         const notificationId = await Notifications.scheduleNotificationAsync({
             content: {
                 title: 'Check in on your meal',
-                body: `How are you feeling after eating "${mealName}"?`,
+                body: 'How are you feeling after your meal?',
                 data: {
                     mealId,
                     mealName,

@@ -4,6 +4,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -382,9 +383,9 @@ serve(async (req) => {
     }
 
     try {
-        const { user_id, exercise_text }: ExerciseRequest = await req.json();
+        const { user_id: requestedUserId, exercise_text }: ExerciseRequest = await req.json();
 
-        if (!user_id || !exercise_text) {
+        if (!requestedUserId || !exercise_text) {
             return new Response(
                 JSON.stringify({ error: 'user_id and exercise_text are required' }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -396,11 +397,19 @@ serve(async (req) => {
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
+        const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
+        const mismatch = requireMatchingUserId(requestedUserId, user.id, corsHeaders);
+        if (mismatch) return mismatch;
+
+        const userId = user.id;
+
         // Fetch user profile for personalization
         const { data: profile } = await supabase
             .from('profiles')
             .select('birth_date, biological_sex')
-            .eq('id', user_id)
+            .eq('id', userId)
             .single();
 
         // Fetch user's calibration data (personalized glucose response patterns)
@@ -409,7 +418,7 @@ serve(async (req) => {
             const { data: calibData } = await supabase
                 .from('user_calibration')
                 .select('*')
-                .eq('user_id', user_id)
+                .eq('user_id', userId)
                 .single();
             if (calibData) {
                 calibration = calibData as UserCalibration;
@@ -427,7 +436,7 @@ serve(async (req) => {
             const { data: glucoseLogs } = await supabase
                 .from('glucose_logs')
                 .select('glucose_level')
-                .eq('user_id', user_id)
+                .eq('user_id', userId)
                 .gte('logged_at', sevenDaysAgo.toISOString())
                 .order('logged_at', { ascending: false })
                 .limit(100);
@@ -449,7 +458,7 @@ serve(async (req) => {
             const { count } = await supabase
                 .from('activity_log')
                 .select('*', { count: 'exact', head: true })
-                .eq('user_id', user_id);
+                .eq('user_id', userId);
             activityObservations = count || 0;
         } catch (e) {
             console.log('Could not fetch activity count');

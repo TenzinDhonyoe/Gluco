@@ -18,8 +18,6 @@ import {
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { decode } from 'base64-arraybuffer';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as ImagePicker from 'expo-image-picker';
 import uuid from 'react-native-uuid';
 
 import { LinearGradient } from 'expo-linear-gradient';
@@ -29,6 +27,7 @@ import {
   Alert,
   FlatList,
   Image,
+  InteractionManager,
   Platform,
   Pressable,
   ScrollView,
@@ -102,6 +101,41 @@ function ChevronRight() {
   return <Ionicons name="chevron-forward" size={16} color="#E7E8E9" />;
 }
 
+// Memoized wheel item component to prevent re-renders
+const WheelItem = React.memo(function WheelItem({
+  item,
+  isActive,
+}: {
+  item: string;
+  isActive: boolean;
+}) {
+  return (
+    <View style={[wheelItemStyles.item, isActive && wheelItemStyles.itemActive]}>
+      <Text style={[wheelItemStyles.text, isActive && wheelItemStyles.textActive]}>{item}</Text>
+    </View>
+  );
+});
+
+const wheelItemStyles = StyleSheet.create({
+  item: {
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  itemActive: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 8,
+  },
+  text: {
+    fontFamily: undefined, // Will be set via fonts.medium in styles
+    fontSize: 22,
+    color: '#878787',
+  },
+  textActive: {
+    color: '#FFFFFF',
+  },
+});
+
 export default function LogMealScreen() {
   const { user } = useAuth();
   const params = useLocalSearchParams();
@@ -113,10 +147,25 @@ export default function LogMealScreen() {
   const [isSaving, setIsSaving] = React.useState(false);
   const [analysisStatus, setAnalysisStatus] = React.useState<MealPhotoAnalysisStatus | 'idle'>('idle');
   const [analysisResult, setAnalysisResult] = React.useState<MealPhotoAnalysisResult | null>(null);
+  // Defer initialization until after navigation animation completes
+  const [isReady, setIsReady] = React.useState(false);
 
-  // Stable meal ID for this session
-  const mealIdRef = React.useRef(uuid.v4() as string);
-  const mealId = mealIdRef.current;
+  // Defer heavy work until after navigation animation
+  React.useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      setIsReady(true);
+    });
+    return () => task.cancel();
+  }, []);
+
+  // Stable meal ID for this session - lazy generate
+  const mealIdRef = React.useRef<string | null>(null);
+  const mealId = React.useMemo(() => {
+    if (!mealIdRef.current) {
+      mealIdRef.current = uuid.v4() as string;
+    }
+    return mealIdRef.current;
+  }, []);
 
   const [typeModalOpen, setTypeModalOpen] = React.useState(false);
   const [timeModalOpen, setTimeModalOpen] = React.useState(false);
@@ -126,7 +175,10 @@ export default function LogMealScreen() {
   const paramsConsumedRef = React.useRef<string | null>(null);
 
   // Restore form state from params (when returning from log-meal-items)
+  // Deferred until after navigation animation completes
   React.useEffect(() => {
+    if (!isReady) return; // Wait for navigation to complete
+
     // Create a unique key for the current params to detect changes
     const paramsKey = `${params.selectedFoods || ''}-${params.mealName || ''}-${params.analyzedItems || ''}`;
 
@@ -187,7 +239,7 @@ export default function LogMealScreen() {
         console.error('Failed to parse selected foods:', e);
       }
     }
-  }, [params.selectedFoods, params.mealName, params.mealType, params.mealTime, params.imageUri, params.existingItems, params.analyzedItems]);
+  }, [isReady, params.selectedFoods, params.mealName, params.mealType, params.mealTime, params.imageUri, params.existingItems, params.analyzedItems]);
 
   const handleSaveMeal = async () => {
     if (!user) {
@@ -293,13 +345,17 @@ export default function LogMealScreen() {
   const ITEM_H = 44; // More compact standard size
   const V_PAD = ITEM_H * 1; // one item above/below visible center
 
-  const processPhoto = async (uri: string) => {
+  // Lazy load heavy modules to avoid blocking navigation
+  const processPhoto = React.useCallback(async (uri: string) => {
     setImageUri(uri);
     // AI analysis disabled for now - just upload and display
     setAnalysisStatus('idle');
 
     try {
       if (!user) return;
+
+      // Lazy load FileSystem module
+      const FileSystem = await import('expo-file-system/legacy');
 
       // Upload photo to storage
       const ext = uri.split('.').pop()?.toLowerCase() || 'jpg';
@@ -321,9 +377,11 @@ export default function LogMealScreen() {
       console.error('Photo processing failed:', e);
       // Still show the local image even if processing fails
     }
-  };
+  }, [user]);
 
   const pickFromCamera = React.useCallback(async () => {
+    // Lazy load ImagePicker module
+    const ImagePicker = await import('expo-image-picker');
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) return;
     const res = await ImagePicker.launchCameraAsync({
@@ -334,9 +392,11 @@ export default function LogMealScreen() {
     if (!res.canceled && res.assets?.[0]?.uri) {
       processPhoto(res.assets[0].uri);
     }
-  }, [user, mealName, mealTime, mealType]);
+  }, [processPhoto]);
 
   const pickFromLibrary = React.useCallback(async () => {
+    // Lazy load ImagePicker module
+    const ImagePicker = await import('expo-image-picker');
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return;
     const res = await ImagePicker.launchImageLibraryAsync({
@@ -347,7 +407,7 @@ export default function LogMealScreen() {
     if (!res.canceled && res.assets?.[0]?.uri) {
       processPhoto(res.assets[0].uri);
     }
-  }, [user, mealName, mealTime, mealType]);
+  }, [processPhoto]);
 
   // Initialize temp picker values when opening the time sheet
   React.useEffect(() => {
@@ -655,14 +715,10 @@ export default function LogMealScreen() {
                   contentContainerStyle={{ paddingVertical: V_PAD }}
                   getItemLayout={(_, index) => ({ length: ITEM_H, offset: ITEM_H * index, index })}
                   onMomentumScrollEnd={(e) => onWheelEnd('hour', e.nativeEvent.contentOffset.y)}
-                  renderItem={({ item, index }) => {
-                    const isActive = index === tempHour12 - 1;
-                    return (
-                      <View style={[styles.wheelItem, isActive && styles.wheelItemActive]}>
-                        <Text style={[styles.wheelText, isActive && styles.wheelTextActive]}>{item}</Text>
-                      </View>
-                    );
-                  }}
+                  extraData={tempHour12}
+                  renderItem={({ item, index }) => (
+                    <WheelItem item={item} isActive={index === tempHour12 - 1} />
+                  )}
                 />
               </View>
 
@@ -680,14 +736,10 @@ export default function LogMealScreen() {
                   contentContainerStyle={{ paddingVertical: V_PAD }}
                   getItemLayout={(_, index) => ({ length: ITEM_H, offset: ITEM_H * index, index })}
                   onMomentumScrollEnd={(e) => onWheelEnd('minute', e.nativeEvent.contentOffset.y)}
-                  renderItem={({ item, index }) => {
-                    const isActive = index === tempMinute;
-                    return (
-                      <View style={[styles.wheelItem, isActive && styles.wheelItemActive]}>
-                        <Text style={[styles.wheelText, isActive && styles.wheelTextActive]}>{item}</Text>
-                      </View>
-                    );
-                  }}
+                  extraData={tempMinute}
+                  renderItem={({ item, index }) => (
+                    <WheelItem item={item} isActive={index === tempMinute} />
+                  )}
                 />
               </View>
 
@@ -703,14 +755,10 @@ export default function LogMealScreen() {
                   contentContainerStyle={{ paddingVertical: V_PAD }}
                   getItemLayout={(_, index) => ({ length: ITEM_H, offset: ITEM_H * index, index })}
                   onMomentumScrollEnd={(e) => onWheelEnd('period', e.nativeEvent.contentOffset.y)}
-                  renderItem={({ item, index }) => {
-                    const isActive = (tempPeriod === 'AM' ? 0 : 1) === index;
-                    return (
-                      <View style={[styles.wheelItem, isActive && styles.wheelItemActive]}>
-                        <Text style={[styles.wheelText, isActive && styles.wheelTextActive]}>{item}</Text>
-                      </View>
-                    );
-                  }}
+                  extraData={tempPeriod}
+                  renderItem={({ item, index }) => (
+                    <WheelItem item={item} isActive={(tempPeriod === 'AM' ? 0 : 1) === index} />
+                  )}
                 />
               </View>
             </View>

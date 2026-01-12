@@ -27,6 +27,9 @@ let AppleHealthKit: any = null;
 let healthKitLoadAttempted = false;
 let healthKitLoadError: Error | null = null;
 
+// Cache authorization result to prevent repeated native bridge calls
+let healthKitAuthorized: boolean | null = null;
+
 function getAppleHealthKit() {
     if (Platform.OS !== 'ios') return null;
 
@@ -64,18 +67,26 @@ function getAppleHealthKit() {
 /**
  * Initialize HealthKit with sleep analysis permissions
  * Must be called before fetching any health data
+ * Results are cached to prevent repeated native bridge calls
  */
 export async function initHealthKit(): Promise<boolean> {
+    // Return cached result if available
+    if (healthKitAuthorized !== null) {
+        return healthKitAuthorized;
+    }
+
     try {
         const healthKit = getAppleHealthKit();
         if (!healthKit) {
-            console.warn('HealthKit not available');
+            if (__DEV__) console.warn('HealthKit not available');
+            healthKitAuthorized = false;
             return false;
         }
 
         // Check if Constants exist
         if (!healthKit.Constants || !healthKit.Constants.Permissions) {
-            console.warn('HealthKit Constants not available');
+            if (__DEV__) console.warn('HealthKit Constants not available');
+            healthKitAuthorized = false;
             return false;
         }
 
@@ -97,19 +108,23 @@ export async function initHealthKit(): Promise<boolean> {
             try {
                 healthKit.initHealthKit(permissions, (err: Error | null) => {
                     if (err) {
-                        console.warn('HealthKit initialization failed:', err);
+                        if (__DEV__) console.warn('HealthKit initialization failed:', err);
+                        healthKitAuthorized = false;
                         resolve(false);
                         return;
                     }
+                    healthKitAuthorized = true;
                     resolve(true);
                 });
             } catch (error) {
-                console.warn('Error calling initHealthKit:', error);
+                if (__DEV__) console.warn('Error calling initHealthKit:', error);
+                healthKitAuthorized = false;
                 resolve(false);
             }
         });
     } catch (error) {
-        console.warn('Error in initHealthKit:', error);
+        if (__DEV__) console.warn('Error in initHealthKit:', error);
+        healthKitAuthorized = false;
         return false;
     }
 }

@@ -5,6 +5,7 @@
  * Includes disclaimer and matches app design language.
  */
 
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Images } from '@/constants/Images';
 import { fonts } from '@/hooks/useFonts';
 import { PersonalInsight } from '@/lib/insights';
@@ -18,7 +19,6 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TouchableOpacity,
     View
 } from 'react-native';
 
@@ -60,8 +60,7 @@ const InsightCard = React.memo(({ insight }: { insight: PersonalInsight }) => {
     };
 
     return (
-        <TouchableOpacity
-            activeOpacity={insight.cta ? 0.8 : 1}
+        <AnimatedPressable
             onPress={handlePress}
             disabled={!insight.cta}
         >
@@ -110,7 +109,7 @@ const InsightCard = React.memo(({ insight }: { insight: PersonalInsight }) => {
                     </View>
                 )}
             </LinearGradient>
-        </TouchableOpacity>
+        </AnimatedPressable>
     );
 });
 

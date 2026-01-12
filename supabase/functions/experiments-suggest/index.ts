@@ -3,6 +3,9 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
+import { isAiEnabled } from '../_shared/ai.ts';
+import { sanitizeText } from '../_shared/safety.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -282,7 +285,7 @@ function scoreExperiments(
                 }
                 if (patterns.timeOfDaySpikes.morning > 2) {
                     score += 25;
-                    reasons.push('Your morning glucose tends to spike');
+                    reasons.push('Your morning readings tend to run higher');
                     impact = 'high';
                 }
                 if (patterns.oatmealOccurrences > 0 || patterns.eggOccurrences > 0) {
@@ -303,11 +306,11 @@ function scoreExperiments(
                 }
                 if (patterns.spikeCount > 5) {
                     score += 15;
-                    reasons.push('Portion control can help reduce spikes');
+                    reasons.push('Portion control can help smooth your response');
                 }
                 if (patterns.avgGlucose && patterns.avgGlucose > 7) {
                     score += 10;
-                    reasons.push('Your average glucose is elevated');
+                    reasons.push('Your average readings are on the higher side');
                 }
                 break;
 
@@ -320,7 +323,7 @@ function scoreExperiments(
                 }
                 if (patterns.spikeCount > 3) {
                     score += 20;
-                    reasons.push('Walking can reduce post-meal spikes by 15-20%');
+                    reasons.push('Walking after meals can support steadier energy');
                 }
                 if (patterns.totalActivityMinutes < 60) {
                     score += 10;
@@ -338,7 +341,7 @@ function scoreExperiments(
                 }
                 if (patterns.spikeCount > 5) {
                     score += 15;
-                    reasons.push('Fiber can slow glucose absorption');
+                    reasons.push('Fiber can slow digestion');
                 }
                 if (patterns.mealTypes.lunch > 5 || patterns.mealTypes.dinner > 5) {
                     score += 10;
@@ -359,7 +362,7 @@ function scoreExperiments(
                 }
                 if (patterns.timeOfDaySpikes.evening > 3 || patterns.timeOfDaySpikes.night > 2) {
                     score += 15;
-                    reasons.push('Evening glucose tends to be higher');
+                    reasons.push('Evening readings tend to be higher');
                 }
                 break;
 
@@ -375,7 +378,7 @@ function scoreExperiments(
                 }
                 if (patterns.timeOfDaySpikes.morning > 3) {
                     score += 10;
-                    reasons.push('Morning glucose patterns vary');
+                    reasons.push('Morning patterns vary');
                 }
                 // Lower priority by default
                 score -= 10;
@@ -416,13 +419,13 @@ async function enhanceWithGemini(
 
     const topSuggestions = suggestions.slice(0, 3);
 
-    const prompt = `You are a health coach helping someone with glucose management choose their next experiment. Based on their patterns, enhance the reasons for these top experiment suggestions.
+    const prompt = `You are a wellness coach helping someone choose their next experiment. Based on their patterns, enhance the reasons for these top experiment suggestions.
 
 USER'S 30-DAY PATTERNS:
 - Average glucose: ${patterns.avgGlucose ?? 'N/A'} mmol/L
-- Spike count: ${patterns.spikeCount}
-- Spike contexts: ${JSON.stringify(patterns.spikeContexts)}
-- Morning spikes: ${patterns.timeOfDaySpikes.morning}, Evening spikes: ${patterns.timeOfDaySpikes.evening}
+- Higher-response count: ${patterns.spikeCount}
+- Higher-response contexts: ${JSON.stringify(patterns.spikeContexts)}
+- Morning higher-response: ${patterns.timeOfDaySpikes.morning}, Evening higher-response: ${patterns.timeOfDaySpikes.evening}
 - Total meals: ${patterns.totalMeals}
 - Avg fiber: ${patterns.avgFibrePerDay ?? 'N/A'} g/day
 - Rice occurrences: ${patterns.riceOccurrences}
@@ -474,7 +477,8 @@ Return ONLY valid JSON:
         const enhancedMap = new Map<string, string[]>();
         
         (parsed.enhanced || []).forEach((e: any) => {
-            enhancedMap.set(e.slug, e.reasons || []);
+            const safeReasons = (e.reasons || []).filter((reason: string) => sanitizeText(reason) !== null);
+            enhancedMap.set(e.slug, safeReasons);
         });
 
         // Merge enhanced reasons
@@ -497,9 +501,9 @@ serve(async (req) => {
     }
 
     try {
-        const { user_id, limit = 6 } = await req.json();
+        const { user_id: requestedUserId, limit = 6 } = await req.json();
 
-        if (!user_id) {
+        if (!requestedUserId) {
             return new Response(
                 JSON.stringify({ error: 'Missing user_id' }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -510,6 +514,15 @@ serve(async (req) => {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
+        const mismatch = requireMatchingUserId(requestedUserId, user.id, corsHeaders);
+        if (mismatch) return mismatch;
+
+        const userId = user.id;
+        const aiEnabled = await isAiEnabled(supabase, userId);
 
         // Fetch active templates
         const { data: templates, error: templatesError } = await supabase
@@ -543,7 +556,7 @@ serve(async (req) => {
         const { data: activeExperiments } = await supabase
             .from('user_experiments')
             .select('template_id')
-            .eq('user_id', user_id)
+            .eq('user_id', userId)
             .in('status', ['draft', 'active']);
 
         const activeTemplateIds = new Set((activeExperiments || []).map((e: any) => e.template_id));
@@ -554,14 +567,15 @@ serve(async (req) => {
         );
 
         // Analyze user patterns
-        const patterns = await analyzeUserPatterns(supabase, user_id);
-        console.log('User patterns:', patterns);
+        const patterns = await analyzeUserPatterns(supabase, userId);
 
         // Score and rank experiments
         let suggestions = scoreExperiments(availableTemplates, variantsByTemplate, patterns);
 
         // Enhance top suggestions with Gemini (optional)
-        suggestions = await enhanceWithGemini(suggestions, patterns);
+        if (aiEnabled) {
+            suggestions = await enhanceWithGemini(suggestions, patterns);
+        }
 
         // Limit results
         const limitedSuggestions = suggestions.slice(0, limit);
@@ -587,4 +601,3 @@ serve(async (req) => {
         );
     }
 });
-

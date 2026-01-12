@@ -1,4 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { requireUser } from '../_shared/auth.ts';
+import { requireAiEnabled } from '../_shared/ai.ts';
 
 /**
  * Label Parse Edge Function
@@ -89,6 +92,16 @@ Deno.serve(async (req) => {
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
         }
+
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
+        const aiBlocked = await requireAiEnabled(supabase, user.id, corsHeaders);
+        if (aiBlocked) return aiBlocked;
 
         const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
 

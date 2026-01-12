@@ -6,6 +6,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -366,9 +367,9 @@ serve(async (req) => {
     }
 
     try {
-        const { user_id, range } = await req.json();
+        const { user_id: requestedUserId, range } = await req.json();
 
-        if (!user_id) {
+        if (!requestedUserId) {
             return new Response(
                 JSON.stringify({ error: 'Missing user_id' }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -383,6 +384,14 @@ serve(async (req) => {
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
+        const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
+        const mismatch = requireMatchingUserId(requestedUserId, user.id, corsHeaders);
+        if (mismatch) return mismatch;
+
+        const userId = user.id;
+
         // Calculate date range
         const { startDate, endDate } = getDateRange(rangeDays);
         const startDateStr = startDate.toISOString().split('T')[0];
@@ -392,7 +401,7 @@ serve(async (req) => {
         const { data: dailyContextData, error: dcError } = await supabase
             .from('daily_context')
             .select('date, sleep_hours, steps, active_minutes, resting_hr, hrv_ms')
-            .eq('user_id', user_id)
+            .eq('user_id', userId)
             .gte('date', startDateStr)
             .lte('date', endDateStr)
             .order('date', { ascending: false });
@@ -407,7 +416,7 @@ serve(async (req) => {
         const { data: labData, error: labError } = await supabase
             .from('lab_snapshots')
             .select('collected_at, fasting_glucose_value, fasting_glucose_unit')
-            .eq('user_id', user_id)
+            .eq('user_id', userId)
             .order('collected_at', { ascending: false })
             .limit(1)
             .single();
@@ -425,7 +434,7 @@ serve(async (req) => {
             const { data: mealsData } = await supabase
                 .from('meals')
                 .select('id')
-                .eq('user_id', user_id)
+                .eq('user_id', userId)
                 .gte('logged_at', startDate.toISOString())
                 .lte('logged_at', endDate.toISOString());
 

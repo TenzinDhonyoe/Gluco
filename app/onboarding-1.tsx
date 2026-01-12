@@ -1,3 +1,4 @@
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -13,7 +14,6 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TouchableOpacity,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -98,13 +98,12 @@ export default function Onboarding1Screen() {
                         showsVerticalScrollIndicator={false}
                     >
                         {/* Back Button */}
-                        <TouchableOpacity
+                        <AnimatedPressable
                             style={styles.backButton}
                             onPress={handleBack}
-                            activeOpacity={0.7}
                         >
                             <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                        </TouchableOpacity>
+                        </AnimatedPressable>
 
                         {/* Progress Indicator */}
                         <View style={styles.progressContainer}>
@@ -140,7 +139,7 @@ export default function Onboarding1Screen() {
                                     const isSelected = selectedGoals.includes(goal);
                                     const isDisabled = !isSelected && selectedGoals.length >= MAX_SELECTIONS;
                                     return (
-                                        <TouchableOpacity
+                                        <AnimatedPressable
                                             key={goal}
                                             style={[
                                                 styles.goalItem,
@@ -148,7 +147,6 @@ export default function Onboarding1Screen() {
                                                 isDisabled && styles.goalItemDisabled,
                                             ]}
                                             onPress={() => handleToggleGoal(goal)}
-                                            activeOpacity={0.7}
                                             disabled={isDisabled}
                                         >
                                             <Text style={[
@@ -168,7 +166,7 @@ export default function Onboarding1Screen() {
                                             {!isSelected && (
                                                 <View style={styles.checkmarkPlaceholder} />
                                             )}
-                                        </TouchableOpacity>
+                                        </AnimatedPressable>
                                     );
                                 })}
                             </View>
@@ -177,13 +175,12 @@ export default function Onboarding1Screen() {
 
                     {/* Continue Button - Fixed at Bottom */}
                     <View style={styles.buttonContainer}>
-                        <TouchableOpacity
+                        <AnimatedPressable
                             style={[
                                 styles.continueButton,
                                 !isContinueEnabled && styles.continueButtonDisabled,
                             ]}
                             onPress={handleContinue}
-                            activeOpacity={0.8}
                             disabled={!isContinueEnabled || isLoading}
                         >
                             {isLoading ? (
@@ -196,7 +193,7 @@ export default function Onboarding1Screen() {
                                     Continue
                                 </Text>
                             )}
-                        </TouchableOpacity>
+                        </AnimatedPressable>
                     </View>
                 </SafeAreaView>
             </ImageBackground>

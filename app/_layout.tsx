@@ -46,7 +46,8 @@ export default function RootLayout() {
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: '#111111' },
-            animation: 'slide_from_right',
+            animation: 'fade',
+            animationDuration: 150,
           }}
         >
           <Stack.Screen name="index" />
@@ -58,10 +59,10 @@ export default function RootLayout() {
           <Stack.Screen name="onboarding-3" />
           <Stack.Screen name="onboarding-4" />
           <Stack.Screen name="onboarding-5" />
-          <Stack.Screen name="log-meal" />
-          <Stack.Screen name="log-meal-items" />
-          <Stack.Screen name="log-glucose" />
-          <Stack.Screen name="log-activity" />
+          <Stack.Screen name="log-meal" options={{ animation: 'fade' }} />
+          <Stack.Screen name="log-meal-items" options={{ animation: 'fade' }} />
+          <Stack.Screen name="log-glucose" options={{ animation: 'fade' }} />
+          <Stack.Screen name="log-activity" options={{ animation: 'fade' }} />
           <Stack.Screen name="settings" />
           <Stack.Screen name="customization" />
           <Stack.Screen name="data-sources" />

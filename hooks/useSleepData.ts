@@ -6,7 +6,7 @@
 import { getSleepData, initHealthKit, isHealthKitAvailable, SleepStats } from '@/lib/healthkit';
 import { getDateRange, RangeKey } from '@/lib/utils/dateRanges';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Platform } from 'react-native';
 
 export interface SleepData {
@@ -123,19 +123,15 @@ export function useSleepData(range: RangeKey): UseSleepDataReturn {
         }
     }, [range]);
 
-    // Fetch on mount and screen focus - delay initial fetch slightly to prevent blocking render
-    useEffect(() => {
-        // Small delay to ensure component renders first
-        const timer = setTimeout(() => {
-            fetchSleepData();
-        }, 100);
-        return () => clearTimeout(timer);
-    }, [fetchSleepData]);
-
-    // Also fetch on screen focus
+    // Fetch on mount and screen focus - useFocusEffect runs on mount AND when screen gains focus
+    // No need for separate useEffect which was causing double HealthKit calls
     useFocusEffect(
         useCallback(() => {
-            fetchSleepData();
+            // Small delay to ensure component renders first
+            const timer = setTimeout(() => {
+                fetchSleepData();
+            }, 100);
+            return () => clearTimeout(timer);
         }, [fetchSleepData])
     );
 

@@ -1,4 +1,5 @@
 import { AnimatedScreen } from '@/components/animated-screen';
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -19,7 +20,6 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TouchableOpacity,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -235,7 +235,7 @@ const iconStyles = StyleSheet.create({
 // Tip Card Component
 function TipCard({ data, onPress }: { data: TipCardData; onPress?: () => void }) {
     return (
-        <TouchableOpacity activeOpacity={0.9} style={styles.tipCard} onPress={onPress}>
+        <AnimatedPressable style={styles.tipCard} onPress={onPress}>
             <Image source={data.image} style={styles.tipCardImage} resizeMode="cover" />
             <LinearGradient
                 colors={['transparent', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.9)']}
@@ -254,14 +254,14 @@ function TipCard({ data, onPress }: { data: TipCardData; onPress?: () => void })
                     <Text style={styles.tipCardReadMore}>Tap to read more →</Text>
                 )}
             </View>
-        </TouchableOpacity>
+        </AnimatedPressable>
     );
 }
 
 // Log Entry Component
 function LogEntryRow({ entry }: { entry: LogEntry }) {
     return (
-        <TouchableOpacity activeOpacity={0.7} style={styles.logEntry}>
+        <AnimatedPressable style={styles.logEntry}>
             <View style={styles.logEntryLeft}>
                 <View style={styles.logIcon}>
                     {getLogIcon(entry.type)}
@@ -272,12 +272,12 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
                 </View>
             </View>
             <Text style={styles.logTime}>{entry.time}</Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
     );
 }
 
 export default function LogScreen() {
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const glucoseUnit = useGlucoseUnit();
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -344,6 +344,12 @@ export default function LogScreen() {
                     return;
                 }
 
+                if (!profile?.ai_enabled) {
+                    setTipsData(TIPS_DATA);
+                    setTipsLoading(false);
+                    return;
+                }
+
                 setTipsLoading(true);
                 try {
                     const result = await getPersonalizedTips(user.id);
@@ -374,7 +380,7 @@ export default function LogScreen() {
 
             fetchLogs();
             fetchTips();
-        }, [user, glucoseUnit])
+        }, [user, glucoseUnit, profile?.ai_enabled])
     );
 
     const handleTipPress = (tip: TipCardData) => {
@@ -425,10 +431,9 @@ export default function LogScreen() {
                             {/* Section Header */}
                             <View style={styles.logsSectionHeader}>
                                 <Text style={styles.logsSectionTitle}>RECENT LOGS</Text>
-                                <TouchableOpacity
+                                <AnimatedPressable
                                     style={styles.filterButton}
                                     onPress={() => setShowFilterDropdown(true)}
-                                    activeOpacity={0.7}
                                 >
                                     <Text style={styles.filterText}>{currentFilterLabel}</Text>
                                     <Ionicons
@@ -436,7 +441,7 @@ export default function LogScreen() {
                                         size={14}
                                         color="#878787"
                                     />
-                                </TouchableOpacity>
+                                </AnimatedPressable>
                             </View>
 
                             {/* Logs List */}

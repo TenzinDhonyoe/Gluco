@@ -127,7 +127,7 @@ function TabLayoutInner() {
             <Tabs.Screen
                 name="index"
                 options={{
-                    title: 'Today',
+                    title: 'Home',
                     tabBarIcon: ({ color, focused }) => (
                         <AnimatedTabIcon
                             name="home"
@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
         position: 'absolute',
         bottom: Platform.OS === 'ios' ? 40 : 20,
         marginHorizontal: 16,
-        height: 75,
+        height: 80,
         borderRadius: 28,
         backgroundColor: 'transparent',
         borderTopWidth: 0,
@@ -201,11 +201,11 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.4,
         shadowRadius: 20,
         elevation: 15,
-        overflow: 'hidden',
     },
     tabBarItem: {
-        paddingTop: 10,
-        paddingBottom: 6,
+        paddingTop: 8,
+        paddingBottom: 8,
+        height: 70,
     },
     tabBarLabel: {
         fontFamily: fonts.medium,

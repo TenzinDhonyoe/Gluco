@@ -1,9 +1,10 @@
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { fonts } from '@/hooks/useFonts';
 import { MealWithCheckin } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 
 // Simple time formatter (e.g., "2:30 PM")
 function formatTime(dateString: string): string {
@@ -33,10 +34,9 @@ export const MealCheckinCard = React.memo(({ meal, onPress }: MealCheckinCardPro
     const statusColor = hasCheckin ? '#4CAF50' : '#FF9800';
 
     return (
-        <TouchableOpacity
+        <AnimatedPressable
             style={styles.container}
             onPress={onPress}
-            activeOpacity={0.8}
         >
             {/* Background Image or Gradient */}
             {meal.photo_path ? (
@@ -84,7 +84,7 @@ export const MealCheckinCard = React.memo(({ meal, onPress }: MealCheckinCardPro
                     )}
                 </View>
             </View>
-        </TouchableOpacity>
+        </AnimatedPressable>
     );
 });
 

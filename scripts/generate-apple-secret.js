@@ -8,7 +8,8 @@
  * Usage:
  *   node scripts/generate-apple-secret.js
  * 
- * Required: Set these values before running
+ * Required: Set environment variables before running
+ *   APPLE_TEAM_ID, APPLE_CLIENT_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY_PATH
  */
 
 const crypto = require('crypto');
@@ -16,21 +17,15 @@ const fs = require('fs');
 const path = require('path');
 
 // ============================================
-// CONFIGURATION - UPDATE THESE VALUES
+// CONFIGURATION - SET VIA ENV VARS
 // ============================================
 
-// Your Team ID from Apple Developer Portal (10 characters)
-const TEAM_ID = 'BKC8ZS85TM';
-
-// Your Services ID (Client ID) - the identifier you created in Apple Developer Portal
-// Example: com.glucosolutions.gluco.signin
-const CLIENT_ID = 'ca.gluco.solutions.gluco.auth';
-
-// Your Key ID from the .p8 file you downloaded (10 characters)
-const KEY_ID = 'C936QVQAZZ';
-
-// Path to your .p8 private key file
-const PRIVATE_KEY_PATH = path.join(__dirname, '../AuthKey_C936QVQAZZ.p8');
+// Required env vars:
+// APPLE_TEAM_ID, APPLE_CLIENT_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY_PATH
+const TEAM_ID = process.env.APPLE_TEAM_ID;
+const CLIENT_ID = process.env.APPLE_CLIENT_ID;
+const KEY_ID = process.env.APPLE_KEY_ID;
+const PRIVATE_KEY_PATH = process.env.APPLE_PRIVATE_KEY_PATH;
 
 // Secret validity in seconds (max 6 months = 15778800 seconds)
 // Using 180 days = 15552000 seconds
@@ -49,12 +44,13 @@ function base64UrlEncode(buffer) {
 
 function generateAppleClientSecret() {
     // Validate configuration
-    if (TEAM_ID === 'YOUR_TEAM_ID' || CLIENT_ID === 'YOUR_CLIENT_ID' || KEY_ID === 'YOUR_KEY_ID') {
-        console.error('\n❌ ERROR: Please update the configuration values in this script!\n');
+    if (!TEAM_ID || !CLIENT_ID || !KEY_ID || !PRIVATE_KEY_PATH) {
+        console.error('\n❌ ERROR: Missing required environment variables!\n');
         console.log('Required values:');
-        console.log('  - TEAM_ID: Your 10-character Apple Team ID');
-        console.log('  - CLIENT_ID: Your Services ID (e.g., com.glucosolutions.gluco.signin)');
-        console.log('  - KEY_ID: The 10-character Key ID from your .p8 file\n');
+        console.log('  - APPLE_TEAM_ID: Your 10-character Apple Team ID');
+        console.log('  - APPLE_CLIENT_ID: Your Services ID (e.g., com.glucosolutions.gluco.signin)');
+        console.log('  - APPLE_KEY_ID: The 10-character Key ID from your .p8 file');
+        console.log('  - APPLE_PRIVATE_KEY_PATH: Full path to your .p8 file\n');
         process.exit(1);
     }
 
@@ -64,7 +60,7 @@ function generateAppleClientSecret() {
         privateKey = fs.readFileSync(PRIVATE_KEY_PATH, 'utf8');
     } catch (err) {
         console.error(`\n❌ ERROR: Could not read private key file at: ${PRIVATE_KEY_PATH}`);
-        console.log('\nMake sure to place your AuthKey_XXXXXXXX.p8 file in the project root as "AuthKey.p8"\n');
+        console.log('\nMake sure APPLE_PRIVATE_KEY_PATH points to your .p8 file\n');
         process.exit(1);
     }
 

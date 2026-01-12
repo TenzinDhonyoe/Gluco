@@ -4,6 +4,9 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
+import { isAiEnabled } from '../_shared/ai.ts';
+import { sanitizeText } from '../_shared/safety.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -784,6 +787,7 @@ Generate JSON with:
 RULES:
 - Be practical, not alarming. Use positive reinforcement.
 - No medical claims or medication advice.
+- Avoid clinical terms like "diagnose", "treat", "risk", "spike", "diabetes".
 - Reference actual numbers from the meal.
 - Output ONLY valid JSON, no markdown or prose.
 
@@ -923,7 +927,16 @@ async function generateLLMExplanations(
         return generateFallbackExplanations(baseline);
     }
 
-    return result;
+    const safeDrivers = result.drivers.filter(driver => sanitizeText(driver.text) !== null);
+    const safeTips = result.adjustment_tips.filter(
+        tip => sanitizeText(tip.title) !== null && sanitizeText(tip.detail) !== null
+    );
+
+    if (safeDrivers.length === 0 || safeTips.length === 0) {
+        return generateFallbackExplanations(baseline);
+    }
+
+    return { drivers: safeDrivers, adjustment_tips: safeTips };
 }
 
 function generateFallbackExplanations(baseline: BaselineResult): { drivers: Driver[]; adjustment_tips: AdjustmentTip[] } {
@@ -933,22 +946,22 @@ function generateFallbackExplanations(baseline: BaselineResult): { drivers: Driv
 
     // Generate drivers from reason codes
     if (feature_reason_codes.includes('HIGH_NET_CARBS')) {
-        drivers.push({ text: `Higher net carbs (${debug.net_carbs}g) often leads to a stronger meal response`, reason_code: 'HIGH_NET_CARBS' });
+        drivers.push({ text: `Higher net carbs (${debug.net_carbs}g) can make this meal feel heavier`, reason_code: 'HIGH_NET_CARBS' });
     }
     if (feature_reason_codes.includes('MODERATE_NET_CARBS')) {
-        drivers.push({ text: `Moderate net carbs (${debug.net_carbs}g) may cause a mild glucose rise`, reason_code: 'MODERATE_NET_CARBS' });
+        drivers.push({ text: `Moderate net carbs (${debug.net_carbs}g) can support steadier energy`, reason_code: 'MODERATE_NET_CARBS' });
     }
     if (feature_reason_codes.includes('LOW_FIBRE')) {
-        drivers.push({ text: `Low fiber (${debug.fibre_g}g) means faster carb absorption`, reason_code: 'LOW_FIBRE' });
+        drivers.push({ text: `Low fiber (${debug.fibre_g}g) can make this meal digest faster`, reason_code: 'LOW_FIBRE' });
     }
     if (feature_reason_codes.includes('LATE_MEAL')) {
-        drivers.push({ text: `Later ${debug.time_bucket} meals may affect your response`, reason_code: 'LATE_MEAL' });
+        drivers.push({ text: `Later ${debug.time_bucket} meals can feel different than earlier ones`, reason_code: 'LATE_MEAL' });
     }
     if (feature_reason_codes.includes('RECENT_SPIKES')) {
-        drivers.push({ text: `Your recent after-meal readings have been elevated`, reason_code: 'RECENT_SPIKES' });
+        drivers.push({ text: `Recent meals have felt less steady than usual`, reason_code: 'RECENT_SPIKES' });
     }
     if (feature_reason_codes.includes('GOOD_PROTEIN')) {
-        drivers.push({ text: `Good protein content (${debug.protein_g}g) helps moderate the response`, reason_code: 'GOOD_PROTEIN' });
+        drivers.push({ text: `Good protein content (${debug.protein_g}g) supports balance`, reason_code: 'GOOD_PROTEIN' });
     }
 
     // Default drivers if none matched
@@ -958,14 +971,14 @@ function generateFallbackExplanations(baseline: BaselineResult): { drivers: Driv
 
     // Generate tips
     if (debug.fibre_g < 10) {
-        tips.push({ title: 'Add more fiber', detail: 'A side salad or vegetables can slow absorption', benefit_level: 'medium', action_type: 'ADD_FIBRE' });
+        tips.push({ title: 'Add more fiber', detail: 'A side salad can help meals feel steadier', benefit_level: 'medium', action_type: 'ADD_FIBRE' });
     }
-    tips.push({ title: 'Take a post-meal walk', detail: '10-15 minutes of walking helps use glucose', benefit_level: 'high', action_type: 'POST_MEAL_WALK' });
+    tips.push({ title: 'Take a post-meal walk', detail: '10-15 minutes of walking supports energy use', benefit_level: 'high', action_type: 'POST_MEAL_WALK' });
     if (debug.net_carbs > 40) {
         tips.push({ title: 'Consider a smaller portion', detail: 'Reducing portion size manages carb load', benefit_level: 'high', action_type: 'PORTION_DOWN' });
     }
     if (debug.protein_g < 15) {
-        tips.push({ title: 'Add protein', detail: 'Protein slows digestion and supports steadier energy', benefit_level: 'medium', action_type: 'ADD_PROTEIN' });
+        tips.push({ title: 'Add protein', detail: 'Protein supports steadier energy', benefit_level: 'medium', action_type: 'ADD_PROTEIN' });
     }
 
     return { drivers, adjustment_tips: tips.slice(0, 4) };
@@ -1218,9 +1231,9 @@ serve(async (req) => {
     }
 
     try {
-        const { user_id, meal_draft } = await req.json() as { user_id: string; meal_draft: MealDraft };
+        const { user_id: requestedUserId, meal_draft } = await req.json() as { user_id?: string; meal_draft: MealDraft };
 
-        if (!user_id || !meal_draft) {
+        if (!meal_draft) {
             return new Response(
                 JSON.stringify({ error: 'Missing user_id or meal_draft' }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -1232,21 +1245,32 @@ serve(async (req) => {
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
-        // Check cache first
-        const inputHash = generateInputHash(user_id, meal_draft);
-        const { data: cached } = await supabase
-            .from('premeal_checks')
-            .select('result')
-            .eq('user_id', user_id)
-            .eq('input_hash', inputHash)
-            .single();
+        const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
 
-        if (cached?.result) {
-            console.log('Returning cached result');
-            return new Response(
-                JSON.stringify(cached.result),
-                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
+        const mismatch = requireMatchingUserId(requestedUserId, user.id, corsHeaders);
+        if (mismatch) return mismatch;
+
+        const userId = user.id;
+        const aiEnabled = await isAiEnabled(supabase, userId);
+
+        // Check cache first (AI-enabled only)
+        const inputHash = generateInputHash(userId, meal_draft);
+        if (aiEnabled) {
+            const { data: cached } = await supabase
+                .from('premeal_checks')
+                .select('result')
+                .eq('user_id', userId)
+                .eq('input_hash', inputHash)
+                .single();
+
+            if (cached?.result) {
+                console.log('Returning cached result');
+                return new Response(
+                    JSON.stringify(cached.result),
+                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                );
+            }
         }
 
         // Fetch recent glucose logs for personalization
@@ -1256,7 +1280,7 @@ serve(async (req) => {
         const { data: glucoseLogs } = await supabase
             .from('glucose_logs')
             .select('glucose_level, logged_at, context')
-            .eq('user_id', user_id)
+            .eq('user_id', userId)
             .gte('logged_at', twoWeeksAgo.toISOString())
             .order('logged_at', { ascending: false })
             .limit(100);
@@ -1265,7 +1289,7 @@ serve(async (req) => {
         const { data: recentMeals } = await supabase
             .from('meals')
             .select('logged_at, calories_kcal, carbs_g, fibre_g')
-            .eq('user_id', user_id)
+            .eq('user_id', userId)
             .gte('logged_at', twoWeeksAgo.toISOString())
             .order('logged_at', { ascending: false })
             .limit(50);
@@ -1273,15 +1297,8 @@ serve(async (req) => {
         // ============================================
         // USER CALIBRATION (Persistent EMA-learned)
         // ============================================
-        const calibration = await fetchUserCalibration(supabase, user_id);
+        const calibration = await fetchUserCalibration(supabase, userId);
 
-        console.log('User calibration:', {
-            confidence: calibration.confidence,
-            n_observations: calibration.n_observations,
-            carb_sensitivity: calibration.carb_sensitivity,
-            exercise_effect: calibration.exercise_effect,
-            sleep_penalty: calibration.sleep_penalty,
-        });
 
         // Calculate 14-day rolling profile
         const mealHistory = (recentMeals || []).map((m: any) => ({
@@ -1298,13 +1315,6 @@ serve(async (req) => {
         const userProfile = blendCalibrationWithDrift(calibration, rollingProfile);
         const driftWeight = Math.max(0.05, Math.min(0.2, 0.15 * (1 - calibration.confidence)));
 
-        console.log('Blended profile:', {
-            data_quality: userProfile.data_quality,
-            data_days: userProfile.data_days,
-            carb_sensitivity: userProfile.carb_sensitivity,
-            baseline_glucose: userProfile.baseline_glucose,
-            driftWeight,
-        });
 
         // Run baseline predictor with blended profile
         const baseline = runBaselinePredictor(
@@ -1318,19 +1328,14 @@ serve(async (req) => {
         // SIMILAR MEAL MEMORY
         // ============================================
         const mealTokens = buildMealTokens(meal_draft);
-        const similarStats = await fetchSimilarMealStats(supabase, user_id, mealTokens);
+        const similarStats = await fetchSimilarMealStats(supabase, userId, mealTokens);
 
-        console.log('Similar meal stats:', similarStats ? {
-            k: similarStats.k,
-            avg_peak_delta: similarStats.avg_peak_delta,
-            spike_rate: similarStats.spike_rate,
-        } : 'No similar meals found');
 
         // Blend baseline with similar meal outcomes
         // Context signals (kept for reasons)
         const mealTime = new Date(meal_draft.logged_at);
         const [activityContext, glucoseContext] = await Promise.all([
-            fetchActivityContext(supabase, user_id, mealTime),
+            fetchActivityContext(supabase, userId, mealTime),
             Promise.resolve(fetchGlucoseContext(glucoseLogs || [], mealTime)),
         ]);
 
@@ -1361,11 +1366,10 @@ serve(async (req) => {
             feature_reason_codes: allReasonCodes,
         };
 
-        const { drivers, adjustment_tips } = await generateLLMExplanations(
-            enhancedBaseline,
-            meal_draft.name,
-            topItems
-        );
+        const fallback = generateFallbackExplanations(enhancedBaseline);
+        const { drivers, adjustment_tips } = aiEnabled
+            ? await generateLLMExplanations(enhancedBaseline, meal_draft.name, topItems)
+            : fallback;
 
         // Add context drivers
         const enhancedDrivers = [...drivers];
@@ -1425,14 +1429,16 @@ serve(async (req) => {
             },
         };
 
-        // Cache result
-        await supabase
-            .from('premeal_checks')
-            .upsert({
-                user_id,
-                input_hash: inputHash,
-                result,
-            }, { onConflict: 'user_id,input_hash' });
+        // Cache result (AI-enabled only)
+        if (aiEnabled) {
+            await supabase
+                .from('premeal_checks')
+                .upsert({
+                    user_id: userId,
+                    input_hash: inputHash,
+                    result,
+                }, { onConflict: 'user_id,input_hash' });
+        }
 
         return new Response(
             JSON.stringify(result),

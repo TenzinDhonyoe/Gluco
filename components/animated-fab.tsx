@@ -73,14 +73,30 @@ export const AnimatedFAB = forwardRef<AnimatedFABRef, Props>(
             onPress?.(false);
         };
 
-        const handleMenuItemPress = () => {
-            closeMenu();
+        // Navigate after quickly hiding the menu for a cleaner transition
+        const handleMenuItemPress = (callback?: () => void) => {
+            // Instantly hide menu visually
+            setShowMenu(false);
+            setIsOpen(false);
+
+            // Reset animations
+            rotateAnim.setValue(0);
+            menuItem1Anim.setValue(0);
+            menuItem2Anim.setValue(0);
+            menuItem3Anim.setValue(0);
+
+            // Navigate after a brief delay for visual smoothness
+            setTimeout(() => {
+                callback?.();
+            }, 50);
+
+            onPress?.(false);
         };
 
         const menuOptions: MenuOption[] = [
-            { label: 'Log your Meal', onPress: () => { handleMenuItemPress(); onLogMeal?.(); } },
-            { label: 'Add an activity', onPress: () => { handleMenuItemPress(); onLogActivity?.(); } },
-            { label: 'Log your Glucose Level', onPress: () => { handleMenuItemPress(); onLogGlucose?.(); } },
+            { label: 'Log your Meal', onPress: () => handleMenuItemPress(onLogMeal) },
+            { label: 'Add an activity', onPress: () => handleMenuItemPress(onLogActivity) },
+            { label: 'Log your Glucose Level', onPress: () => handleMenuItemPress(onLogGlucose) },
         ];
 
         // Expose close method via ref

@@ -6,6 +6,7 @@ import { GlucoseTrendChart, type TrendPoint } from '@/components/glucose-trend-c
 import { MealCheckinCard } from '@/components/MealCheckinCard';
 import { PersonalInsightsCarousel } from '@/components/PersonalInsightsCarousel';
 import { SegmentedControl } from '@/components/segmented-control';
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
@@ -387,10 +388,10 @@ const ActivityStatCard = React.memo(({
     };
 
     return (
-        <TouchableOpacity
+        <AnimatedPressable
             style={styles.statCard}
             onPress={handlePress}
-            activeOpacity={isHealthKitAvailable && !isHealthKitAuthorized ? 0.7 : 1}
+            disabled={!(isHealthKitAvailable && !isHealthKitAuthorized)}
         >
             <View style={styles.statHeader}>
                 <Image source={Images.mascots.exercise} style={{ width: 40, height: 40, resizeMode: 'contain' }} />
@@ -406,7 +407,7 @@ const ActivityStatCard = React.memo(({
                     : getRangeShortLabel(range)}
             </Text>
             <Text style={styles.dataSourceLabel}>{sourceLabel}</Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
     );
 }, (prev, next) =>
     prev.range === next.range &&
@@ -510,11 +511,10 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
     };
 
     return (
-        <TouchableOpacity
+        <AnimatedPressable
             style={styles.statCard}
             onPress={handlePress}
             disabled={isAuthorized}
-            activeOpacity={isAuthorized ? 1 : 0.7}
         >
             <View style={styles.statHeader}>
                 <Image source={Images.mascots.sleep} style={{ width: 40, height: 40, resizeMode: 'contain' }} />
@@ -529,7 +529,7 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
                     ? 'Tap to connect'
                     : getRangeShortLabel(range)}
             </Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
     );
 }, (prev, next) => prev.range === next.range && prev.sleepData === next.sleepData);
 
@@ -551,11 +551,10 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
     };
 
     return (
-        <TouchableOpacity
+        <AnimatedPressable
             style={styles.statCard}
             onPress={handlePress}
             disabled={isAuthorized}
-            activeOpacity={isAuthorized ? 1 : 0.7}
         >
             <View style={styles.statHeader}>
                 <Ionicons name="footsteps" size={32} color="#4A90D9" />
@@ -571,7 +570,7 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
                     : getRangeShortLabel(range)}
             </Text>
             <Text style={styles.dataSourceLabel}>Apple Health</Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
     );
 });
 
@@ -585,14 +584,14 @@ const ConnectHealthCTA = () => {
     };
 
     return (
-        <TouchableOpacity style={styles.connectHealthCard} onPress={handlePress} activeOpacity={0.7}>
+        <AnimatedPressable style={styles.connectHealthCard} onPress={handlePress}>
             <Ionicons name="heart-circle" size={28} color="#FF375F" />
             <View style={styles.connectHealthContent}>
                 <Text style={styles.connectHealthTitle}>Connect Apple Health</Text>
                 <Text style={styles.connectHealthSubtitle}>Track steps, activity, and sleep</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#878787" />
-        </TouchableOpacity>
+        </AnimatedPressable>
     );
 };
 
@@ -1077,13 +1076,13 @@ export default function TodayScreen() {
                 <SafeAreaView edges={['top']} style={styles.safeArea}>
                     {/* Header */}
                     <View style={styles.header}>
-                        <TouchableOpacity style={styles.avatarButton} onPress={() => router.push('/settings')}>
+                        <AnimatedPressable style={styles.avatarButton} onPress={() => router.push('/settings')}>
                             <Text style={styles.avatarText}>{getInitials()}</Text>
-                        </TouchableOpacity>
+                        </AnimatedPressable>
                         <Text style={styles.headerTitle}>GLUCO</Text>
-                        <TouchableOpacity style={styles.notificationButton} onPress={() => router.push('/notifications-list')}>
+                        <AnimatedPressable style={styles.notificationButton} onPress={() => router.push('/notifications-list')}>
                             <Ionicons name="notifications-outline" size={24} color="#E7E8E9" />
-                        </TouchableOpacity>
+                        </AnimatedPressable>
                     </View>
 
                     <ScrollView

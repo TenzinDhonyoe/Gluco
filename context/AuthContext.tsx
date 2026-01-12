@@ -1,4 +1,8 @@
 import { getUserProfile, GlucoseUnit, supabase, UserProfile } from '@/lib/supabase';
+import {
+    GoogleSignin,
+    statusCodes,
+} from '@react-native-google-signin/google-signin';
 import { Session, User } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import React, { createContext, useContext, useEffect, useState } from 'react';
@@ -15,6 +19,7 @@ interface AuthContextType {
     signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
     signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
     signInWithApple: () => Promise<{ error: Error | null }>;
+    signInWithGoogle: () => Promise<{ error: Error | null }>;
     signOut: () => Promise<void>;
     refreshProfile: () => Promise<void>;
     resetPassword: (email: string) => Promise<{ error: Error | null }>;
@@ -40,10 +45,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         });
 
+        try {
+            GoogleSignin.configure({
+                scopes: ['https://www.googleapis.com/auth/userinfo.email'],
+                webClientId: '21186138012-u7h9a8p131g187aq9s1bmpjeqov5bih4.apps.googleusercontent.com', // Web Client ID
+                iosClientId: '21186138012-u7h9a8p131g187aq9s1bmpjeqov5bih4.apps.googleusercontent.com', // iOS Client ID
+                offlineAccess: true,
+            });
+        } catch (e) {
+            console.warn('GoogleSignin configuration failed. Google Sign-In will not work.', e);
+        }
+
         // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
-                console.log('Auth state changed:', event);
+                if (__DEV__) console.log('Auth state changed:', event);
 
                 if (event === 'TOKEN_REFRESHED') {
                     // Just update session, no need to reload profile
@@ -70,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Listen for AppState changes to refresh session when returning to app
         const handleAppStateChange = (nextAppState: AppStateStatus) => {
             if (nextAppState === 'active') {
-                console.log('App came to foreground, checking session...');
+                if (__DEV__) console.log('App came to foreground, checking session...');
                 supabase.auth.getSession().then(({ data: { session }, error }) => {
                     if (error) {
                         console.error('Error refreshing session:', error);
@@ -217,6 +233,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    const signInWithGoogle = async (): Promise<{ error: Error | null }> => {
+        try {
+            setLoading(true);
+            await GoogleSignin.hasPlayServices();
+            const userInfo = await GoogleSignin.signIn();
+
+            if (userInfo.data?.idToken) {
+                const { data, error } = await supabase.auth.signInWithIdToken({
+                    provider: 'google',
+                    token: userInfo.data.idToken,
+                });
+
+                if (error) {
+                    return { error };
+                }
+
+                if (data.user) {
+                    await loadProfile(data.user.id);
+                }
+
+                return { error: null };
+            } else {
+                return { error: new Error('No ID token present!') };
+            }
+        } catch (error: any) {
+            if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+                return { error: null }; // User cancelled
+            } else if (error.code === statusCodes.IN_PROGRESS) {
+                return { error: new Error('Signin in progress') };
+            } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+                return { error: new Error('Play services not available') };
+            } else {
+                console.error('Google Sign-In error:', error);
+                return { error: error as Error };
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const signOut = async () => {
         try {
             setLoading(true);
@@ -257,6 +313,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 signUp,
                 signIn,
                 signInWithApple,
+                signInWithGoogle,
                 signOut,
                 refreshProfile,
                 resetPassword,

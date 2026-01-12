@@ -210,7 +210,7 @@ const loadingStyles = StyleSheet.create({
 
 export default function PreMealCheckScreen() {
     const params = useLocalSearchParams();
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const glucoseUnit = useGlucoseUnit();
 
     // Parse meal data from params
@@ -257,6 +257,7 @@ export default function PreMealCheckScreen() {
     React.useEffect(() => {
         // Only run analysis once
         if (analysisStarted.current) return;
+        if (!profile) return;
 
         async function fetchAnalysis() {
             if (!user?.id || mealItems.length === 0) {
@@ -340,6 +341,27 @@ export default function PreMealCheckScreen() {
                 // Minimum 3-second delay to let user see loading screen
                 const minDelay = new Promise(resolve => setTimeout(resolve, 3000));
 
+                if (!profile?.ai_enabled) {
+                    const fallbackResult: PremealResult = {
+                        drivers: [{ text: 'AI insights are disabled. Showing a basic estimate.', reason_code: 'AI_DISABLED' }],
+                        adjustment_tips: [
+                            { title: 'Add a side of fiber', detail: 'Fiber helps meals feel steadier', benefit_level: 'medium', action_type: 'ADD_FIBER' },
+                        ],
+                        debug: {
+                            net_carbs: 0,
+                            fibre_g: 0,
+                            protein_g: 0,
+                            fat_g: 0,
+                            time_bucket: 'Unknown',
+                            recent_spike_avg: null
+                        }
+                    };
+                    setResult(fallbackResult);
+                    setDrivers(fallbackResult.drivers);
+                    setTips(fallbackResult.adjustment_tips.map((t, i) => ({ ...t, id: String(i), selected: false })));
+                    return;
+                }
+
                 // Run API call and minimum delay in parallel
                 const [apiResult] = await Promise.all([
                     invokePremealAnalyze(user.id, mealDraft),
@@ -401,7 +423,7 @@ export default function PreMealCheckScreen() {
         }
 
         fetchAnalysis();
-    }, []); // Empty dependency array - run only once on mount
+    }, [profile, user?.id]); // Wait for profile to load before analysis
 
     const toggleTip = (id: string) => {
         setTips(prev =>

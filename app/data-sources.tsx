@@ -1,3 +1,4 @@
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { fonts } from '@/hooks/useFonts';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,7 +11,6 @@ import {
     StyleSheet,
     Switch,
     Text,
-    TouchableOpacity,
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -52,13 +52,12 @@ export default function DataSourcesScreen() {
             <SafeAreaView style={styles.safeArea} edges={['top']}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <TouchableOpacity
+                    <AnimatedPressable
                         style={styles.backButton}
                         onPress={handleBack}
-                        activeOpacity={0.7}
                     >
                         <Ionicons name="chevron-back" size={20} color="#E7E8E9" />
-                    </TouchableOpacity>
+                    </AnimatedPressable>
                     <Text style={styles.headerTitle}>DATA SOURCES</Text>
                     <View style={styles.headerSpacer} />
                 </View>

@@ -3,6 +3,9 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
+import { isAiEnabled } from '../_shared/ai.ts';
+import { sanitizeStringArray, sanitizeText } from '../_shared/safety.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -315,7 +318,7 @@ async function generateSummary(
 
     const metricsText = Object.entries(metrics)
         .map(([key, m]) =>
-            `${variantNames[key] || key}: ${m.n_exposures} exposures, ${m.n_with_glucose_data} with data, median spike +${m.median_peak_delta ?? 'N/A'} mmol/L, avg energy ${m.avg_energy ?? 'N/A'}/5`)
+            `${variantNames[key] || key}: ${m.n_exposures} exposures, ${m.n_with_glucose_data} with data, median peak change +${m.median_peak_delta ?? 'N/A'} mmol/L, avg energy ${m.avg_energy ?? 'N/A'}/5`)
         .join('\n');
 
     const prompt = `You are analyzing a personal meal experiment for someone tracking their eating patterns and responses.
@@ -373,10 +376,14 @@ Return ONLY valid JSON:
         }
 
         const parsed = JSON.parse(text);
-        return {
-            summary: parsed.summary || null,
-            suggestions: parsed.suggestions || [],
-        };
+        const summary = sanitizeText(parsed.summary || '') ?? null;
+        const suggestions = sanitizeStringArray(parsed.suggestions || []);
+
+        if (!summary || suggestions.length === 0) {
+            return generateFallbackSummary(template, variants, metrics, comparison);
+        }
+
+        return { summary, suggestions };
     } catch (error) {
         console.error('Gemini call failed:', error);
         return generateFallbackSummary(template, variants, metrics, comparison);
@@ -403,7 +410,7 @@ function generateFallbackSummary(
         suggestions.push('Continue the experiment for more data points');
         suggestions.push('Make sure to complete after-meal check-ins for each test meal');
     } else if (comparison.direction === 'similar') {
-        summary = `Both options showed similar glucose responses. This means you can choose based on preference or other factors like taste and convenience.`;
+        summary = `Both options showed similar meal responses. This means you can choose based on preference or other factors like taste and convenience.`;
         suggestions.push('Choose whichever option you enjoy more');
         suggestions.push('Consider testing a different variable');
     } else if (comparison.winner) {
@@ -412,7 +419,7 @@ function generateFallbackSummary(
         const winnerMetrics = metrics[comparison.winner];
         const loserMetrics = loserKey ? metrics[loserKey] : null;
 
-        summary = `"${winnerName}" resulted in smaller glucose spikes (${winnerMetrics.median_peak_delta ?? '--'} mmol/L vs ${loserMetrics?.median_peak_delta ?? '--'} mmol/L). ${comparison.confidence === 'high' ? 'This is a reliable finding!' : 'Consider collecting more data to confirm.'}`;
+        summary = `"${winnerName}" resulted in a smaller response (${winnerMetrics.median_peak_delta ?? '--'} mmol/L vs ${loserMetrics?.median_peak_delta ?? '--'} mmol/L). ${comparison.confidence === 'high' ? 'This is a reliable finding!' : 'Consider collecting more data to confirm.'}`;
         suggestions.push(`Try ${winnerName} more often for similar meals`);
         suggestions.push('Log how you feel with each option to track energy and satisfaction');
     } else {
@@ -429,9 +436,9 @@ serve(async (req) => {
     }
 
     try {
-        const { user_id, user_experiment_id, save_snapshot = true } = await req.json();
+        const { user_id: requestedUserId, user_experiment_id, save_snapshot = true } = await req.json();
 
-        if (!user_id || !user_experiment_id) {
+        if (!requestedUserId || !user_experiment_id) {
             return new Response(
                 JSON.stringify({ error: 'Missing user_id or user_experiment_id' }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -443,12 +450,21 @@ serve(async (req) => {
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
+        const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
+        const mismatch = requireMatchingUserId(requestedUserId, user.id, corsHeaders);
+        if (mismatch) return mismatch;
+
+        const userId = user.id;
+        const aiEnabled = await isAiEnabled(supabase, userId);
+
         // Fetch the user experiment
         const { data: userExperiment, error: expError } = await supabase
             .from('user_experiments')
             .select('*, experiment_templates(*)')
             .eq('id', user_experiment_id)
-            .eq('user_id', user_id)
+            .eq('user_id', userId)
             .single();
 
         if (expError || !userExperiment) {
@@ -471,7 +487,7 @@ serve(async (req) => {
         const { exposuresByVariant, checkinsByVariant } = await fetchExposureData(
             supabase,
             user_experiment_id,
-            user_id
+            userId
         );
 
         // Calculate metrics for each variant
@@ -513,12 +529,9 @@ serve(async (req) => {
         const isFinal = totalExposures >= requiredExposures;
 
         // Generate summary
-        const { summary, suggestions } = await generateSummary(
-            template,
-            variants || [],
-            metricsResult,
-            comparison
-        );
+        const { summary, suggestions } = aiEnabled
+            ? await generateSummary(template, variants || [], metricsResult, comparison)
+            : generateFallbackSummary(template, variants || [], metricsResult, comparison);
 
         const analysisResult: AnalysisResult = {
             metrics: metricsResult,
@@ -533,7 +546,7 @@ serve(async (req) => {
             const { error: insertError } = await supabase
                 .from('user_experiment_analysis')
                 .insert({
-                    user_id,
+                    user_id: userId,
                     user_experiment_id,
                     metrics: metricsResult,
                     comparison,
@@ -590,4 +603,3 @@ serve(async (req) => {
         );
     }
 });
-

@@ -3,6 +3,8 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
+import { isAiEnabled } from '../_shared/ai.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -305,9 +307,9 @@ serve(async (req) => {
 
     try {
         const body: RequestBody = await req.json();
-        const { user_id, tracking_mode, range } = body;
+        const { user_id: requestedUserId, tracking_mode, range } = body;
 
-        if (!user_id || !tracking_mode || !range) {
+        if (!requestedUserId || !tracking_mode || !range) {
             return new Response(
                 JSON.stringify({ error: 'Missing required fields' }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -319,21 +321,35 @@ serve(async (req) => {
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
+        const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
+        const mismatch = requireMatchingUserId(requestedUserId, user.id, corsHeaders);
+        if (mismatch) return mismatch;
+
+        const userId = user.id;
+        const aiEnabled = await isAiEnabled(supabase, userId);
+
         // Step 1: Aggregate metrics (data minimization)
-        const metrics = await fetchAggregatedMetrics(supabase, user_id, range, tracking_mode);
-        console.log('Aggregated metrics:', metrics);
+        const metrics = await fetchAggregatedMetrics(supabase, userId, range, tracking_mode);
 
-        // Step 2: Call LLM
-        let rawInsights = await callLLM(metrics, tracking_mode);
+        let insights = FALLBACK_INSIGHTS.filter(i =>
+            i.category !== 'glucose' || tracking_mode === 'manual_glucose_optional'
+        );
 
-        // Step 2b: Retry once if empty
-        if (rawInsights.length === 0) {
-            console.log('Retrying LLM call...');
-            rawInsights = await callLLM(metrics, tracking_mode);
+        if (aiEnabled) {
+            // Step 2: Call LLM
+            let rawInsights = await callLLM(metrics, tracking_mode);
+
+            // Step 2b: Retry once if empty
+            if (rawInsights.length === 0) {
+                console.log('Retrying LLM call...');
+                rawInsights = await callLLM(metrics, tracking_mode);
+            }
+
+            // Steps 3-5: Validate and filter (schema, banned terms, implied claims, mode gating)
+            insights = validateAndFilterInsights(rawInsights, tracking_mode);
         }
-
-        // Steps 3-5: Validate and filter (schema, banned terms, implied claims, mode gating)
-        let insights = validateAndFilterInsights(rawInsights, tracking_mode);
 
         // Fallback if all insights were filtered
         if (insights.length === 0) {

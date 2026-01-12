@@ -28,14 +28,15 @@ export function Button({
 
   return (
     <Pressable
-      onPress={isDisabled ? undefined : onPress}
+      onPress={onPress}
+      disabled={isDisabled}
       style={({ pressed }) => [
         styles.base,
         stylesByVariant[variant],
         stylesBySize[size],
-        pressed && !isDisabled && styles.pressed,
-        isDisabled && styles.disabled,
         style,
+        isDisabled && styles.disabled,
+        pressed && !isDisabled && styles.pressed,
       ]}
     >
       {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.text}>{children}</Text>}
@@ -52,8 +53,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   pressed: {
-    transform: [{ scale: 0.99 }],
-    opacity: 0.95,
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
   },
   disabled: {
     opacity: 0.55,
@@ -87,4 +88,3 @@ const stylesByVariant = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
   },
 });
-

@@ -1,3 +1,4 @@
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Colors } from '@/constants/Colors';
@@ -29,7 +30,9 @@ export default function SignUpScreen() {
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [agreeToTerms, setAgreeToTerms] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
-    const { signUp } = useAuth();
+    const [isAppleLoading, setIsAppleLoading] = useState(false);
+    const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+    const { signUp, signInWithApple, signInWithGoogle } = useAuth();
 
     const handleContinue = async () => {
         if (!agreeToTerms) return;
@@ -70,6 +73,59 @@ export default function SignUpScreen() {
         }
     };
 
+    const handleAppleSignIn = async () => {
+        if (!agreeToTerms) {
+            Alert.alert('Terms Required', 'Please accept the Terms of Service and Privacy Policy to continue.');
+            return;
+        }
+        if (Platform.OS !== 'ios') {
+            Alert.alert('Not Available', 'Apple Sign-In is only available on iOS devices.');
+            return;
+        }
+
+        setIsAppleLoading(true);
+        try {
+            const { error } = await signInWithApple();
+
+            if (error) {
+                Alert.alert('Apple Sign-In Error', error.message);
+                return;
+            }
+
+            // Navigate to index/onboarding
+            router.replace('/' as never);
+        } catch (err) {
+            Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+            console.error('Apple sign in error:', err);
+        } finally {
+            setIsAppleLoading(false);
+        }
+    };
+
+    const handleGoogleSignIn = async () => {
+        if (!agreeToTerms) {
+            Alert.alert('Terms Required', 'Please accept the Terms of Service and Privacy Policy to continue.');
+            return;
+        }
+        setIsGoogleLoading(true);
+        try {
+            const { error } = await signInWithGoogle();
+
+            if (error) {
+                Alert.alert('Google Sign-In Error', error.message);
+                return;
+            }
+
+            // Navigate to index/onboarding
+            router.replace('/' as never);
+        } catch (err) {
+            Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+            console.error('Google sign in error:', err);
+        } finally {
+            setIsGoogleLoading(false);
+        }
+    };
+
 
 
     const handleBack = () => {
@@ -99,13 +155,12 @@ export default function SignUpScreen() {
                             showsVerticalScrollIndicator={false}
                         >
                             {/* Back Button */}
-                            <TouchableOpacity
+                            <AnimatedPressable
                                 style={styles.backButton}
                                 onPress={handleBack}
-                                activeOpacity={0.7}
                             >
                                 <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                            </TouchableOpacity>
+                            </AnimatedPressable>
 
                             {/* Header Section */}
                             <View style={styles.headerSection}>
@@ -182,10 +237,9 @@ export default function SignUpScreen() {
                             {/* Agreement and Button Section */}
                             <View style={styles.agreementSection}>
                                 {/* Agreement Checkbox */}
-                                <TouchableOpacity
+                                <AnimatedPressable
                                     style={styles.checkboxContainer}
                                     onPress={() => setAgreeToTerms(!agreeToTerms)}
-                                    activeOpacity={0.7}
                                 >
                                     <View style={[styles.checkbox, agreeToTerms && styles.checkboxChecked]}>
                                         {agreeToTerms && (
@@ -208,18 +262,54 @@ export default function SignUpScreen() {
                                             Terms of Service
                                         </Text>
                                     </Text>
-                                </TouchableOpacity>
+                                </AnimatedPressable>
 
                                 {/* Continue Button */}
                                 <Button
-                                    onPress={handleContinue}
-                                    disabled={!isFormValid}
-                                    loading={isLoading}
-                                    variant="primary"
                                     style={styles.continueButton}
                                 >
                                     Continue
                                 </Button>
+
+                                {/* Social Sign-In */}
+                                <View style={styles.socialContainer}>
+                                    {/* OR Divider */}
+                                    <View style={styles.dividerContainer}>
+                                        <View style={styles.dividerDashed} />
+                                        <Text style={styles.dividerText}>OR</Text>
+                                        <View style={styles.dividerDashed} />
+                                    </View>
+
+                                    {/* Apple Sign-In Button - iOS Only */}
+                                    {Platform.OS === 'ios' && (
+                                        <AnimatedPressable
+                                            style={[styles.appleButton, (isAppleLoading || !agreeToTerms) && styles.socialButtonDisabled]}
+                                            onPress={handleAppleSignIn}
+                                            disabled={isAppleLoading || isGoogleLoading}
+                                        >
+                                            <View style={styles.appleIconContainer}>
+                                                <Ionicons name="logo-apple" size={22} color="#FFFFFF" />
+                                            </View>
+                                            <Text style={styles.appleButtonText}>
+                                                {isAppleLoading ? 'Signing in...' : 'Sign up with Apple'}
+                                            </Text>
+                                        </AnimatedPressable>
+                                    )}
+
+                                    {/* Google Sign-In Button */}
+                                    <AnimatedPressable
+                                        style={[styles.googleButton, (isGoogleLoading || !agreeToTerms) && styles.socialButtonDisabled]}
+                                        onPress={handleGoogleSignIn}
+                                        disabled={isGoogleLoading || isAppleLoading}
+                                    >
+                                        <View style={styles.appleIconContainer}>
+                                            <Ionicons name="logo-google" size={22} color="#000000" />
+                                        </View>
+                                        <Text style={styles.googleButtonText}>
+                                            {isGoogleLoading ? 'Signing in...' : 'Sign up with Google'}
+                                        </Text>
+                                    </AnimatedPressable>
+                                </View>
 
 
                                 {/* Sign In Link */}
@@ -367,21 +457,52 @@ const styles = StyleSheet.create({
         marginHorizontal: 8,
     },
     // Social icons (just icons, not full buttons)
-    socialIconsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'center',
+    socialContainer: {
         marginBottom: 24,
     },
-    socialIconButton: {
-        width: 48,
-        height: 48,
-        justifyContent: 'center',
+    googleButton: {
+        width: '100%',
+        height: 50,
+        flexDirection: 'row',
         alignItems: 'center',
-        marginHorizontal: 12,
+        justifyContent: 'center',
+        backgroundColor: Colors.googleBackground, // White
+        borderWidth: 1.5,
+        borderColor: '#dddddd', // Light border
+        borderRadius: 13,
+        paddingHorizontal: 25,
+        marginBottom: 12,
     },
-    socialIcon: {
-        width: 48,
-        height: 48,
+    googleButtonText: {
+        fontFamily: fonts.medium,
+        fontSize: 16,
+        lineHeight: 16 * 1.2,
+        color: '#0f1623',
+    },
+    appleButton: {
+        width: '100%',
+        height: 56,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#080b12',
+        borderWidth: 1.5,
+        borderColor: '#171a1f',
+        borderRadius: 13,
+        paddingHorizontal: 25,
+        marginBottom: 24,
+    },
+    appleIconContainer: {
+        marginRight: 50,
+    },
+    appleButtonText: {
+        fontFamily: fonts.medium,
+        fontSize: 16,
+        lineHeight: 16 * 1.2,
+        color: Colors.textPrimary,
+    },
+    socialButtonDisabled: {
+        opacity: 0.5,
     },
     // Sign In link - Outfit Medium (500), 14px, line-height 1.2
     signInText: {
