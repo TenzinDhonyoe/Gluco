@@ -21,14 +21,7 @@
         "NSHealthUpdateUsageDescription": "Gluco needs access to record health data.",
         "NSCameraUsageDescription": "Gluco needs camera access to scan food labels and log meals.",
         "NSPhotoLibraryUsageDescription": "Gluco needs photo library access to select meal photos.",
-        "ITSAppUsesNonExemptEncryption": false,
-        "CFBundleURLTypes": [
-          {
-            "CFBundleURLSchemes": [
-              "com.googleusercontent.apps.21186138012-u7h9a8p131g187aq9s1bmpjeqov5bih4"
-            ]
-          }
-        ]
+        "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
         "com.apple.developer.healthkit": true,
@@ -69,8 +62,7 @@
             "backgroundColor": "#151718"
           }
         }
-      ],
-      "@react-native-google-signin/google-signin"
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

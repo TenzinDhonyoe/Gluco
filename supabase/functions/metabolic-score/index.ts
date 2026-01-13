@@ -663,13 +663,8 @@ serve(async (req) => {
 
         const profile: UserProfile | null = profileData || null;
 
-        // 3. Check for lab results (for legacy compatibility)
-        const { data: labData } = await supabase
-            .from('lab_snapshots')
-            .select('id')
-            .eq('user_id', userId)
-            .limit(1);
-        const labPresent = labData && labData.length > 0;
+        // Labs feature removed - no longer checking for lab_snapshots
+        const labPresent = false;
 
         // 4. Build input and calculate score
         const input = buildMetabolicScoreInput(dailyContext, profile);

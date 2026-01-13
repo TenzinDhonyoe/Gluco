@@ -577,10 +577,17 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
 
 
 // Connect Apple Health CTA Card
-const ConnectHealthCTA = () => {
+const ConnectHealthCTA = ({ onConnected }: { onConnected?: () => void }) => {
     const handlePress = async () => {
-        const { requestHealthKitAuthorization } = await import('@/lib/healthkit');
-        await requestHealthKitAuthorization();
+        try {
+            const { requestHealthKitAuthorization } = await import('@/lib/healthkit');
+            const authorized = await requestHealthKitAuthorization();
+            if (authorized) {
+                onConnected?.();
+            }
+        } catch (error) {
+            console.warn('HealthKit authorization failed:', error);
+        }
     };
 
     return (
@@ -976,7 +983,7 @@ export default function TodayScreen() {
     const { targetMin, targetMax } = useGlucoseTargetRange();
 
     // Fetch sleep data from HealthKit
-    const { data: sleepData } = useSleepData(range);
+    const { data: sleepData, refetch: refetchSleep } = useSleepData(range);
 
     // Fetch daily context (steps, active minutes) from HealthKit
     const dateRange = getDateRange(range);
@@ -1186,7 +1193,12 @@ export default function TodayScreen() {
 
                         {/* Connect Apple Health CTA - show for wearables mode if not authorized */}
                         {showWearableStats && !dailyContext.isAuthorized && dailyContext.isAvailable && (
-                            <ConnectHealthCTA />
+                            <ConnectHealthCTA
+                                onConnected={() => {
+                                    dailyContext.sync();
+                                    refetchSleep();
+                                }}
+                            />
                         )}
 
                         {/* Tip Cards - Swipeable */}
@@ -1881,4 +1893,3 @@ const styles = StyleSheet.create({
         marginTop: 2,
     },
 });
-

@@ -67,7 +67,6 @@ export default function RootLayout() {
           <Stack.Screen name="customization" />
           <Stack.Screen name="data-sources" />
           <Stack.Screen name="account-privacy" />
-          <Stack.Screen name="labs-health-info" />
           <Stack.Screen name="pre-meal-check" />
           <Stack.Screen name="scan-label" />
           <Stack.Screen name="meal-checkin" />

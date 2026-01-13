@@ -1,12 +1,25 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { fonts } from '@/hooks/useFonts';
+import {
+    getActiveMinutes,
+    getHRV,
+    getRestingHeartRate,
+    getSleepData,
+    getSteps,
+    initHealthKit,
+    isHealthKitAvailable,
+    requestHealthKitAuthorization
+} from '@/lib/healthkit';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
+    Alert,
+    ActivityIndicator,
     Image,
+    Platform,
     ScrollView,
     StyleSheet,
     Switch,
@@ -18,26 +31,154 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export default function DataSourcesScreen() {
     // Toggle state for Apple Health integration
     const [appleHealthEnabled, setAppleHealthEnabled] = useState(true);
+    const [isRequestingHealthAuth, setIsRequestingHealthAuth] = useState(false);
+    const [isRunningDiagnostics, setIsRunningDiagnostics] = useState(false);
+    const [diagnostics, setDiagnostics] = useState<{
+        isAvailable: boolean;
+        isAuthorized: boolean;
+        avgStepsPerDay: number | null;
+        avgActiveMinutes: number | null;
+        avgSleepHours: number | null;
+        avgRestingHR: number | null;
+        avgHRV: number | null;
+        error: string | null;
+    } | null>(null);
 
     // Load initial state
     React.useEffect(() => {
-        AsyncStorage.getItem('apple_health_enabled').then(value => {
+        let isMounted = true;
+        const loadState = async () => {
+            const value = await AsyncStorage.getItem('apple_health_enabled');
+            if (!isMounted) return;
+
             if (value !== null) {
                 setAppleHealthEnabled(value === 'true');
+            } else if (Platform.OS !== 'ios' || !isHealthKitAvailable()) {
+                // Default to disabled if HealthKit is unavailable
+                setAppleHealthEnabled(false);
             }
-        });
+
+            // If Apple Health is enabled, ensure we've requested permissions at least once.
+            if (Platform.OS === 'ios' && value === 'true') {
+                const alreadyRequested = await AsyncStorage.getItem('healthkit_permission_requested');
+                if (!alreadyRequested) {
+                    setIsRequestingHealthAuth(true);
+                    await requestHealthKitAuthorization().catch(() => null);
+                    setIsRequestingHealthAuth(false);
+                    await AsyncStorage.setItem('healthkit_permission_requested', 'true');
+                }
+            }
+        };
+
+        loadState();
+        return () => {
+            isMounted = false;
+        };
     }, []);
 
     const handleToggle = async (value: boolean) => {
-        setAppleHealthEnabled(value);
-        await AsyncStorage.setItem('apple_health_enabled', value.toString());
+        if (!value) {
+            setAppleHealthEnabled(false);
+            await AsyncStorage.setItem('apple_health_enabled', 'false');
+            return;
+        }
 
-        // If disabling, we might want to clear local state/cache or notify context
-        // For now, simpler is better: strictly gate fetching
+        if (Platform.OS !== 'ios') {
+            Alert.alert('Apple Health', 'Apple Health is only available on iOS devices.');
+            setAppleHealthEnabled(false);
+            await AsyncStorage.setItem('apple_health_enabled', 'false');
+            return;
+        }
+
+        if (!isHealthKitAvailable()) {
+            Alert.alert('Apple Health', 'HealthKit is not available on this device.');
+            setAppleHealthEnabled(false);
+            await AsyncStorage.setItem('apple_health_enabled', 'false');
+            return;
+        }
+
+        setIsRequestingHealthAuth(true);
+        const authorized = await requestHealthKitAuthorization().catch(() => false);
+        setIsRequestingHealthAuth(false);
+
+        if (!authorized) {
+            Alert.alert(
+                'Apple Health',
+                'Permission was not granted. You can enable access later in the Health app.'
+            );
+            setAppleHealthEnabled(false);
+            await AsyncStorage.setItem('apple_health_enabled', 'false');
+            return;
+        }
+
+        setAppleHealthEnabled(true);
+        await AsyncStorage.setItem('apple_health_enabled', 'true');
     };
 
     const handleBack = () => {
         router.back();
+    };
+
+    const runDiagnostics = async () => {
+        if (isRunningDiagnostics) return;
+        setIsRunningDiagnostics(true);
+
+        const available = Platform.OS === 'ios' && isHealthKitAvailable();
+        if (!available) {
+            setDiagnostics({
+                isAvailable: false,
+                isAuthorized: false,
+                avgStepsPerDay: null,
+                avgActiveMinutes: null,
+                avgSleepHours: null,
+                avgRestingHR: null,
+                avgHRV: null,
+                error: 'HealthKit native module unavailable.',
+            });
+            setIsRunningDiagnostics(false);
+            return;
+        }
+
+        const authorized = await initHealthKit().catch(() => false);
+        if (!authorized) {
+            setDiagnostics({
+                isAvailable: true,
+                isAuthorized: false,
+                avgStepsPerDay: null,
+                avgActiveMinutes: null,
+                avgSleepHours: null,
+                avgRestingHR: null,
+                avgHRV: null,
+                error: 'HealthKit authorization failed or was denied.',
+            });
+            setIsRunningDiagnostics(false);
+            return;
+        }
+
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(endDate.getDate() - 7);
+
+        const [stepsData, sleepData, activeData, hrData, hrvData] = await Promise.all([
+            getSteps(startDate, endDate),
+            getSleepData(startDate, endDate),
+            getActiveMinutes(startDate, endDate),
+            getRestingHeartRate(startDate, endDate),
+            getHRV(startDate, endDate),
+        ]);
+
+        setDiagnostics({
+            isAvailable: true,
+            isAuthorized: true,
+            avgStepsPerDay: stepsData?.avgStepsPerDay ?? null,
+            avgActiveMinutes: activeData?.avgMinutesPerDay ?? null,
+            avgSleepHours: sleepData?.avgMinutesPerNight ? sleepData.avgMinutesPerNight / 60 : null,
+            avgRestingHR: hrData?.avgRestingHR ?? null,
+            avgHRV: hrvData?.avgHRV ?? null,
+            error: null,
+        });
+
+        setIsRunningDiagnostics(false);
     };
 
     return (
@@ -87,6 +228,7 @@ export default function DataSourcesScreen() {
                             <Switch
                                 value={appleHealthEnabled}
                                 onValueChange={handleToggle}
+                                disabled={isRequestingHealthAuth}
                                 trackColor={{ false: '#3A3D40', true: '#3494D9' }}
                                 thumbColor="#FFFFFF"
                             />
@@ -103,6 +245,57 @@ export default function DataSourcesScreen() {
                         <Text style={styles.infoText}>
                             Log your glucose readings manually using the Log tab. CGM integrations coming soon.
                         </Text>
+                    </View>
+
+                    {/* HealthKit Diagnostics */}
+                    <Text style={styles.sectionTitle}>HEALTHKIT DIAGNOSTICS</Text>
+                    <View style={styles.infoCard}>
+                        <View style={styles.diagnosticsHeader}>
+                            <Ionicons name="pulse-outline" size={22} color="#878787" />
+                            <Text style={styles.diagnosticsTitle}>Quick check for TestFlight</Text>
+                        </View>
+                        <Text style={styles.infoText}>
+                            Runs a permission request and fetches a 7-day sample. Use this if Apple Health never prompts.
+                        </Text>
+                        <AnimatedPressable
+                            style={styles.diagnosticsButton}
+                            onPress={runDiagnostics}
+                            disabled={isRunningDiagnostics}
+                        >
+                            {isRunningDiagnostics ? (
+                                <ActivityIndicator color="#FFFFFF" />
+                            ) : (
+                                <Text style={styles.diagnosticsButtonText}>Run HealthKit Check</Text>
+                            )}
+                        </AnimatedPressable>
+                        {diagnostics && (
+                            <View style={styles.diagnosticsResults}>
+                                <Text style={styles.diagnosticsLine}>
+                                    Available: {diagnostics.isAvailable ? 'Yes' : 'No'}
+                                </Text>
+                                <Text style={styles.diagnosticsLine}>
+                                    Authorized: {diagnostics.isAuthorized ? 'Yes' : 'No'}
+                                </Text>
+                                <Text style={styles.diagnosticsLine}>
+                                    Steps avg: {diagnostics.avgStepsPerDay ?? '—'}
+                                </Text>
+                                <Text style={styles.diagnosticsLine}>
+                                    Activity avg: {diagnostics.avgActiveMinutes ?? '—'}
+                                </Text>
+                                <Text style={styles.diagnosticsLine}>
+                                    Sleep avg: {diagnostics.avgSleepHours ? diagnostics.avgSleepHours.toFixed(1) : '—'} hrs
+                                </Text>
+                                <Text style={styles.diagnosticsLine}>
+                                    Resting HR avg: {diagnostics.avgRestingHR ?? '—'}
+                                </Text>
+                                <Text style={styles.diagnosticsLine}>
+                                    HRV avg: {diagnostics.avgHRV ?? '—'}
+                                </Text>
+                                {diagnostics.error && (
+                                    <Text style={styles.diagnosticsError}>{diagnostics.error}</Text>
+                                )}
+                            </View>
+                        )}
                     </View>
                 </ScrollView>
             </SafeAreaView>
@@ -236,5 +429,43 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#878787',
         lineHeight: 20,
+    },
+    diagnosticsHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 8,
+    },
+    diagnosticsTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: '#E7E8E9',
+    },
+    diagnosticsButton: {
+        marginTop: 12,
+        paddingVertical: 10,
+        borderRadius: 10,
+        backgroundColor: '#2A2D30',
+        alignItems: 'center',
+    },
+    diagnosticsButtonText: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: '#FFFFFF',
+    },
+    diagnosticsResults: {
+        marginTop: 12,
+        gap: 4,
+    },
+    diagnosticsLine: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#B7B9BB',
+    },
+    diagnosticsError: {
+        marginTop: 6,
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#F44336',
     },
 });

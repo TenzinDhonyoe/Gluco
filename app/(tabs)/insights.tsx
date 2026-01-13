@@ -737,14 +737,8 @@ export default function InsightsScreen() {
                     <View style={styles.notEnoughDataContainer}>
                         <Ionicons name="analytics-outline" size={32} color="#878787" />
                         <Text style={styles.notEnoughDataText}>
-                            Not enough data to compute a score. Try adding lab results or connecting your wearable for at least 5 days.
+                            Not enough data to compute a score. Connect your Apple Watch and sync for at least 5 days.
                         </Text>
-                        <AnimatedPressable
-                            style={styles.addLabsButton}
-                            onPress={() => router.push('/labs-health-info' as any)}
-                        >
-                            <Text style={styles.addLabsButtonText}>Add Lab Results</Text>
-                        </AnimatedPressable>
                     </View>
                 ) : metabolicScore ? (
                     <View>
@@ -799,29 +793,8 @@ export default function InsightsScreen() {
                             <Text style={styles.dataSourcesLabel}>Data sources:</Text>
                             <Text style={styles.dataSourcesValue}>
                                 {metabolicScore.wearables_days} wearable days
-                                {metabolicScore.lab_present ? ' • Labs' : ''}
                             </Text>
                         </View>
-
-                        <AnimatedPressable
-                            style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                backgroundColor: '#252527',
-                                paddingVertical: 16,
-                                borderRadius: 16,
-                                marginTop: 20,
-                                gap: 8,
-                                width: '100%'
-                            }}
-                            onPress={() => router.push('/labs-health-info' as any)}
-                        >
-                            <Ionicons name="add-circle-sharp" size={20} color="#3494D9" />
-                            <Text style={{ fontSize: 16, fontFamily: fonts.semiBold, color: '#FFFFFF' }}>
-                                {metabolicScore.lab_present ? 'Update Lab Results' : 'Add Lab Results'}
-                            </Text>
-                        </AnimatedPressable>
 
                         <Disclaimer variant="short" style={styles.metabolicDisclaimer} />
                     </View>

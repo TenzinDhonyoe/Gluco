@@ -48,7 +48,6 @@ export default function SettingsScreen() {
         { label: 'Data Sources', onPress: () => router.push('/data-sources' as never) },
         { label: 'Customization', onPress: () => router.push('/customization') },
         { label: 'Notifications', onPress: () => router.push('/notification-settings' as never) },
-        { label: 'Lab & Health Info', onPress: () => router.push('/labs-health-info' as never) },
     ];
 
     const legalItems: SettingsItem[] = [

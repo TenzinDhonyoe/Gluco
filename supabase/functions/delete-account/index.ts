@@ -93,7 +93,6 @@ serve(async (req) => {
             'glucose_logs',
             'activity_logs',
             'daily_context',
-            'lab_snapshots',
             'user_calibration',
             'favorite_foods',
             'recent_foods',

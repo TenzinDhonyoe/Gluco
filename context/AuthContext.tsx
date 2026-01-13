@@ -1,8 +1,4 @@
 import { getUserProfile, GlucoseUnit, supabase, UserProfile } from '@/lib/supabase';
-import {
-    GoogleSignin,
-    statusCodes,
-} from '@react-native-google-signin/google-signin';
 import { Session, User } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import React, { createContext, useContext, useEffect, useState } from 'react';
@@ -19,7 +15,6 @@ interface AuthContextType {
     signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
     signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
     signInWithApple: () => Promise<{ error: Error | null }>;
-    signInWithGoogle: () => Promise<{ error: Error | null }>;
     signOut: () => Promise<void>;
     refreshProfile: () => Promise<void>;
     resetPassword: (email: string) => Promise<{ error: Error | null }>;
@@ -44,17 +39,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setLoading(false);
             }
         });
-
-        try {
-            GoogleSignin.configure({
-                scopes: ['https://www.googleapis.com/auth/userinfo.email'],
-                webClientId: '21186138012-u7h9a8p131g187aq9s1bmpjeqov5bih4.apps.googleusercontent.com', // Web Client ID
-                iosClientId: '21186138012-u7h9a8p131g187aq9s1bmpjeqov5bih4.apps.googleusercontent.com', // iOS Client ID
-                offlineAccess: true,
-            });
-        } catch (e) {
-            console.warn('GoogleSignin configuration failed. Google Sign-In will not work.', e);
-        }
 
         // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -90,7 +74,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 supabase.auth.getSession().then(({ data: { session }, error }) => {
                     if (error) {
                         console.error('Error refreshing session:', error);
-                        // If session is invalid, might want to sign out or handle gracefully
                     }
                     if (session) {
                         // Session is valid, ensure local state matches
@@ -98,12 +81,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             setUser(session.user);
                             setSession(session);
                             loadProfile(session.user.id);
-                        }
-                    } else {
-                        // No valid session found
-                        if (user) {
-                            // We thought we had a user, but session is gone?
-                            // Maybe verify if we need to sign out
                         }
                     }
                 });
@@ -233,46 +210,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
-    const signInWithGoogle = async (): Promise<{ error: Error | null }> => {
-        try {
-            setLoading(true);
-            await GoogleSignin.hasPlayServices();
-            const userInfo = await GoogleSignin.signIn();
-
-            if (userInfo.data?.idToken) {
-                const { data, error } = await supabase.auth.signInWithIdToken({
-                    provider: 'google',
-                    token: userInfo.data.idToken,
-                });
-
-                if (error) {
-                    return { error };
-                }
-
-                if (data.user) {
-                    await loadProfile(data.user.id);
-                }
-
-                return { error: null };
-            } else {
-                return { error: new Error('No ID token present!') };
-            }
-        } catch (error: any) {
-            if (error.code === statusCodes.SIGN_IN_CANCELLED) {
-                return { error: null }; // User cancelled
-            } else if (error.code === statusCodes.IN_PROGRESS) {
-                return { error: new Error('Signin in progress') };
-            } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-                return { error: new Error('Play services not available') };
-            } else {
-                console.error('Google Sign-In error:', error);
-                return { error: error as Error };
-            }
-        } finally {
-            setLoading(false);
-        }
-    };
-
     const signOut = async () => {
         try {
             setLoading(true);
@@ -313,7 +250,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 signUp,
                 signIn,
                 signInWithApple,
-                signInWithGoogle,
                 signOut,
                 refreshProfile,
                 resetPassword,
@@ -340,4 +276,3 @@ export function useGlucoseUnit(): GlucoseUnit {
     const { profile } = useAuth();
     return profile?.glucose_unit ?? DEFAULT_GLUCOSE_UNIT;
 }
-

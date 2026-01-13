@@ -2200,7 +2200,6 @@ export async function exportUserData(userId: string): Promise<{
     glucose_logs: GlucoseLog[];
     activity_logs: ActivityLog[];
     daily_context: DailyContext[];
-    lab_snapshots: LabSnapshot[];
     user_calibration: Record<string, any> | null;
     favorite_foods: NormalizedFood[];
     recent_foods: NormalizedFood[];
@@ -2221,7 +2220,6 @@ export async function exportUserData(userId: string): Promise<{
             glucoseLogs,
             activityLogs,
             dailyContext,
-            labSnapshots,
             userCalibrationRows,
             favoriteFoods,
             recentFoods,
@@ -2240,7 +2238,6 @@ export async function exportUserData(userId: string): Promise<{
             fetchAllRows<GlucoseLog>('glucose_logs', '*', 'user_id', userId),
             fetchAllRows<ActivityLog>('activity_logs', '*', 'user_id', userId),
             fetchAllRows<DailyContext>('daily_context', '*', 'user_id', userId),
-            fetchAllRows<LabSnapshot>('lab_snapshots', '*', 'user_id', userId),
             fetchAllRows<Record<string, any>>('user_calibration', '*', 'user_id', userId),
             fetchAllRows<NormalizedFood>('favorite_foods', '*', 'user_id', userId),
             fetchAllRows<NormalizedFood>('recent_foods', '*', 'user_id', userId),
@@ -2261,7 +2258,6 @@ export async function exportUserData(userId: string): Promise<{
             glucose_logs: glucoseLogs,
             activity_logs: activityLogs,
             daily_context: dailyContext,
-            lab_snapshots: labSnapshots,
             user_calibration: userCalibrationRows?.[0] ?? null,
             favorite_foods: favoriteFoods,
             recent_foods: recentFoods,
@@ -2343,149 +2339,6 @@ export async function deleteUserData(_userId: string): Promise<boolean> {
 }
 
 // ==========================================
-// LAB SNAPSHOTS (for Metabolic Response Score)
-// ==========================================
-
-export interface LabSnapshot {
-    id: string;
-    user_id: string;
-    collected_at: string;
-    fasting_glucose_value: number | null;
-    fasting_glucose_unit: string;
-    fasting_insulin_value: number | null;
-    fasting_insulin_unit: string;
-    triglycerides_value: number | null;
-    triglycerides_unit: string;
-    hdl_value: number | null;
-    hdl_unit: string;
-    alt_value: number | null;
-    alt_unit: string;
-    weight_kg: number | null;
-    height_cm: number | null;
-    notes: string | null;
-    source: string;
-    created_at: string;
-    updated_at: string;
-}
-
-export interface CreateLabSnapshotInput {
-    collected_at?: string;
-    fasting_glucose_value?: number | null;
-    fasting_glucose_unit?: string;
-    fasting_insulin_value?: number | null;
-    fasting_insulin_unit?: string;
-    triglycerides_value?: number | null;
-    triglycerides_unit?: string;
-    hdl_value?: number | null;
-    hdl_unit?: string;
-    alt_value?: number | null;
-    alt_unit?: string;
-    weight_kg?: number | null;
-    height_cm?: number | null;
-    notes?: string | null;
-    source?: string;
-}
-
-/**
- * Create a new lab snapshot
- */
-export async function createLabSnapshot(
-    userId: string,
-    input: CreateLabSnapshotInput
-): Promise<LabSnapshot | null> {
-    try {
-        const { data, error } = await supabase
-            .from('lab_snapshots')
-            .insert({
-                user_id: userId,
-                collected_at: input.collected_at || new Date().toISOString(),
-                fasting_glucose_value: input.fasting_glucose_value,
-                fasting_glucose_unit: input.fasting_glucose_unit || 'mmol/L',
-                fasting_insulin_value: input.fasting_insulin_value,
-                fasting_insulin_unit: input.fasting_insulin_unit || 'uIU/mL',
-                triglycerides_value: input.triglycerides_value,
-                triglycerides_unit: input.triglycerides_unit || 'mmol/L',
-                hdl_value: input.hdl_value,
-                hdl_unit: input.hdl_unit || 'mmol/L',
-                alt_value: input.alt_value,
-                alt_unit: input.alt_unit || 'U/L',
-                weight_kg: input.weight_kg,
-                height_cm: input.height_cm,
-                notes: input.notes,
-                source: input.source || 'manual',
-            })
-            .select()
-            .single();
-
-        if (error) {
-            console.error('Error creating lab snapshot:', error);
-            return null;
-        }
-
-        return data;
-    } catch (err) {
-        console.error('Create lab snapshot error:', err);
-        return null;
-    }
-}
-
-/**
- * Get the latest lab snapshot for a user
- */
-export async function getLatestLabSnapshot(
-    userId: string
-): Promise<LabSnapshot | null> {
-    try {
-        const { data, error } = await supabase
-            .from('lab_snapshots')
-            .select('*')
-            .eq('user_id', userId)
-            .order('collected_at', { ascending: false })
-            .limit(1)
-            .single();
-
-        if (error) {
-            // No lab snapshots yet is not an error
-            if (error.code === 'PGRST116') return null;
-            console.error('Error fetching latest lab snapshot:', error);
-            return null;
-        }
-
-        return data;
-    } catch (err) {
-        console.error('Get latest lab snapshot error:', err);
-        return null;
-    }
-}
-
-/**
- * Get all lab snapshots for a user
- */
-export async function getLabSnapshots(
-    userId: string,
-    limit: number = 10
-): Promise<LabSnapshot[]> {
-    try {
-        const { data, error } = await supabase
-            .from('lab_snapshots')
-            .select('*')
-            .eq('user_id', userId)
-            .order('collected_at', { ascending: false })
-            .limit(limit);
-
-        if (error) {
-            console.error('Error fetching lab snapshots:', error);
-            return [];
-        }
-
-        return data || [];
-    } catch (err) {
-        console.error('Get lab snapshots error:', err);
-        return [];
-    }
-}
-
-// ==========================================
 // METABOLIC RESPONSE SCORE
 // ==========================================
 
@@ -2528,4 +2381,121 @@ export async function invokeMetabolicScore(
     range: MetabolicScoreRangeKey = '30d'
 ): Promise<MetabolicScoreResult | null> {
     return invokeWithRetry<MetabolicScoreResult>('metabolic-score', { user_id: userId, range });
+}
+
+// ==========================================
+// PERSONALIZED INSIGHTS
+// ==========================================
+
+export interface UserMetabolicProfile {
+    user_id: string;
+    baseline_resting_hr: number | null;
+    baseline_steps: number | null;
+    baseline_sleep_hours: number | null;
+    baseline_hrv_ms: number | null;
+    baseline_metabolic_score: number | null;
+    sensitivity_sleep: 'low' | 'medium' | 'high' | 'unknown';
+    sensitivity_steps: 'low' | 'medium' | 'high' | 'unknown';
+    sensitivity_recovery: 'slow' | 'average' | 'fast' | 'unknown';
+    pattern_weekend_disruption: boolean;
+    pattern_sleep_sensitive: boolean;
+    pattern_activity_sensitive: boolean;
+    data_coverage_days: number;
+    valid_days_for_sensitivity: number;
+    last_updated_at: string;
+}
+
+export type InsightMode = 'single_conversational' | 'bullets';
+// TrackingMode already defined at top of file
+
+export interface BulletInsight {
+    category: 'meals' | 'activity' | 'sleep' | 'wellness';
+    title: string;
+    description: string;
+}
+
+export interface PersonalInsightResult {
+    // Single conversational mode
+    insight?: string;
+    // Bullets mode
+    insights?: BulletInsight[];
+    // Common
+    mode: InsightMode;
+    profile_exists: boolean;
+    recent_trend?: 'up' | 'flat' | 'down';
+}
+
+export interface ComputeProfileResult {
+    profile: UserMetabolicProfile;
+    cached: boolean;
+    hours_since_update?: number;
+    message?: string;
+}
+
+/**
+ * Invoke personalized insights Edge Function
+ * Returns either a single conversational insight or multiple bullet insights
+ */
+export async function invokePersonalInsight(
+    userId: string,
+    trackingMode: TrackingMode = 'meals_wearables',
+    insightMode: InsightMode = 'single_conversational'
+): Promise<PersonalInsightResult | null> {
+    return invokeWithRetry<PersonalInsightResult>('personal-insights', {
+        user_id: userId,
+        tracking_mode: trackingMode,
+        insight_mode: insightMode,
+    });
+}
+
+/**
+ * Invoke compute metabolic profile Edge Function
+ * Computes and caches user baselines, sensitivities, and patterns
+ */
+export async function invokeComputeMetabolicProfile(
+    userId: string,
+    forceRefresh: boolean = false
+): Promise<ComputeProfileResult | null> {
+    return invokeWithRetry<ComputeProfileResult>('compute-metabolic-profile', {
+        user_id: userId,
+        force_refresh: forceRefresh,
+    });
+}
+
+/**
+ * Get cached metabolic profile from database (faster than Edge Function)
+ */
+export async function getMetabolicProfile(
+    userId: string
+): Promise<UserMetabolicProfile | null> {
+    try {
+        const { data, error } = await supabase
+            .from('user_metabolic_profile')
+            .select('*')
+            .eq('user_id', userId)
+            .single();
+
+        if (error) {
+            if (error.code === 'PGRST116') return null; // No row found
+            console.error('Error fetching metabolic profile:', error);
+            return null;
+        }
+
+        return data;
+    } catch (err) {
+        console.error('Get metabolic profile error:', err);
+        return null;
+    }
+}
+
+/**
+ * Check if metabolic profile needs refresh (> 24h old or doesn't exist)
+ */
+export async function needsProfileRefresh(userId: string): Promise<boolean> {
+    const profile = await getMetabolicProfile(userId);
+    if (!profile) return true;
+
+    const lastUpdated = new Date(profile.last_updated_at);
+    const hoursSinceUpdate = (Date.now() - lastUpdated.getTime()) / (1000 * 60 * 60);
+    return hoursSinceUpdate >= 24;
 }

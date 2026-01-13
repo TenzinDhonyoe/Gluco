@@ -22,45 +22,23 @@ interface SleepSample {
     sourceId: string;
 }
 
-// Lazy load AppleHealthKit to avoid crashes on non-iOS platforms
+// Load AppleHealthKit at module level for iOS
 let AppleHealthKit: any = null;
-let healthKitLoadAttempted = false;
-let healthKitLoadError: Error | null = null;
+
+if (Platform.OS === 'ios') {
+    try {
+        const hkModule = require('react-native-health');
+        AppleHealthKit = hkModule.default || hkModule;
+    } catch (e) {
+        console.warn('Failed to load react-native-health:', e);
+    }
+}
 
 // Cache authorization result to prevent repeated native bridge calls
 let healthKitAuthorized: boolean | null = null;
 
 function getAppleHealthKit() {
     if (Platform.OS !== 'ios') return null;
-
-    // If we've already tried and failed, don't try again
-    if (healthKitLoadAttempted && !AppleHealthKit) {
-        return null;
-    }
-
-    if (!AppleHealthKit && !healthKitLoadAttempted) {
-        healthKitLoadAttempted = true;
-        try {
-            // Use dynamic import to prevent synchronous crashes
-            // Check if module exists first
-            if (typeof require !== 'undefined') {
-                const healthKitModule = require('react-native-health');
-                AppleHealthKit = healthKitModule?.default || healthKitModule;
-
-                // Verify the module has required methods
-                if (!AppleHealthKit || typeof AppleHealthKit.initHealthKit !== 'function') {
-                    throw new Error('react-native-health module incomplete');
-                }
-            } else {
-                throw new Error('require not available');
-            }
-        } catch (error) {
-            console.warn('Failed to load react-native-health (this is OK if not properly linked):', error);
-            healthKitLoadError = error as Error;
-            AppleHealthKit = null;
-            return null;
-        }
-    }
     return AppleHealthKit;
 }
 
@@ -70,23 +48,27 @@ function getAppleHealthKit() {
  * Results are cached to prevent repeated native bridge calls
  */
 export async function initHealthKit(): Promise<boolean> {
-    // Return cached result if available
-    if (healthKitAuthorized !== null) {
-        return healthKitAuthorized;
+    // Return cached result ONLY if it's true (already authorized)
+    // If it's false/null, we should check again or try to authorize
+    if (healthKitAuthorized === true) {
+        return true;
     }
 
     try {
         const healthKit = getAppleHealthKit();
         if (!healthKit) {
             if (__DEV__) console.warn('HealthKit not available');
-            healthKitAuthorized = false;
+            // Do not cache false here, as it might become available later (unlikely but safe)
+            return false;
+        }
+        if (typeof healthKit.initHealthKit !== 'function') {
+            if (__DEV__) console.warn('HealthKit native module not initialized');
             return false;
         }
 
         // Check if Constants exist
         if (!healthKit.Constants || !healthKit.Constants.Permissions) {
             if (__DEV__) console.warn('HealthKit Constants not available');
-            healthKitAuthorized = false;
             return false;
         }
 
@@ -109,7 +91,6 @@ export async function initHealthKit(): Promise<boolean> {
                 healthKit.initHealthKit(permissions, (err: Error | null) => {
                     if (err) {
                         if (__DEV__) console.warn('HealthKit initialization failed:', err);
-                        healthKitAuthorized = false;
                         resolve(false);
                         return;
                     }
@@ -118,13 +99,11 @@ export async function initHealthKit(): Promise<boolean> {
                 });
             } catch (error) {
                 if (__DEV__) console.warn('Error calling initHealthKit:', error);
-                healthKitAuthorized = false;
                 resolve(false);
             }
         });
     } catch (error) {
         if (__DEV__) console.warn('Error in initHealthKit:', error);
-        healthKitAuthorized = false;
         return false;
     }
 }
@@ -135,7 +114,7 @@ export async function initHealthKit(): Promise<boolean> {
 export function isHealthKitAvailable(): boolean {
     if (Platform.OS !== 'ios') return false;
     const healthKit = getAppleHealthKit();
-    return healthKit !== null;
+    return !!healthKit && typeof healthKit.initHealthKit === 'function';
 }
 
 export interface SleepStats {
@@ -180,13 +159,13 @@ export async function getSleepData(
                         }
 
                         // Filter for actual sleep samples (ASLEEP, CORE, DEEP, REM)
-                        // Exclude INBED and AWAKE as they don't represent actual sleep
-                        const sleepValues = ['ASLEEP', 'CORE', 'DEEP', 'REM'];
-                        const sleepSamples = results.filter((s) =>
-                            sleepValues.includes(s.value)
-                        );
+                        // Fall back to INBED if no true sleep stages exist.
+                        const sleepValues = ['ASLEEP', 'ASLEEP_UNSPECIFIED', 'CORE', 'DEEP', 'REM'];
+                        const sleepSamples = results.filter((s) => sleepValues.includes(s.value));
+                        const inBedSamples = results.filter((s) => s.value === 'INBED');
+                        const effectiveSamples = sleepSamples.length > 0 ? sleepSamples : inBedSamples;
 
-                        if (sleepSamples.length === 0) {
+                        if (effectiveSamples.length === 0) {
                             resolve({
                                 totalMinutes: 0,
                                 nights: 0,
@@ -196,7 +175,7 @@ export async function getSleepData(
                         }
 
                         // Calculate total sleep duration in minutes
-                        const totalMinutes = sleepSamples.reduce((sum, sample) => {
+                        const totalMinutes = effectiveSamples.reduce((sum, sample) => {
                             const start = new Date(sample.startDate).getTime();
                             const end = new Date(sample.endDate).getTime();
                             const durationMinutes = (end - start) / 60000;
@@ -206,7 +185,7 @@ export async function getSleepData(
                         // Count unique nights by grouping samples by their start date
                         // A "night" is determined by the date when sleep started
                         const uniqueNights = new Set(
-                            sleepSamples.map((sample) => {
+                            effectiveSamples.map((sample) => {
                                 const date = new Date(sample.startDate);
                                 // Adjust for sleep that starts late at night
                                 // If sleep starts between midnight and 6am, consider it part of previous night
@@ -277,6 +256,7 @@ export async function getSteps(
                 const options = {
                     startDate: startDate.toISOString(),
                     endDate: endDate.toISOString(),
+                    period: 1440, // Daily buckets (minutes)
                 };
 
                 healthKit.getDailyStepCountSamples(
@@ -294,7 +274,8 @@ export async function getSteps(
                         }
 
                         const totalSteps = results.reduce((sum, sample) => sum + sample.value, 0);
-                        const days = results.length;
+                        const uniqueDays = new Set(results.map((sample) => new Date(sample.startDate).toDateString()));
+                        const days = uniqueDays.size > 0 ? uniqueDays.size : results.length;
                         const avgStepsPerDay = days > 0 ? Math.round(totalSteps / days) : 0;
 
                         resolve({ totalSteps, days, avgStepsPerDay });

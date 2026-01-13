@@ -265,32 +265,28 @@ Daily wellness context from wearables (HealthKit integration ready).
 **RLS Policies**: Users can only view/insert/update/delete their own context.
 **Indexes**: `user_id, date DESC` for range queries.
 
-#### 7. `lab_snapshots`
-User-entered lab results for wellness score calculation.
+#### 7. `user_metabolic_profile`
+Cached user baselines, sensitivities, and patterns for personalized AI insights.
 
 ```sql
-- id (UUID, PRIMARY KEY)
-- user_id (UUID, REFERENCES auth.users, NOT NULL)
-- collected_at (TIMESTAMP WITH TIME ZONE, NOT NULL)
-- fasting_glucose_value (NUMERIC, nullable)
-- fasting_glucose_unit (TEXT, DEFAULT 'mmol/L')
-- fasting_insulin_value (NUMERIC, nullable)
-- fasting_insulin_unit (TEXT, DEFAULT 'uIU/mL')
-- triglycerides_value (NUMERIC, nullable)
-- triglycerides_unit (TEXT, DEFAULT 'mmol/L')
-- hdl_value (NUMERIC, nullable)
-- hdl_unit (TEXT, DEFAULT 'mmol/L')
-- alt_value (NUMERIC, nullable)
-- alt_unit (TEXT, DEFAULT 'U/L')
-- weight_kg (NUMERIC, nullable)
-- height_cm (NUMERIC, nullable)
-- notes (TEXT, nullable)
-- source (TEXT, DEFAULT 'manual')
-- created_at (TIMESTAMP WITH TIME ZONE)
+- user_id (UUID, PRIMARY KEY, REFERENCES auth.users)
+- baseline_resting_hr (NUMERIC, nullable)
+- baseline_steps (INTEGER, nullable)
+- baseline_sleep_hours (NUMERIC, nullable)
+- baseline_hrv_ms (NUMERIC, nullable)
+- baseline_metabolic_score (INTEGER, nullable)
+- sensitivity_sleep (TEXT, CHECK: 'low'|'medium'|'high'|'unknown')
+- sensitivity_steps (TEXT, CHECK: 'low'|'medium'|'high'|'unknown')
+- sensitivity_recovery (TEXT, CHECK: 'slow'|'average'|'fast'|'unknown')
+- pattern_weekend_disruption (BOOLEAN, DEFAULT FALSE)
+- pattern_sleep_sensitive (BOOLEAN, DEFAULT FALSE)
+- pattern_activity_sensitive (BOOLEAN, DEFAULT FALSE)
+- data_coverage_days (INTEGER, DEFAULT 0)
+- last_updated_at (TIMESTAMP WITH TIME ZONE)
 ```
 
-**RLS Policies**: Users can only view/insert/delete their own lab snapshots.
-**Indexes**: `user_id`, `collected_at DESC`.
+**RLS Policies**: Users can only view their own profile. Service role can manage all.
+**Refresh Triggers**: Daily sync, on-demand when profile > 24h old.
 
 ### Database Functions (in `lib/supabase.ts`)
 
@@ -334,15 +330,20 @@ User-entered lab results for wellness score calculation.
 - `upsertDailyContext(userId, date, data)`: Insert/update wearable data for a date
 - `getDailyContext(userId, startDate, endDate)`: Fetch wearable data for date range
 
-#### Lab Snapshots
-- `createLabSnapshot(userId, input)`: Insert new lab snapshot
-- `getLatestLabSnapshot(userId)`: Fetch most recent lab entry
-- `getLabSnapshots(userId, limit?)`: Fetch all lab entries
+#### Metabolic Profile
+- `getMetabolicProfile(userId)`: Fetch cached user profile
+- `needsProfileRefresh(userId)`: Check if profile is stale (>24h)
+- `invokeComputeMetabolicProfile(userId, force?)`: Compute and cache profile
+
+#### Personalized Insights
+- `invokePersonalInsight(userId, trackingMode, insightMode)`: Get AI-generated insight
+  - Modes: 'single_conversational' (default), 'bullets'
+  - Returns personalized coach-style insight based on user's patterns
 
 #### Metabolic Score
 - `invokeMetabolicScore(userId, range?)`: Invoke metabolic-score Edge Function
-  - Range options: '7d', '14d', '30d' (default), '90d'
-  - Returns `MetabolicScoreResult` with score, band, confidence, drivers, components
+  - Range options: '7d' (default), '14d', '30d', '90d'
+  - Returns `MetabolicScoreResult` with score, band, confidence, drivers
 
 ---
 
@@ -904,7 +905,7 @@ POST /functions/v1/premeal-analyze
 
 **Location**: `supabase/functions/metabolic-score/index.ts`
 
-**Purpose**: Computes a deterministic wellness score (0-100) based on wearable data and optional lab values. Higher score = better wellness patterns.
+**Purpose**: Computes a deterministic wellness score (0-100) based on wearable data from Apple HealthKit. Higher score = better wellness patterns.
 
 **API**:
 ```typescript
@@ -912,7 +913,7 @@ POST /functions/v1/premeal-analyze
 POST /functions/v1/metabolic-score
 {
   user_id: string,
-  range?: '7d' | '14d' | '30d' | '90d'  // Default: '30d'
+  range?: '7d' | '14d' | '30d' | '90d'  // Default: '7d'
 }
 
 // Response
@@ -920,48 +921,123 @@ POST /functions/v1/metabolic-score
   status: 'ok' | 'insufficient',
   range: '7d' | '14d' | '30d' | '90d',
   metabolic_response_score: number | null,  // 0-100, higher = better
-  strain_score: number | null,              // 0-100, lower = better
-  band: 'low' | 'medium' | 'high' | null,   // Based on strain
+  band: 'low' | 'medium' | 'high' | null,
   confidence: 'high' | 'medium' | 'low',
   wearables_days: number,
-  lab_present: boolean,
-  drivers: Array<{ key: string, points: number, text: string }>,
-  components: {
-    base: number,
-    sleep_pen: number,
-    act_pen: number,
-    steps_pen: number,
-    rhr_pen: number,
-    hrv_pen: number,
-    fibre_bonus: number,
-    lab_pen: number
-  }
+  drivers: Array<{ key: string, points: number, text: string }>
 }
 ```
 
-**Features**:
-- Deterministic scoring (no LLM) using smooth ramp functions
-- Data sufficiency gating: requires 5+ wearable days OR lab data
-- Confidence levels based on data availability
-- Banned terms safety check (`assertNoBannedTerms`)
-- Unit conversion: mg/dL → mmol/L for glucose
+**Algorithm** (7-Day Rolling Window):
+1. **Data Aggregation**:
+   - RHR, HRV: Median aggregation (robust to outliers)
+   - Steps, Sleep: Mean aggregation
+2. **Outlier Trimming**: Top/bottom 10% of values removed before aggregation
+3. **Normalization**:
+   - RHR: `100 - ((rhr - 50) / 30) × 100` (lower HR = better)
+   - Steps: `(steps - 3000) / 9000 × 100` (more steps = better)
+   - Sleep: `((sleep - 5) / 3) × 100` (8h optimal)
+   - HRV: `(hrv - 20) / 60 × 100` (higher HRV = better)
+4. **Age/BMI Context**: Adjusts scoring based on user's age and BMI
+5. **Weighted Score**: 
+   - RHR: 30%, Steps: 25%, Sleep: 25%, HRV: 20%
+   - Weights redistribute if metrics are missing
 
-**Scoring Components**:
-| Component | Good Value | Bad Value | Max Points |
-|-----------|------------|-----------|------------|
-| Sleep | 7.5h | 5.5h | 15 |
-| Active Minutes | 35 | 10 | 15 |
-| Steps | 9000 | 4000 | 10 |
-| Resting HR | 60 | 80 | 10 |
-| HRV | 55ms | 25ms | 10 |
-| Fibre (bonus) | 25g | 10g | -8 |
-| Lab (glucose) | 4.8 mmol/L | 6.3 mmol/L | 6 |
+**Data Requirements**:
+- Minimum 5 days of wearable data
+- If < 5 days: returns `status: 'insufficient'`
 
 **IMPORTANT - Banned Terms**: Never use: insulin resistance, HOMA-IR, prediabetes, diabetes, diagnose, detect, treat, prevent, medical device, clinical, reverse.
 
 ---
 
-#### 3. `personalized-tips` - AI-Powered Log Screen Tips
+#### 3. `compute-metabolic-profile` - User Profile Builder
+
+**Location**: `supabase/functions/compute-metabolic-profile/index.ts`
+
+**Purpose**: Computes and caches user's metabolic baselines, sensitivities, and patterns for personalized AI insights.
+
+**API**:
+```typescript
+// Request
+POST /functions/v1/compute-metabolic-profile
+{
+  user_id: string,
+  force_refresh?: boolean  // Default: false
+}
+
+// Response
+{
+  profile: UserMetabolicProfile,
+  cached: boolean,
+  hours_since_update?: number,
+  message?: string
+}
+```
+
+**Profile Components**:
+- **Baselines** (28-day rolling median): RHR, steps, sleep hours, HRV
+- **Sensitivities** (slope-based detection):
+  - Sleep: Points per hour change (high ≥4, medium 2-4, low <2)
+  - Steps: Points per 1000 steps change
+  - Recovery: Speed of score recovery after disruption
+- **Patterns**: Weekend disruption, sleep sensitive, activity sensitive
+
+**Caching**: 24-hour TTL, auto-returns cached if fresh.
+
+---
+
+#### 4. `personal-insights` - Personalized AI Coach
+
+**Location**: `supabase/functions/personal-insights/index.ts`
+
+**Purpose**: Generates personalized wellness insights using the user's metabolic profile and recent data.
+
+**API**:
+```typescript
+// Request
+POST /functions/v1/personal-insights
+{
+  user_id: string,
+  tracking_mode: 'meals_wearables' | 'wearables_only' | 'meals_only',
+  insight_mode?: 'single_conversational' | 'bullets'  // Default: 'single_conversational'
+}
+
+// Response (single_conversational mode)
+{
+  insight: string,           // "Your Metabolic Score dipped slightly..."
+  mode: 'single_conversational',
+  profile_exists: boolean,
+  recent_trend: 'up' | 'flat' | 'down'
+}
+
+// Response (bullets mode)
+{
+  insights: BulletInsight[],
+  mode: 'bullets',
+  profile_exists: boolean
+}
+```
+
+**Personalized Coach Prompt**:
+- Uses user's baselines: "Your normal is X steps/day"
+- Compares to today: "Today you logged Y steps"
+- Interprets patterns: "For you, this usually means..."
+- Gentle action: "A slightly earlier wind-down tonight could help"
+
+**Language Rules** (enforced):
+- Always uses: "for you", "your usual pattern", "compared to your normal"
+- Never mentions: diabetes, prediabetes, insulin resistance, disease risk
+- Tone: calm, reflective, supportive, never urgent or fear-based
+- Max 3-5 sentences
+
+**Dual Output Modes**:
+- `single_conversational`: Main feed insight (default)
+- `bullets`: Push notifications, weekly recap, expandable sections
+
+---
+
+#### 5. `personalized-tips` - AI-Powered Log Screen Tips
 
 **Location**: `supabase/functions/personalized-tips/index.ts`
 
