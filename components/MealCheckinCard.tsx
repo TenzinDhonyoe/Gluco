@@ -1,9 +1,9 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { fonts } from '@/hooks/useFonts';
-import { MealWithCheckin } from '@/lib/supabase';
+import { ensureSignedMealPhotoUrl, MealWithCheckin } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 
 // Simple time formatter (e.g., "2:30 PM")
@@ -23,6 +23,18 @@ interface MealCheckinCardProps {
 }
 
 export const MealCheckinCard = React.memo(({ meal, onPress }: MealCheckinCardProps) => {
+    // State for signed photo URL (private bucket requires signed URLs)
+    const [signedPhotoUrl, setSignedPhotoUrl] = useState<string | null>(null);
+
+    // Resolve photo path to signed URL when meal has a photo
+    useEffect(() => {
+        if (meal.photo_path) {
+            ensureSignedMealPhotoUrl(meal.photo_path).then(setSignedPhotoUrl);
+        } else {
+            setSignedPhotoUrl(null);
+        }
+    }, [meal.photo_path]);
+
     // Check if meal has a check-in
     const hasCheckin = meal.meal_checkins && meal.meal_checkins.length > 0;
 
@@ -39,8 +51,8 @@ export const MealCheckinCard = React.memo(({ meal, onPress }: MealCheckinCardPro
             onPress={onPress}
         >
             {/* Background Image or Gradient */}
-            {meal.photo_path ? (
-                <Image source={{ uri: meal.photo_path }} style={styles.image} />
+            {signedPhotoUrl ? (
+                <Image source={{ uri: signedPhotoUrl }} style={styles.image} />
             ) : (
                 <LinearGradient
                     colors={['#2A2D30', '#1A1B1C']}

@@ -1,0 +1,12 @@
+# Build, boot simulator, install, and launch in one go
+cd ~/Desktop/Gluco && cd ios && xcodebuild -workspace gluco.xcworkspace -scheme Gluco -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build && cd .. && xcrun simctl boot "iPhone 17 Pro" 2>/dev/null; xcrun simctl install booted ~/Library/Developer/Xcode/DerivedData/Gluco-agswggegtqeoqmdjrvgnjxcwjjix/Build/Products/Debug-iphonesimulator/Gluco.app && xcrun simctl launch booted ca.gluco.solutions.gluco
+
+npx expo start --dev-client
+
+
+
+
+after eas build:
+
+# Run the latest iOS simulator build
+eas build:run -p ios

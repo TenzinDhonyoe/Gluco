@@ -268,20 +268,25 @@ export async function getMealPhotoAnalysis(
     return data || null;
 }
 
-export async function ensureSignedMealPhotoUrl(photoPath: string): Promise<string> {
+export async function ensureSignedMealPhotoUrl(photoPath: string): Promise<string | null> {
     // If it's already a full URL (public or signed), just return it
     if (photoPath.startsWith('http')) return photoPath;
 
     // Otherwise, assume it's a storage path and get a signed URL
-    const { data, error } = await supabase.storage
-        .from('meal-photos')
-        .createSignedUrl(photoPath, 60 * 60); // 1 hour
+    try {
+        const { data, error } = await supabase.storage
+            .from('meal-photos')
+            .createSignedUrl(photoPath, 60 * 60); // 1 hour
 
-    if (error || !data?.signedUrl) {
-        console.error('Error signing photo URL:', error);
-        return photoPath; // Fallback
+        if (error || !data?.signedUrl) {
+            // Silently fail - photo may not exist or path is invalid
+            return null;
+        }
+        return data.signedUrl;
+    } catch {
+        // Silently fail on network errors
+        return null;
     }
-    return data.signedUrl;
 }
 
 export async function invokeMealPhotoAnalyze(
@@ -2073,7 +2078,8 @@ export async function getLatestExperimentAnalysis(
 
 /**
  * Upload a meal photo to Supabase Storage
- * Returns the public URL of the uploaded image
+ * Returns the storage path of the uploaded image (not a URL, as bucket is private)
+ * Use ensureSignedMealPhotoUrl() to get a signed URL for display
  */
 export async function uploadMealPhoto(
     userId: string,
@@ -2102,17 +2108,14 @@ export async function uploadMealPhoto(
             return null;
         }
 
-        // Get the public URL
-        const { data: urlData } = supabase.storage
-            .from('meal-photos')
-            .getPublicUrl(data.path);
-
-        return urlData.publicUrl;
+        // Return the storage path - MealCheckinCard will convert to signed URL
+        return data.path;
     } catch (err) {
         console.error('Photo upload error:', err);
         return null;
     }
 }
+
 
 // ============================================================================
 // DATA EXPORT

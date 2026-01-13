@@ -27,8 +27,7 @@ export default function SignInScreen() {
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isAppleLoading, setIsAppleLoading] = useState(false);
-    const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-    const { signIn, signInWithApple, signInWithGoogle } = useAuth();
+    const { signIn, signInWithApple } = useAuth();
 
     const handleContinue = async () => {
         if (!email.trim() || !password.trim()) {
@@ -80,25 +79,7 @@ export default function SignInScreen() {
         }
     };
 
-    const handleGoogleSignIn = async () => {
-        setIsGoogleLoading(true);
-        try {
-            const { error } = await signInWithGoogle();
 
-            if (error) {
-                Alert.alert('Google Sign-In Error', error.message);
-                return;
-            }
-
-            // Navigate to index which will handle routing based on profile status
-            router.replace('/' as never);
-        } catch (err) {
-            Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-            console.error('Google sign in error:', err);
-        } finally {
-            setIsGoogleLoading(false);
-        }
-    };
 
 
     const handleBack = () => {
@@ -250,7 +231,7 @@ export default function SignInScreen() {
                                     <AnimatedPressable
                                         style={[styles.appleButton, isAppleLoading && styles.socialButtonDisabled]}
                                         onPress={handleAppleSignIn}
-                                        disabled={isAppleLoading || isGoogleLoading}
+                                        disabled={isAppleLoading}
                                     >
                                         <View style={styles.appleIconContainer}>
                                             <Ionicons name="logo-apple" size={22} color="#FFFFFF" />
@@ -261,19 +242,6 @@ export default function SignInScreen() {
                                     </AnimatedPressable>
                                 )}
 
-                                {/* Google Sign-In Button */}
-                                <AnimatedPressable
-                                    style={[styles.googleButton, isGoogleLoading && styles.socialButtonDisabled]}
-                                    onPress={handleGoogleSignIn}
-                                    disabled={isGoogleLoading || isAppleLoading}
-                                >
-                                    <View style={styles.appleIconContainer}>
-                                        <Ionicons name="logo-google" size={22} color="#000000" />
-                                    </View>
-                                    <Text style={styles.googleButtonText}>
-                                        {isGoogleLoading ? 'Signing in...' : 'Continue with Google'}
-                                    </Text>
-                                </AnimatedPressable>
                             </View>
 
                             {/* Sign Up Link */}
@@ -385,32 +353,7 @@ const styles = StyleSheet.create({
     socialContainer: {
         marginBottom: 24,
     },
-    // Google logo image
-    googleLogo: {
-        width: 24,
-        height: 24,
-        marginRight: 50,
-    },
-    // Google Button - white with #dddddd border, 13px radius
-    googleButton: {
-        width: '100%',
-        height: 50,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: Colors.googleBackground, // White
-        borderWidth: 1.5,
-        borderColor: '#dddddd',
-        borderRadius: 13,
-        paddingHorizontal: 25,
-        marginBottom: 12,
-    },
-    googleButtonText: {
-        fontFamily: fonts.medium, // Outfit Medium (500)
-        fontSize: 16,
-        lineHeight: 16 * 1.2, // 1.2 line-height
-        color: '#0f1623',
-    },
+
     // Apple Button - #080b12 background, #171a1f border, 13px radius
     appleButton: {
         width: '100%',

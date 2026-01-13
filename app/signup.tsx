@@ -31,8 +31,7 @@ export default function SignUpScreen() {
     const [agreeToTerms, setAgreeToTerms] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isAppleLoading, setIsAppleLoading] = useState(false);
-    const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-    const { signUp, signInWithApple, signInWithGoogle } = useAuth();
+    const { signUp, signInWithApple } = useAuth();
 
     const handleContinue = async () => {
         if (!agreeToTerms) return;
@@ -102,29 +101,7 @@ export default function SignUpScreen() {
         }
     };
 
-    const handleGoogleSignIn = async () => {
-        if (!agreeToTerms) {
-            Alert.alert('Terms Required', 'Please accept the Terms of Service and Privacy Policy to continue.');
-            return;
-        }
-        setIsGoogleLoading(true);
-        try {
-            const { error } = await signInWithGoogle();
 
-            if (error) {
-                Alert.alert('Google Sign-In Error', error.message);
-                return;
-            }
-
-            // Navigate to index/onboarding
-            router.replace('/' as never);
-        } catch (err) {
-            Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-            console.error('Google sign in error:', err);
-        } finally {
-            setIsGoogleLoading(false);
-        }
-    };
 
 
 
@@ -266,6 +243,9 @@ export default function SignUpScreen() {
 
                                 {/* Continue Button */}
                                 <Button
+                                    onPress={handleContinue}
+                                    disabled={!isFormValid}
+                                    loading={isLoading}
                                     style={styles.continueButton}
                                 >
                                     Continue
@@ -285,7 +265,7 @@ export default function SignUpScreen() {
                                         <AnimatedPressable
                                             style={[styles.appleButton, (isAppleLoading || !agreeToTerms) && styles.socialButtonDisabled]}
                                             onPress={handleAppleSignIn}
-                                            disabled={isAppleLoading || isGoogleLoading}
+                                            disabled={isAppleLoading}
                                         >
                                             <View style={styles.appleIconContainer}>
                                                 <Ionicons name="logo-apple" size={22} color="#FFFFFF" />
@@ -296,19 +276,6 @@ export default function SignUpScreen() {
                                         </AnimatedPressable>
                                     )}
 
-                                    {/* Google Sign-In Button */}
-                                    <AnimatedPressable
-                                        style={[styles.googleButton, (isGoogleLoading || !agreeToTerms) && styles.socialButtonDisabled]}
-                                        onPress={handleGoogleSignIn}
-                                        disabled={isGoogleLoading || isAppleLoading}
-                                    >
-                                        <View style={styles.appleIconContainer}>
-                                            <Ionicons name="logo-google" size={22} color="#000000" />
-                                        </View>
-                                        <Text style={styles.googleButtonText}>
-                                            {isGoogleLoading ? 'Signing in...' : 'Sign up with Google'}
-                                        </Text>
-                                    </AnimatedPressable>
                                 </View>
 
 
@@ -460,25 +427,7 @@ const styles = StyleSheet.create({
     socialContainer: {
         marginBottom: 24,
     },
-    googleButton: {
-        width: '100%',
-        height: 50,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: Colors.googleBackground, // White
-        borderWidth: 1.5,
-        borderColor: '#dddddd', // Light border
-        borderRadius: 13,
-        paddingHorizontal: 25,
-        marginBottom: 12,
-    },
-    googleButtonText: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
-        lineHeight: 16 * 1.2,
-        color: '#0f1623',
-    },
+
     appleButton: {
         width: '100%',
         height: 56,

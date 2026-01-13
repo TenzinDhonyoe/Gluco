@@ -19,48 +19,370 @@ const BANNED_TERMS = [
     'diagnose', 'detect', 'treat', 'prevent', 'medical device', 'clinical', 'reverse'
 ];
 
-// Utility functions
+// ============================================
+// UTILITY FUNCTIONS
+// ============================================
+
 function clamp(val: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, val));
+}
+
+function clamp01(x: number): number {
+    return clamp(x, 0, 1);
 }
 
 function round1(val: number): number {
     return Math.round(val * 10) / 10;
 }
 
+function round2(val: number): number {
+    return Math.round(val * 100) / 100;
+}
+
+// Filter out null/undefined/NaN values
+function filterValid(values: (number | null | undefined)[]): number[] {
+    return values.filter((v): v is number => v !== null && v !== undefined && !isNaN(v));
+}
+
+// Calculate mean of valid values
 function mean(values: (number | null | undefined)[]): number | null {
-    const valid = values.filter((v): v is number => v !== null && v !== undefined && !isNaN(v));
+    const valid = filterValid(values);
     if (valid.length === 0) return null;
     return valid.reduce((sum, v) => sum + v, 0) / valid.length;
 }
 
-// Convert fasting glucose to mmol/L if needed
-function toMmolL(value: number | null, unit: string | null | undefined): number | null {
-    if (value === null || value === undefined) return null;
-    const normalizedUnit = (unit || 'mmol/L').toLowerCase().replace(/\s/g, '');
-    if (normalizedUnit === 'mg/dl' || normalizedUnit === 'mgdl') {
-        return value / 18.0;
-    }
-    return value; // Assume mmol/L
+// Calculate median of valid values
+function median(values: (number | null | undefined)[]): number | null {
+    const valid = filterValid(values);
+    if (valid.length === 0) return null;
+    const sorted = [...valid].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0
+        ? sorted[mid]
+        : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-// Calculate date range
-function getDateRange(rangeDays: number): { startDate: Date; endDate: Date } {
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - rangeDays);
-    return { startDate, endDate };
+// Remove outliers using trimmed range (drop top/bottom 10%)
+function trimOutliers(values: (number | null | undefined)[]): number[] {
+    const valid = filterValid(values);
+    if (valid.length < 5) return valid; // Need enough data to trim
+
+    const sorted = [...valid].sort((a, b) => a - b);
+    const trimCount = Math.max(1, Math.floor(sorted.length * 0.1)); // 10%
+    return sorted.slice(trimCount, sorted.length - trimCount);
 }
 
-// Parse range parameter
-function parseRange(range: string | undefined): { rangeDays: number; rangeKey: string } {
-    switch (range) {
-        case '7d': return { rangeDays: 7, rangeKey: '7d' };
-        case '14d': return { rangeDays: 14, rangeKey: '14d' };
-        case '90d': return { rangeDays: 90, rangeKey: '90d' };
-        case '30d':
-        default: return { rangeDays: 30, rangeKey: '30d' };
+// ============================================
+// METABOLIC SCORE CALCULATOR
+// Following user's specification exactly
+// ============================================
+
+interface MetabolicScoreInput {
+    sleepRHR: (number | null)[];      // Nightly resting HR during sleep (bpm)
+    dailySteps: (number | null)[];     // Daily step count
+    sleepHours: (number | null)[];     // Nightly sleep duration (hours)
+    sleepHRV?: (number | null)[];      // Nightly HRV RMSSD (ms) - optional
+    age?: number;                       // Years - optional
+    bmi?: number;                       // BMI - optional (or compute from height/weight)
+    heightCm?: number;                  // Height in cm - optional
+    weightKg?: number;                  // Weight in kg - optional
+}
+
+interface MetabolicScoreComponents {
+    weeklyRHR: number | null;
+    weeklySteps: number | null;
+    weeklySleep: number | null;
+    weeklyHRV: number | null;
+    age: number | null;
+    bmi: number | null;
+}
+
+interface MetabolicScoreNorms {
+    rhrNorm: number;
+    stepsBadNorm: number;
+    sleepNorm: number;
+    hrvBadNorm: number | null;
+    contextNorm: number;
+}
+
+interface MetabolicScoreWeights {
+    wRHR: number;
+    wSteps: number;
+    wSleep: number;
+    wHRV: number;
+    wContext: number;
+}
+
+interface DataCompleteness {
+    rhrDays: number;
+    stepsDays: number;
+    sleepDays: number;
+    hrvDays: number;
+    hasAge: boolean;
+    hasBmi: boolean;
+}
+
+interface MetabolicScoreResult {
+    score: number | null;               // 0-100 (higher = better) or null if insufficient
+    strain: number | null;              // 0-1 metabolic strain
+    reason?: string;                    // Reason if score is null
+    components: MetabolicScoreComponents;
+    norms: MetabolicScoreNorms | null;
+    weightsUsed: MetabolicScoreWeights | null;
+    dataCompleteness: DataCompleteness;
+}
+
+/**
+ * Calculate Metabolic Score from Apple Watch / HealthKit metrics
+ * Uses 7-day rolling window, outputs 0-100 score (higher = better)
+ */
+function calculateMetabolicScore(input: MetabolicScoreInput): MetabolicScoreResult {
+    // Data completeness check
+    const rhrValid = filterValid(input.sleepRHR);
+    const stepsValid = filterValid(input.dailySteps);
+    const sleepValid = filterValid(input.sleepHours);
+    const hrvValid = input.sleepHRV ? filterValid(input.sleepHRV) : [];
+
+    const dataCompleteness: DataCompleteness = {
+        rhrDays: rhrValid.length,
+        stepsDays: stepsValid.length,
+        sleepDays: sleepValid.length,
+        hrvDays: hrvValid.length,
+        hasAge: input.age !== undefined && input.age !== null,
+        hasBmi: input.bmi !== undefined || (input.heightCm !== undefined && input.weightKg !== undefined),
+    };
+
+    // Requirement 1: Need at least 5 valid data points for required arrays
+    if (rhrValid.length < 5 || stepsValid.length < 5 || sleepValid.length < 5) {
+        return {
+            score: null,
+            strain: null,
+            reason: 'insufficient_data',
+            components: {
+                weeklyRHR: null,
+                weeklySteps: null,
+                weeklySleep: null,
+                weeklyHRV: null,
+                age: input.age ?? null,
+                bmi: null,
+            },
+            norms: null,
+            weightsUsed: null,
+            dataCompleteness,
+        };
     }
+
+    // Requirement 3: Outlier handling - trim top/bottom 10%
+    const rhrTrimmed = trimOutliers(input.sleepRHR);
+    const stepsTrimmed = trimOutliers(input.dailySteps);
+    const sleepTrimmed = trimOutliers(input.sleepHours);
+    const hrvTrimmed = input.sleepHRV ? trimOutliers(input.sleepHRV) : [];
+
+    // Requirement 2: Aggregation (median for RHR/HRV, mean for steps/sleep)
+    const weeklyRHR = median(rhrTrimmed);
+    const weeklySteps = mean(stepsTrimmed);
+    const weeklySleep = mean(sleepTrimmed);
+    const weeklyHRV = hrvTrimmed.length >= 3 ? median(hrvTrimmed) : null;
+
+    // Calculate BMI if height/weight provided
+    let bmi = input.bmi ?? null;
+    if (bmi === null && input.heightCm && input.weightKg) {
+        const heightM = input.heightCm / 100;
+        bmi = input.weightKg / (heightM * heightM);
+    }
+
+    const components: MetabolicScoreComponents = {
+        weeklyRHR: weeklyRHR !== null ? round1(weeklyRHR) : null,
+        weeklySteps: weeklySteps !== null ? Math.round(weeklySteps) : null,
+        weeklySleep: weeklySleep !== null ? round1(weeklySleep) : null,
+        weeklyHRV: weeklyHRV !== null ? round1(weeklyHRV) : null,
+        age: input.age ?? null,
+        bmi: bmi !== null ? round1(bmi) : null,
+    };
+
+    // Requirement 4: Normalization (0-1 scale, higher = worse)
+
+    // RHR (higher = worse): clamp01((Weekly_RHR - 50) / (85 - 50))
+    const rhrNorm = weeklyRHR !== null
+        ? clamp01((weeklyRHR - 50) / (85 - 50))
+        : 0;
+
+    // Steps (higher = better, so invert): 1 - clamp01((Weekly_Steps - 3000) / (12000 - 3000))
+    const stepsBadNorm = weeklySteps !== null
+        ? 1 - clamp01((weeklySteps - 3000) / (12000 - 3000))
+        : 1;
+
+    // Sleep (distance from ideal 7.5h): clamp01(abs(Weekly_Sleep - 7.5) / 2.5)
+    const sleepNorm = weeklySleep !== null
+        ? clamp01(Math.abs(weeklySleep - 7.5) / 2.5)
+        : 0;
+
+    // HRV (higher = better): First normalize good, then invert
+    let hrvBadNorm: number | null = null;
+    if (weeklyHRV !== null) {
+        const hrvGood = clamp01((weeklyHRV - 20) / (80 - 20));
+        hrvBadNorm = 1 - hrvGood;
+    }
+
+    // Context normalization (Age and/or BMI)
+    let contextNorm = 0;
+    const hasAge = input.age !== undefined && input.age !== null;
+    const hasBmi = bmi !== null;
+
+    if (hasBmi && hasAge) {
+        const bmiNorm = clamp01((bmi! - 22) / (35 - 22));
+        const ageNorm = clamp01((input.age! - 25) / (65 - 25));
+        contextNorm = 0.6 * bmiNorm + 0.4 * ageNorm;
+    } else if (hasBmi) {
+        contextNorm = clamp01((bmi! - 22) / (35 - 22));
+    } else if (hasAge) {
+        contextNorm = clamp01((input.age! - 25) / (65 - 25));
+    }
+
+    const norms: MetabolicScoreNorms = {
+        rhrNorm: round2(rhrNorm),
+        stepsBadNorm: round2(stepsBadNorm),
+        sleepNorm: round2(sleepNorm),
+        hrvBadNorm: hrvBadNorm !== null ? round2(hrvBadNorm) : null,
+        contextNorm: round2(contextNorm),
+    };
+
+    // Requirement 5: Weighted metabolic strain
+    // Base weights
+    let wRHR = 0.35;
+    let wSteps = 0.30;
+    let wSleep = 0.15;
+    let wHRV = weeklyHRV !== null ? 0.10 : 0;
+    let wContext = (hasAge || hasBmi) ? 0.10 : 0;
+
+    // Redistribute missing weights proportionally
+    const usedWeight = wRHR + wSteps + wSleep + wHRV + wContext;
+    const missingWeight = 1.0 - usedWeight;
+
+    if (missingWeight > 0) {
+        // Redistribute proportionally to non-zero weights
+        const totalActive = wRHR + wSteps + wSleep + wHRV + wContext;
+        if (totalActive > 0) {
+            const scale = 1.0 / totalActive;
+            wRHR *= scale;
+            wSteps *= scale;
+            wSleep *= scale;
+            wHRV *= scale;
+            wContext *= scale;
+        } else {
+            // Fallback: equal distribution to core metrics
+            wRHR = 0.4;
+            wSteps = 0.35;
+            wSleep = 0.25;
+        }
+    }
+
+    const weightsUsed: MetabolicScoreWeights = {
+        wRHR: round2(wRHR),
+        wSteps: round2(wSteps),
+        wSleep: round2(wSleep),
+        wHRV: round2(wHRV),
+        wContext: round2(wContext),
+    };
+
+    // Calculate metabolic strain (0-1)
+    let metabolicStrain =
+        wRHR * rhrNorm +
+        wSteps * stepsBadNorm +
+        wSleep * sleepNorm;
+
+    if (hrvBadNorm !== null) {
+        metabolicStrain += wHRV * hrvBadNorm;
+    }
+    if (hasAge || hasBmi) {
+        metabolicStrain += wContext * contextNorm;
+    }
+
+    // Requirement 6: Convert to score (0-100, higher = better)
+    const metabolicScore = Math.round(100 * (1 - metabolicStrain));
+    const finalScore = clamp(metabolicScore, 0, 100);
+
+    return {
+        score: finalScore,
+        strain: round2(metabolicStrain),
+        components,
+        norms,
+        weightsUsed,
+        dataCompleteness,
+    };
+}
+
+// ============================================
+// SMOOTHING HELPER (optional)
+// ============================================
+
+/**
+ * Smooth scores by limiting day-to-day change to ±5 points
+ */
+function smoothScores(dailyScores: (number | null)[]): (number | null)[] {
+    const result: (number | null)[] = [];
+    let prevScore: number | null = null;
+
+    for (const score of dailyScores) {
+        if (score === null) {
+            result.push(null);
+            continue;
+        }
+
+        if (prevScore === null) {
+            result.push(score);
+            prevScore = score;
+            continue;
+        }
+
+        // Limit change to ±5 points
+        const diff = score - prevScore;
+        const clampedDiff = clamp(diff, -5, 5);
+        const smoothedScore = clamp(prevScore + clampedDiff, 0, 100);
+        result.push(smoothedScore);
+        prevScore = smoothedScore;
+    }
+
+    return result;
+}
+
+// ============================================
+// LEGACY COMPATIBILITY LAYER
+// Maps new score to existing API format
+// ============================================
+
+type RangeKey = '7d' | '14d' | '30d' | '90d';
+type Band = 'low' | 'medium' | 'high';
+type Confidence = 'low' | 'medium' | 'high';
+
+interface LegacyDriver {
+    key: string;
+    points: number;
+    text: string;
+}
+
+interface LegacyComponents {
+    base: number;
+    sleep_pen: number;
+    act_pen: number;
+    steps_pen: number;
+    rhr_pen: number;
+    hrv_pen: number;
+    fibre_bonus: number;
+    lab_pen: number;
+}
+
+interface LegacyScoreResult {
+    status: 'ok' | 'insufficient';
+    range: RangeKey;
+    metabolic_response_score: number | null;
+    strain_score: number | null;
+    band: Band | null;
+    confidence: Confidence;
+    wearables_days: number;
+    lab_present: boolean;
+    drivers: LegacyDriver[];
+    components: LegacyComponents;
 }
 
 // Safety check: ensure no banned terms in output
@@ -75,7 +397,42 @@ function assertNoBannedTerms(text: string): string {
     return text;
 }
 
-// Types
+// Generate driver text based on component
+function generateDriverText(key: string, value: number | null, impact: 'good' | 'bad'): string {
+    const templates: Record<string, (val: number | null, imp: 'good' | 'bad') => string> = {
+        rhr: (val, imp) => val !== null
+            ? imp === 'bad'
+                ? `Resting heart rate averaged ${round1(val)} bpm. Cardio exercise may help lower this over time.`
+                : `Resting heart rate looks good at ${round1(val)} bpm.`
+            : 'Resting heart rate data unavailable.',
+        steps: (val, imp) => val !== null
+            ? imp === 'bad'
+                ? `Steps averaged ${Math.round(val)}/day. Increasing daily movement may improve your score.`
+                : `Great step count averaging ${Math.round(val)}/day.`
+            : 'Step count data unavailable.',
+        sleep: (val, imp) => val !== null
+            ? imp === 'bad'
+                ? `Sleep averaged ${round1(val)}h. More consistent sleep near 7.5h often supports better wellness.`
+                : `Sleep patterns look good at ${round1(val)}h.`
+            : 'Sleep data unavailable.',
+        hrv: (val, imp) => val !== null
+            ? imp === 'bad'
+                ? `Heart rate variability averaged ${round1(val)} ms. Recovery and stress management may improve this.`
+                : `HRV patterns are supportive at ${round1(val)} ms.`
+            : 'HRV data unavailable.',
+        context: () => 'Age and body composition factored into your score.',
+        data_sparse: (val) => val !== null
+            ? `Only ${Math.round(val)} days of wearable data available. More days improve accuracy.`
+            : 'Limited wearable data available.',
+    };
+
+    const templateFn = templates[key];
+    if (templateFn) {
+        return assertNoBannedTerms(templateFn(value, impact));
+    }
+    return assertNoBannedTerms('This factor contributed to your wellness estimate.');
+}
+
 interface DailyContext {
     date: string;
     sleep_hours: number | null;
@@ -85,120 +442,48 @@ interface DailyContext {
     hrv_ms: number | null;
 }
 
-interface LabSnapshot {
-    collected_at: string;
-    fasting_glucose_value: number | null;
-    fasting_glucose_unit: string | null;
+interface UserProfile {
+    birth_date: string | null;
+    height_cm: number | null;
+    weight_kg: number | null;
 }
 
-interface ComponentPoints {
-    base: number;
-    sleep_pen: number;
-    act_pen: number;
-    steps_pen: number;
-    rhr_pen: number;
-    hrv_pen: number;
-    fibre_bonus: number;
-    lab_pen: number;
-}
-
-interface Driver {
-    key: string;
-    points: number;
-    text: string;
-}
-
-type RangeKey = '7d' | '14d' | '30d' | '90d';
-type Band = 'low' | 'medium' | 'high';
-type Confidence = 'low' | 'medium' | 'high';
-
-interface ScoreResult {
-    status: 'ok' | 'insufficient';
-    range: RangeKey;
-    metabolic_response_score: number | null;
-    strain_score: number | null;
-    band: Band | null;
-    confidence: Confidence;
-    wearables_days: number;
-    lab_present: boolean;
-    drivers: Driver[];
-    components: ComponentPoints;
-}
-
-// Generate driver text based on component key and value
-function generateDriverText(key: string, avgValue: number | null, points: number): string {
-    const templates: Record<string, (val: number | null, pts: number) => string> = {
-        sleep: (val, pts) => pts > 2 && val !== null
-            ? `Sleep averaged ${round1(val)}h. More consistent sleep often supports steadier daily energy.`
-            : `Sleep patterns look good.`,
-        activity: (val, pts) => pts > 2 && val !== null
-            ? `Activity averaged ${Math.round(val)} active minutes. Small movement goals can improve day-to-day steadiness.`
-            : `Activity levels are supportive.`,
-        steps: (val, pts) => pts > 2 && val !== null
-            ? `Steps averaged ${Math.round(val)}/day. Regular walking often helps with overall energy.`
-            : `Step count is supportive.`,
-        resting_hr: (val, pts) => pts > 2 && val !== null
-            ? `Resting heart rate averaged ${Math.round(val)} bpm. Cardio fitness may help lower this over time.`
-            : `Resting heart rate looks good.`,
-        hrv: (val, pts) => pts > 2 && val !== null
-            ? `Heart rate variability averaged ${Math.round(val)} ms. Recovery and stress management may improve this.`
-            : `HRV patterns are supportive.`,
-        fibre: (val, pts) => Math.abs(pts) > 2 && val !== null
-            ? pts < 0  // Negative points = bonus
-                ? `Fibre averaged ${round1(val)}g. Higher fibre intake often supports more stable meals.`
-                : `Fibre averaged ${round1(val)}g. Increasing fibre may help with meal responses.`
-            : `Fibre intake is supportive.`,
-        lab: () => `A lab value was included as one input from your latest entry.`,
-        data_sparse: (val) => val !== null
-            ? `Only ${Math.round(val)} days of wearable data available. More days improve accuracy.`
-            : `Limited wearable data available.`,
-        no_labs: () => `Adding lab results may improve your wellness estimate.`,
-    };
-
-    const templateFn = templates[key];
-    if (templateFn) {
-        return assertNoBannedTerms(templateFn(avgValue, points));
-    }
-    return assertNoBannedTerms('This factor contributed to your wellness estimate.');
-}
-
-// Compute score
-function computeScore(
+// Convert daily context to MetabolicScoreInput
+function buildMetabolicScoreInput(
     dailyContext: DailyContext[],
-    labSnapshot: LabSnapshot | null,
-    avgFibrePerDay: number | null,
-    rangeKey: RangeKey
-): ScoreResult {
-    // Count wearables days (days with at least one field present)
-    const wearablesDays = dailyContext.filter(d =>
-        d.sleep_hours !== null ||
-        d.steps !== null ||
-        d.active_minutes !== null ||
-        d.resting_hr !== null ||
-        d.hrv_ms !== null
-    ).length;
-
-    const labPresent = labSnapshot !== null && labSnapshot.fasting_glucose_value !== null;
-
-    // Data sufficiency check
-    if (wearablesDays < 5 && !labPresent) {
-        const drivers: Driver[] = [];
-
-        if (wearablesDays < 5) {
-            drivers.push({
-                key: 'data_sparse',
-                points: 0,
-                text: generateDriverText('data_sparse', wearablesDays, 0),
-            });
+    profile: UserProfile | null
+): MetabolicScoreInput {
+    // Calculate age from birth_date
+    let age: number | undefined;
+    if (profile?.birth_date) {
+        const birthDate = new Date(profile.birth_date);
+        const today = new Date();
+        age = today.getFullYear() - birthDate.getFullYear();
+        const monthDiff = today.getMonth() - birthDate.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+            age--;
         }
-        if (!labPresent) {
-            drivers.push({
-                key: 'no_labs',
-                points: 0,
-                text: generateDriverText('no_labs', null, 0),
-            });
-        }
+    }
 
+    return {
+        sleepRHR: dailyContext.map(d => d.resting_hr),
+        dailySteps: dailyContext.map(d => d.steps),
+        sleepHours: dailyContext.map(d => d.sleep_hours),
+        sleepHRV: dailyContext.map(d => d.hrv_ms),
+        age,
+        heightCm: profile?.height_cm ?? undefined,
+        weightKg: profile?.weight_kg ?? undefined,
+    };
+}
+
+// Convert new score result to legacy format
+function toLegacyFormat(
+    result: MetabolicScoreResult,
+    rangeKey: RangeKey,
+    wearablesDays: number,
+    labPresent: boolean = false
+): LegacyScoreResult {
+    if (result.score === null) {
         return {
             status: 'insufficient',
             range: rangeKey,
@@ -208,149 +493,80 @@ function computeScore(
             confidence: 'low',
             wearables_days: wearablesDays,
             lab_present: labPresent,
-            drivers,
+            drivers: [{
+                key: 'data_sparse',
+                points: 0,
+                text: generateDriverText('data_sparse', wearablesDays, 'bad'),
+            }],
             components: { base: 50, sleep_pen: 0, act_pen: 0, steps_pen: 0, rhr_pen: 0, hrv_pen: 0, fibre_bonus: 0, lab_pen: 0 },
         };
     }
 
-    // Calculate averages
-    const avgSleep = mean(dailyContext.map(d => d.sleep_hours));
-    const avgSteps = mean(dailyContext.map(d => d.steps));
-    const avgActiveMin = mean(dailyContext.map(d => d.active_minutes));
-    const avgRestingHr = mean(dailyContext.map(d => d.resting_hr));
-    const avgHrv = mean(dailyContext.map(d => d.hrv_ms));
-
-    // Lab value (converted to mmol/L)
-    const fastingGlucoseMmol = labSnapshot
-        ? toMmolL(labSnapshot.fasting_glucose_value, labSnapshot.fasting_glucose_unit)
-        : null;
-
-    // Base strain
-    const base = 50;
-
-    // Component ramps (smooth, no step jumps)
-    // Sleep: 7.5h good, 5.5h bad → 0-15 points
-    const sleepPen = avgSleep !== null
-        ? clamp((7.5 - avgSleep) / 2.0, 0, 1) * 15
-        : 0;
-
-    // Activity minutes: 35 good, 10 bad → 0-15 points
-    const actPen = avgActiveMin !== null
-        ? clamp((35 - avgActiveMin) / 25, 0, 1) * 15
-        : 0;
-
-    // Steps: 9000 good, 4000 bad → 0-10 points
-    const stepsPen = avgSteps !== null
-        ? clamp((9000 - avgSteps) / 5000, 0, 1) * 10
-        : 0;
-
-    // Resting HR: 60 good, 80 bad → 0-10 points
-    const rhrPen = avgRestingHr !== null
-        ? clamp((avgRestingHr - 60) / 20, 0, 1) * 10
-        : 0;
-
-    // HRV: 55 good, 25 bad → 0-10 points
-    const hrvPen = avgHrv !== null
-        ? clamp((55 - avgHrv) / 30, 0, 1) * 10
-        : 0;
-
-    // Fibre bonus: >=25g good, <=10g bad → 0-8 points reduction
-    const fibreBonus = avgFibrePerDay !== null
-        ? clamp((avgFibrePerDay - 10) / 15, 0, 1) * 8
-        : 0;
-
-    // Lab signal: smooth scaling, no threshold language
-    const labPen = fastingGlucoseMmol !== null
-        ? clamp((fastingGlucoseMmol - 4.8) / 1.5, 0, 1) * 6
-        : 0;
-
-    // Strain score
-    const strainScore = Math.round(clamp(
-        base + sleepPen + actPen + stepsPen + rhrPen + hrvPen + labPen - fibreBonus,
-        0,
-        100
-    ));
-
-    // Metabolic response score (inverted: higher = better)
-    const metabolicResponseScore = 100 - strainScore;
-
-    // Banding based on strain score
+    // Determine band from score (inverted from strain)
     let band: Band;
-    if (strainScore < 40) {
-        band = 'low';
-    } else if (strainScore < 70) {
-        band = 'medium';
+    if (result.score >= 70) {
+        band = 'low';     // Low strain = good
+    } else if (result.score >= 40) {
+        band = 'medium';  // Medium strain
     } else {
-        band = 'high';
+        band = 'high';    // High strain = needs attention
     }
 
-    // Confidence
+    // Confidence based on data completeness
     let confidence: Confidence;
-    if (wearablesDays >= 21 && labPresent) {
+    const avgDays = (result.dataCompleteness.rhrDays +
+        result.dataCompleteness.stepsDays +
+        result.dataCompleteness.sleepDays) / 3;
+    if (avgDays >= 6 && result.dataCompleteness.hrvDays >= 3) {
         confidence = 'high';
-    } else if (wearablesDays >= 14 || labPresent) {
+    } else if (avgDays >= 5) {
         confidence = 'medium';
     } else {
         confidence = 'low';
     }
 
-    // Build drivers list (sorted by absolute contribution, largest first)
-    const contributions: { key: string; points: number; avgValue: number | null }[] = [];
+    // Build drivers from norms
+    const drivers: LegacyDriver[] = [];
+    if (result.norms) {
+        const normEntries = [
+            { key: 'rhr', norm: result.norms.rhrNorm, value: result.components.weeklyRHR },
+            { key: 'steps', norm: result.norms.stepsBadNorm, value: result.components.weeklySteps },
+            { key: 'sleep', norm: result.norms.sleepNorm, value: result.components.weeklySleep },
+            { key: 'hrv', norm: result.norms.hrvBadNorm ?? 0, value: result.components.weeklyHRV },
+        ];
 
-    if (sleepPen > 2 && avgSleep !== null) {
-        contributions.push({ key: 'sleep', points: sleepPen, avgValue: avgSleep });
-    }
-    if (actPen > 2 && avgActiveMin !== null) {
-        contributions.push({ key: 'activity', points: actPen, avgValue: avgActiveMin });
-    }
-    if (stepsPen > 2 && avgSteps !== null) {
-        contributions.push({ key: 'steps', points: stepsPen, avgValue: avgSteps });
-    }
-    if (rhrPen > 2 && avgRestingHr !== null) {
-        contributions.push({ key: 'resting_hr', points: rhrPen, avgValue: avgRestingHr });
-    }
-    if (hrvPen > 2 && avgHrv !== null) {
-        contributions.push({ key: 'hrv', points: hrvPen, avgValue: avgHrv });
-    }
-    if (fibreBonus > 2 && avgFibrePerDay !== null) {
-        contributions.push({ key: 'fibre', points: -fibreBonus, avgValue: avgFibrePerDay });
-    }
-    if (labPen > 1 && labPresent) {
-        contributions.push({ key: 'lab', points: labPen, avgValue: fastingGlucoseMmol });
-    }
-    if (wearablesDays < 14) {
-        contributions.push({ key: 'data_sparse', points: 3, avgValue: wearablesDays });
-    }
-    if (!labPresent) {
-        contributions.push({ key: 'no_labs', points: 2, avgValue: null });
+        // Sort by norm value (highest impact first)
+        normEntries.sort((a, b) => b.norm - a.norm);
+
+        for (const entry of normEntries.slice(0, 3)) {
+            if (entry.value !== null) {
+                const impact = entry.norm > 0.3 ? 'bad' : 'good';
+                drivers.push({
+                    key: entry.key,
+                    points: round1(entry.norm * 10),
+                    text: generateDriverText(entry.key, entry.value, impact),
+                });
+            }
+        }
     }
 
-    // Sort by absolute points (descending) and take top 4
-    contributions.sort((a, b) => Math.abs(b.points) - Math.abs(a.points));
-    const topContributions = contributions.slice(0, 4);
-
-    const drivers: Driver[] = topContributions.map(c => ({
-        key: c.key,
-        points: round1(c.points),
-        text: generateDriverText(c.key, c.avgValue, c.points),
-    }));
-
-    // Components for debugging/transparency
-    const components: ComponentPoints = {
-        base,
-        sleep_pen: round1(sleepPen),
-        act_pen: round1(actPen),
-        steps_pen: round1(stepsPen),
-        rhr_pen: round1(rhrPen),
-        hrv_pen: round1(hrvPen),
-        fibre_bonus: round1(fibreBonus),
-        lab_pen: round1(labPen),
+    // Legacy components (approximate mapping)
+    const strainScore = result.strain !== null ? Math.round(result.strain * 100) : 50;
+    const components: LegacyComponents = {
+        base: 50,
+        sleep_pen: round1((result.norms?.sleepNorm ?? 0) * 15),
+        act_pen: 0, // Active minutes not directly in new formula
+        steps_pen: round1((result.norms?.stepsBadNorm ?? 0) * 10),
+        rhr_pen: round1((result.norms?.rhrNorm ?? 0) * 10),
+        hrv_pen: round1((result.norms?.hrvBadNorm ?? 0) * 10),
+        fibre_bonus: 0,
+        lab_pen: 0,
     };
 
     return {
         status: 'ok',
         range: rangeKey,
-        metabolic_response_score: metabolicResponseScore,
+        metabolic_response_score: result.score,
         strain_score: strainScore,
         band,
         confidence,
@@ -360,6 +576,28 @@ function computeScore(
         components,
     };
 }
+
+// Date range helper
+function getDateRange(rangeDays: number): { startDate: Date; endDate: Date } {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - rangeDays);
+    return { startDate, endDate };
+}
+
+function parseRange(range: string | undefined): { rangeDays: number; rangeKey: RangeKey } {
+    switch (range) {
+        case '7d': return { rangeDays: 7, rangeKey: '7d' };
+        case '14d': return { rangeDays: 14, rangeKey: '14d' };
+        case '90d': return { rangeDays: 90, rangeKey: '90d' };
+        case '30d':
+        default: return { rangeDays: 30, rangeKey: '30d' };
+    }
+}
+
+// ============================================
+// EDGE FUNCTION HANDLER
+// ============================================
 
 serve(async (req) => {
     if (req.method === 'OPTIONS') {
@@ -376,7 +614,6 @@ serve(async (req) => {
             );
         }
 
-        // Parse range
         const { rangeDays, rangeKey } = parseRange(range);
 
         // Initialize Supabase client
@@ -391,8 +628,6 @@ serve(async (req) => {
         if (mismatch) return mismatch;
 
         const userId = user.id;
-
-        // Calculate date range
         const { startDate, endDate } = getDateRange(rangeDays);
         const startDateStr = startDate.toISOString().split('T')[0];
         const endDateStr = endDate.toISOString().split('T')[0];
@@ -411,64 +646,46 @@ serve(async (req) => {
         }
 
         const dailyContext: DailyContext[] = dailyContextData || [];
+        const wearablesDays = dailyContext.filter(d =>
+            d.sleep_hours !== null ||
+            d.steps !== null ||
+            d.active_minutes !== null ||
+            d.resting_hr !== null ||
+            d.hrv_ms !== null
+        ).length;
 
-        // 2. Fetch latest lab snapshot
-        const { data: labData, error: labError } = await supabase
-            .from('lab_snapshots')
-            .select('collected_at, fasting_glucose_value, fasting_glucose_unit')
-            .eq('user_id', userId)
-            .order('collected_at', { ascending: false })
-            .limit(1)
+        // 2. Fetch user profile for age/height/weight
+        const { data: profileData } = await supabase
+            .from('user_profiles')
+            .select('birth_date, height_cm, weight_kg')
+            .eq('id', userId)
             .single();
 
-        if (labError && labError.code !== 'PGRST116') {
-            console.error('Error fetching lab snapshot:', labError);
-        }
+        const profile: UserProfile | null = profileData || null;
 
-        const labSnapshot: LabSnapshot | null = labData || null;
+        // 3. Check for lab results (for legacy compatibility)
+        const { data: labData } = await supabase
+            .from('lab_snapshots')
+            .select('id')
+            .eq('user_id', userId)
+            .limit(1);
+        const labPresent = labData && labData.length > 0;
 
-        // 3. Fetch fibre summary
-        let avgFibrePerDay: number | null = null;
-        try {
-            // Try to use existing fibre calculation function or query meals directly
-            const { data: mealsData } = await supabase
-                .from('meals')
-                .select('id')
-                .eq('user_id', userId)
-                .gte('logged_at', startDate.toISOString())
-                .lte('logged_at', endDate.toISOString());
+        // 4. Build input and calculate score
+        const input = buildMetabolicScoreInput(dailyContext, profile);
+        const scoreResult = calculateMetabolicScore(input);
 
-            if (mealsData && mealsData.length > 0) {
-                const mealIds = mealsData.map(m => m.id);
-                const { data: itemsData } = await supabase
-                    .from('meal_items')
-                    .select('nutrients')
-                    .in('meal_id', mealIds);
+        // 5. Convert to legacy format for backward compatibility
+        const legacyResult = toLegacyFormat(scoreResult, rangeKey, wearablesDays, labPresent);
 
-                if (itemsData && itemsData.length > 0) {
-                    let totalFibre = 0;
-                    itemsData.forEach((item: { nutrients?: { fibre_g?: number } }) => {
-                        const fibre = item.nutrients?.fibre_g ?? 0;
-                        totalFibre += fibre;
-                    });
-                    avgFibrePerDay = totalFibre / rangeDays;
-                }
-            }
-        } catch (fibreErr) {
-            console.log('Fibre calculation skipped:', fibreErr);
-        }
-
-        // 4. Compute score
-        const result = computeScore(dailyContext, labSnapshot, avgFibrePerDay, rangeKey as RangeKey);
-
-        // Final safety check on all driver texts
-        result.drivers = result.drivers.map(d => ({
+        // 6. Safety check on driver texts
+        legacyResult.drivers = legacyResult.drivers.map(d => ({
             ...d,
             text: assertNoBannedTerms(d.text),
         }));
 
         return new Response(
-            JSON.stringify(result),
+            JSON.stringify(legacyResult),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
     } catch (error) {
@@ -479,3 +696,7 @@ serve(async (req) => {
         );
     }
 });
+
+// Export for testing
+export { calculateMetabolicScore, MetabolicScoreInput, MetabolicScoreResult, smoothScores };
+
