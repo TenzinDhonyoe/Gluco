@@ -249,7 +249,7 @@ export default function DataSourcesScreen() {
 
                     {/* HealthKit Diagnostics */}
                     <Text style={styles.sectionTitle}>HEALTHKIT DIAGNOSTICS</Text>
-                    <View style={styles.infoCard}>
+                    <View style={[styles.infoCard, styles.diagnosticsCard]}>
                         <View style={styles.diagnosticsHeader}>
                             <Ionicons name="pulse-outline" size={22} color="#878787" />
                             <Text style={styles.diagnosticsTitle}>Quick check for TestFlight</Text>
@@ -461,11 +461,17 @@ const styles = StyleSheet.create({
         fontFamily: fonts.regular,
         fontSize: 12,
         color: '#B7B9BB',
+        flexWrap: 'wrap',
     },
     diagnosticsError: {
         marginTop: 6,
         fontFamily: fonts.regular,
         fontSize: 12,
         color: '#F44336',
+        flexWrap: 'wrap',
+    },
+    diagnosticsCard: {
+        flexDirection: 'column',
+        alignItems: 'stretch',
     },
 });
