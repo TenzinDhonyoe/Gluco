@@ -11,3 +11,9 @@ after eas build:
 # Run the latest iOS simulator build
 eas build:run -p ios
 
+
+
+
+npx expo run:ios --device
+
+npx expo start --dev-client

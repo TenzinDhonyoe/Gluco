@@ -4,6 +4,7 @@ import { fonts } from '@/hooks/useFonts';
 import { updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Picker } from '@react-native-picker/picker';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -72,6 +73,7 @@ export default function Onboarding2Screen() {
     // Animation values
     const regionSlideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
     const sexSlideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
+    const birthDateSlideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
 
     React.useEffect(() => {
         if (showRegionPicker) {
@@ -96,6 +98,18 @@ export default function Onboarding2Screen() {
             }).start();
         }
     }, [showBiologicalSexPicker]);
+
+    React.useEffect(() => {
+        if (showBirthDatePicker) {
+            birthDateSlideAnim.setValue(Dimensions.get('window').height);
+            Animated.spring(birthDateSlideAnim, {
+                toValue: 0,
+                useNativeDriver: true,
+                damping: 20,
+                stiffness: 90,
+            }).start();
+        }
+    }, [showBirthDatePicker]);
 
     const closeRegionPicker = () => {
         Animated.timing(regionSlideAnim, {
@@ -185,7 +199,11 @@ export default function Onboarding2Screen() {
     };
 
     const handleCloseDatePicker = () => {
-        setShowBirthDatePicker(false);
+        Animated.timing(birthDateSlideAnim, {
+            toValue: Dimensions.get('window').height,
+            duration: 250,
+            useNativeDriver: true,
+        }).start(() => setShowBirthDatePicker(false));
     };
 
     const handleRegionScroll = (event: any) => {
@@ -363,126 +381,100 @@ export default function Onboarding2Screen() {
                 </SafeAreaView>
             </ImageBackground>
 
-            {/* Region Picker - Wheel Style Bottom Sheet */}
+            {/* Region Picker - Native Picker Bottom Sheet */}
             <Modal
                 visible={showRegionPicker}
                 transparent={true}
                 animationType="fade"
                 onRequestClose={closeRegionPicker}
             >
-                <View style={styles.wheelModalOverlay}>
+                <View style={styles.datePickerModalOverlay}>
                     <TouchableOpacity
-                        style={styles.wheelModalBackdrop}
+                        style={styles.datePickerBackdrop}
                         activeOpacity={1}
                         onPress={closeRegionPicker}
                     />
                     <Animated.View style={[
-                        styles.wheelModalSheet,
+                        styles.datePickerBottomSheet,
                         { transform: [{ translateY: regionSlideAnim }] }
                     ]}>
-                        {/* Handle */}
-                        <View style={styles.wheelModalHandle} />
-
                         {/* Header */}
-                        <Text style={styles.wheelModalTitle}>Select Region</Text>
-                        <Text style={styles.wheelModalSubtitle}>Choose your region</Text>
-
-                        {/* Wheel Picker */}
-                        <View style={styles.singleWheelContainer}>
-                            <View style={styles.singleWheelIndicator} />
-                            <ScrollView
-                                showsVerticalScrollIndicator={false}
-                                snapToInterval={48}
-                                decelerationRate="fast"
-                                contentContainerStyle={styles.singleWheelContent}
-                                onMomentumScrollEnd={handleRegionScroll}
+                        <View style={styles.datePickerHeader}>
+                            <TouchableOpacity
+                                onPress={closeRegionPicker}
+                                style={styles.datePickerHeaderButton}
                             >
-                                {REGIONS.map((item) => (
-                                    <TouchableOpacity
-                                        key={item}
-                                        style={styles.singleWheelItem}
-                                        onPress={() => setRegion(item)}
-                                    >
-                                        <Text style={[
-                                            styles.singleWheelItemText,
-                                            region === item && styles.singleWheelItemTextSelected,
-                                        ]}>
-                                            {item}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </ScrollView>
+                                <Text style={styles.datePickerCancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <Text style={styles.datePickerHeaderTitle}>Region</Text>
+                            <TouchableOpacity
+                                onPress={closeRegionPicker}
+                                style={styles.datePickerHeaderButton}
+                            >
+                                <Text style={styles.datePickerSaveText}>Done</Text>
+                            </TouchableOpacity>
                         </View>
 
-                        {/* Confirm Button */}
-                        <TouchableOpacity
-                            style={styles.wheelConfirmButton}
-                            onPress={closeRegionPicker}
+                        {/* Native Picker */}
+                        <Picker
+                            selectedValue={region || REGIONS[0]}
+                            onValueChange={(value) => setRegion(value)}
+                            style={styles.nativePicker}
+                            itemStyle={styles.nativePickerItem}
                         >
-                            <Text style={styles.wheelConfirmButtonText}>Confirm</Text>
-                        </TouchableOpacity>
+                            {REGIONS.map((item) => (
+                                <Picker.Item key={item} label={item} value={item} />
+                            ))}
+                        </Picker>
                     </Animated.View>
                 </View>
             </Modal>
 
-            {/* Biological Sex Picker - Wheel Style Bottom Sheet */}
+            {/* Biological Sex Picker - Native Picker Bottom Sheet */}
             <Modal
                 visible={showBiologicalSexPicker}
                 transparent={true}
                 animationType="fade"
                 onRequestClose={closeSexPicker}
             >
-                <View style={styles.wheelModalOverlay}>
+                <View style={styles.datePickerModalOverlay}>
                     <TouchableOpacity
-                        style={styles.wheelModalBackdrop}
+                        style={styles.datePickerBackdrop}
                         activeOpacity={1}
                         onPress={closeSexPicker}
                     />
                     <Animated.View style={[
-                        styles.wheelModalSheet,
+                        styles.datePickerBottomSheet,
                         { transform: [{ translateY: sexSlideAnim }] }
                     ]}>
-                        {/* Handle */}
-                        <View style={styles.wheelModalHandle} />
-
                         {/* Header */}
-                        <Text style={styles.wheelModalTitle}>Select Biological Sex</Text>
-                        <Text style={styles.wheelModalSubtitle}>This is optional</Text>
-
-                        {/* Wheel Picker */}
-                        <View style={styles.singleWheelContainer}>
-                            <View style={styles.singleWheelIndicator} />
-                            <ScrollView
-                                showsVerticalScrollIndicator={false}
-                                snapToInterval={48}
-                                decelerationRate="fast"
-                                contentContainerStyle={styles.singleWheelContent}
-                                onMomentumScrollEnd={handleBiologicalSexScroll}
+                        <View style={styles.datePickerHeader}>
+                            <TouchableOpacity
+                                onPress={closeSexPicker}
+                                style={styles.datePickerHeaderButton}
                             >
-                                {BIOLOGICAL_SEX_OPTIONS.map((item) => (
-                                    <TouchableOpacity
-                                        key={item}
-                                        style={styles.singleWheelItem}
-                                        onPress={() => setBiologicalSex(item)}
-                                    >
-                                        <Text style={[
-                                            styles.singleWheelItemText,
-                                            biologicalSex === item && styles.singleWheelItemTextSelected,
-                                        ]}>
-                                            {item}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </ScrollView>
+                                <Text style={styles.datePickerCancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <Text style={styles.datePickerHeaderTitle}>Biological Sex</Text>
+                            <TouchableOpacity
+                                onPress={closeSexPicker}
+                                style={styles.datePickerHeaderButton}
+                            >
+                                <Text style={styles.datePickerSaveText}>Done</Text>
+                            </TouchableOpacity>
                         </View>
 
-                        {/* Confirm Button */}
-                        <TouchableOpacity
-                            style={styles.wheelConfirmButton}
-                            onPress={closeSexPicker}
+                        {/* Native Picker */}
+                        <Picker
+                            selectedValue={biologicalSex || BIOLOGICAL_SEX_OPTIONS[0]}
+                            onValueChange={(value) => setBiologicalSex(value)}
+                            style={styles.nativePicker}
+                            itemStyle={styles.nativePickerItem}
                         >
-                            <Text style={styles.wheelConfirmButtonText}>Confirm</Text>
-                        </TouchableOpacity>
+                            {BIOLOGICAL_SEX_OPTIONS.map((item) => (
+                                <Picker.Item key={item} label={item} value={item} />
+                            ))}
+                        </Picker>
                     </Animated.View>
                 </View>
             </Modal>
@@ -492,7 +484,7 @@ export default function Onboarding2Screen() {
                 <Modal
                     visible={showBirthDatePicker}
                     transparent={true}
-                    animationType="slide"
+                    animationType="fade"
                     onRequestClose={handleCloseDatePicker}
                 >
                     <View style={styles.datePickerModalOverlay}>
@@ -501,7 +493,10 @@ export default function Onboarding2Screen() {
                             activeOpacity={1}
                             onPress={handleCloseDatePicker}
                         />
-                        <View style={styles.datePickerBottomSheet}>
+                        <Animated.View style={[
+                            styles.datePickerBottomSheet,
+                            { transform: [{ translateY: birthDateSlideAnim }] }
+                        ]}>
                             {/* Header */}
                             <View style={styles.datePickerHeader}>
                                 <TouchableOpacity
@@ -531,7 +526,7 @@ export default function Onboarding2Screen() {
                                 textColor={Colors.textPrimary}
                                 themeVariant="dark"
                             />
-                        </View>
+                        </Animated.View>
                     </View>
                 </Modal>
             )}
@@ -732,6 +727,14 @@ const styles = StyleSheet.create({
     datePicker: {
         height: 216,
         backgroundColor: '#1c1c1e',
+    },
+    nativePicker: {
+        height: 216,
+        backgroundColor: '#1c1c1e',
+    },
+    nativePickerItem: {
+        color: Colors.textPrimary,
+        fontSize: 22,
     },
     // Wheel Modal Styles (for Region, Biological Sex pickers)
     wheelModalOverlay: {
