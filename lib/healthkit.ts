@@ -62,7 +62,10 @@ export async function initHealthKit(): Promise<boolean> {
             return false;
         }
         if (typeof healthKit.initHealthKit !== 'function') {
-            if (__DEV__) console.warn('HealthKit native module not initialized');
+            if (__DEV__) {
+                console.warn('HealthKit native module not initialized');
+                console.log('Available keys:', Object.keys(healthKit));
+            }
             return false;
         }
 
