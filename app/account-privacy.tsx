@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { deleteUserData, exportUserData, getUserProfile, resetUserLearning, supabase, updateUserProfile, UserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -221,6 +222,9 @@ export default function AccountPrivacyScreen() {
                                                 Alert.alert('Error', 'Failed to delete some data. Please contact support.');
                                                 return;
                                             }
+
+                                            // Clear all local storage including paywall state
+                                            await AsyncStorage.clear();
 
                                             // Sign out the user
                                             await signOut();

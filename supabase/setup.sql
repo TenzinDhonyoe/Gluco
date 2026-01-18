@@ -16,7 +16,6 @@ CREATE TABLE public.profiles (
     region TEXT,
     birth_date DATE,
     biological_sex TEXT,
-    cgm_device TEXT,
     goals TEXT[],
     onboarding_completed BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),

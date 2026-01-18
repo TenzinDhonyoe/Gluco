@@ -2,11 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import Purchases from 'react-native-purchases';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PAYWALL_ENABLED } from '@/app/index';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
-
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -43,8 +44,28 @@ export default function SettingsScreen() {
         router.back();
     };
 
+    const handleManageSubscription = async () => {
+        try {
+            if (Platform.OS === 'ios') {
+                // RevenueCat provides a method to show Apple's subscription management
+                await Purchases.showManageSubscriptions();
+            } else {
+                // For Android, open Play Store subscriptions
+                Linking.openURL('https://play.google.com/store/account/subscriptions');
+            }
+        } catch (error) {
+            console.log('Error opening subscription management:', error);
+            // Fallback: Open iOS subscription settings URL
+            if (Platform.OS === 'ios') {
+                Linking.openURL('https://apps.apple.com/account/subscriptions');
+            }
+        }
+    };
+
     const menuItems: SettingsItem[] = [
         { label: 'Account & Privacy', onPress: () => router.push('/account-privacy' as never) },
+        // Only show Manage Subscription when paywall is enabled
+        ...(PAYWALL_ENABLED ? [{ label: 'Manage Subscription', onPress: handleManageSubscription }] : []),
         { label: 'Data Sources', onPress: () => router.push('/data-sources' as never) },
         { label: 'Customization', onPress: () => router.push('/customization') },
         { label: 'Notifications', onPress: () => router.push('/notification-settings' as never) },

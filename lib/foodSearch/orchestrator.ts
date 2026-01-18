@@ -22,14 +22,14 @@ import { needsGeminiFallback, rankResults } from './rank';
 import { generateRequestId, isStaleRequest } from './requestManager';
 import { createTimer, logSearchTiming } from './telemetry';
 
-// Configuration
+// Configuration - optimized for fast live typing experience
 const CONFIG = {
     MIN_QUERY_LENGTH: 2,
     MIN_RESULTS_FOR_GOOD_SEARCH: 5,
     MIN_SCORE_THRESHOLD: 50,
-    MAX_RESULTS: 50,
+    MAX_RESULTS: 25,  // Reduced from 50 for faster response
     DEBOUNCE_MS: 250,
-    MAX_VARIANTS: 3,
+    MAX_VARIANTS: 2,  // Reduced from 3 for faster response
 };
 
 export interface SearchOptions {

@@ -1,9 +1,11 @@
+import { ONBOARDING_STEP_KEY, PAYWALL_ENABLED } from '@/app/index';
 import { Disclaimer } from '@/components/ui/Disclaimer';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { CoachingStyle, updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
@@ -47,12 +49,16 @@ const COACHING_OPTIONS: CoachingOption[] = [
 export default function Onboarding5Screen() {
     const [selectedStyle, setSelectedStyle] = useState<CoachingStyle>('balanced');
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-    const [aiEnabled, setAiEnabled] = useState(false);
+    const [aiEnabled, setAiEnabled] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
     const scrollViewRef = React.useRef<ScrollView>(null);
     const { user, refreshProfile } = useAuth();
     const currentStep = 5;
     const totalSteps = 5;
+
+    React.useEffect(() => {
+        AsyncStorage.setItem(ONBOARDING_STEP_KEY, '5').catch(() => null);
+    }, []);
 
     const handleEnableNotifications = async () => {
         try {
@@ -92,8 +98,14 @@ export default function Onboarding5Screen() {
                 // Refresh profile to update context
                 await refreshProfile();
             }
-            // Navigate to main app
-            router.replace('/(tabs)' as never);
+            await AsyncStorage.removeItem(ONBOARDING_STEP_KEY);
+            // Navigate to paywall or dashboard based on feature flag
+            if (PAYWALL_ENABLED) {
+                router.replace('/paywall' as never);
+            } else {
+                // Beta mode: skip paywall, go straight to app
+                router.replace('/(tabs)' as never);
+            }
         } catch (error) {
             Alert.alert('Error', 'Failed to save your preferences. Please try again.');
             console.error('Error completing onboarding:', error);
@@ -109,7 +121,7 @@ export default function Onboarding5Screen() {
     return (
         <View style={styles.container}>
             <ImageBackground
-                source={require('../assets/images/background.png')}
+                source={require('../assets/images/backgrounds/background.png')}
                 style={styles.backgroundImage}
                 resizeMode="cover"
             >

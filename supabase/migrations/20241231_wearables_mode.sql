@@ -10,9 +10,6 @@ ADD COLUMN IF NOT EXISTS tracking_mode text DEFAULT 'glucose_tracking'
 CHECK (tracking_mode IN ('wearables_only', 'glucose_tracking'));
 
 ALTER TABLE profiles 
-ADD COLUMN IF NOT EXISTS has_cgm boolean DEFAULT false;
-
-ALTER TABLE profiles 
 ADD COLUMN IF NOT EXISTS manual_glucose_enabled boolean DEFAULT false;
 
 -- ============================================

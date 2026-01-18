@@ -90,7 +90,7 @@ export default function PrivacyIntroScreen() {
                     {/* Vault Image */}
                     <View style={styles.mascotContainer}>
                         <Image
-                            source={require('@/assets/images/privacy-vault.png')}
+                            source={require('@/assets/images/illustrations/privacy-vault.png')}
                             style={styles.mascot}
                             resizeMode="contain"
                         />

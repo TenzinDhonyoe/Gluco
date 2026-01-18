@@ -3,6 +3,7 @@ import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ResizeMode, Video } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -19,6 +20,15 @@ import {
 } from 'react-native';
 
 const { width } = Dimensions.get('window');
+
+// Key for persisting onboarding step to AsyncStorage
+export const ONBOARDING_STEP_KEY = 'onboarding_current_step';
+// Key for tracking if user has dismissed/completed paywall
+export const PAYWALL_SEEN_KEY = 'paywall_seen';
+
+// Feature flag: Set to true to enable paywall after onboarding
+// Currently disabled for beta - all users get full access
+export const PAYWALL_ENABLED = false;
 
 export default function WelcomeScreen() {
     const { user, profile, loading } = useAuth();
@@ -40,23 +50,56 @@ export default function WelcomeScreen() {
                     } as never);
                 } else if (!profile || !profile.onboarding_completed) {
                     // Email confirmed but onboarding not complete
-                    // New order: Step 1 (profile) → Step 2 (goals) → Step 3 → Step 4 → Step 5
+                    // First check AsyncStorage for saved step (more reliable for resume)
+                    const storedStep = await AsyncStorage.getItem(ONBOARDING_STEP_KEY);
+
+                    if (storedStep) {
+                        // Use stored step for routing
+                        const stepRoutes: Record<string, string> = {
+                            '1': '/onboarding-2',  // Step 1: Profile (screen is onboarding-2)
+                            '2': '/onboarding-1',  // Step 2: Goals (screen is onboarding-1)
+                            '3': '/onboarding-3',  // Step 3: Optional height/weight
+                            '4': '/onboarding-4',  // Step 4: Tracking mode
+                            '5': '/onboarding-5',  // Step 5: Coaching style
+                        };
+                        const route = stepRoutes[storedStep];
+                        if (route) {
+                            router.replace(route as never);
+                            return;
+                        }
+                    }
+
+                    // Fallback: Profile-based routing if no stored step
+                    // Flow: Step 1 (profile) → Step 2 (goals) → Step 3 (optional) → Step 4 (tracking) → Step 5 (coaching)
                     if (!profile?.first_name || !profile?.last_name) {
-                        // Step 1: Profile info
                         router.replace('/onboarding-2' as never);
                     } else if (!profile?.goals || profile.goals.length === 0) {
-                        // Step 2: Goals
                         router.replace('/onboarding-1' as never);
                     } else if (profile?.tracking_mode === undefined) {
-                        // Step 4: Tracking setup
-                        router.replace('/onboarding-4' as never);
+                        router.replace('/onboarding-3' as never);
+                    } else if (!profile?.coaching_style) {
+                        router.replace('/onboarding-5' as never);
                     } else {
-                        // Step 5: Coaching style (last step)
                         router.replace('/onboarding-5' as never);
                     }
                 } else {
-                    // Onboarding complete - go to dashboard
-                    router.replace('/(tabs)' as never);
+                    // Onboarding complete - check if paywall should be shown
+                    await AsyncStorage.removeItem(ONBOARDING_STEP_KEY);
+
+                    // If paywall is disabled (beta), go straight to dashboard
+                    if (!PAYWALL_ENABLED) {
+                        router.replace('/(tabs)' as never);
+                    } else {
+                        // Check if user has already seen/dismissed the paywall
+                        const paywallSeen = await AsyncStorage.getItem(PAYWALL_SEEN_KEY);
+                        if (!paywallSeen) {
+                            // Show paywall first
+                            router.replace('/paywall' as never);
+                        } else {
+                            // Paywall already seen, go to dashboard
+                            router.replace('/(tabs)' as never);
+                        }
+                    }
                 }
             } else {
                 // No user - show welcome screen

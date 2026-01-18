@@ -10,21 +10,28 @@ import {
   removeFavoriteFood,
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
+  Modal,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import uuid from 'react-native-uuid';
 
 type Tab = 'all' | 'recents' | 'favorites';
+
+// Draft storage key for selected items
+const MEAL_ITEMS_DRAFT_KEY = 'meal_items_draft';
 
 // Selected item with quantity
 interface SelectedItem extends NormalizedFood {
@@ -34,6 +41,14 @@ interface SelectedItem extends NormalizedFood {
 export default function LogMealItemsScreen() {
   const { user, profile } = useAuth();
   const params = useLocalSearchParams();
+  const isNewSession = React.useMemo(() => {
+    const value = params.newSession;
+    if (Array.isArray(value)) {
+      return value[0] === '1' || value[0] === 'true';
+    }
+    return value === '1' || value === 'true';
+  }, [params.newSession]);
+  const isReplaceMode = React.useMemo(() => typeof params.replaceIndex === 'string', [params.replaceIndex]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<Tab>('all');
   const [results, setResults] = useState<NormalizedFood[]>([]);
@@ -50,6 +65,92 @@ export default function LogMealItemsScreen() {
   const [recents, setRecents] = useState<NormalizedFood[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [isLoadingTab, setIsLoadingTab] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+
+  // Manual entry modal state
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [manualName, setManualName] = useState('');
+  const [manualCarbs, setManualCarbs] = useState('');
+  const [manualProtein, setManualProtein] = useState('');
+  const [manualFat, setManualFat] = useState('');
+  const [manualCalories, setManualCalories] = useState('');
+
+  // ========== DRAFT PERSISTENCE ==========
+  useEffect(() => {
+    if (isReplaceMode) return;
+    if (!params.existingItems || typeof params.existingItems !== 'string') return;
+    if (params.existingItems === '[]') return;
+    try {
+      const items = JSON.parse(params.existingItems) as SelectedItem[];
+      if (items.length > 0) {
+        setSelectedItems(items);
+        setShowBottomSheet(true);
+      }
+    } catch (e) {
+      console.warn('Failed to parse existing items:', e);
+    }
+  }, [params.existingItems, isReplaceMode]);
+
+  // Save selected items draft to AsyncStorage
+  const saveDraft = useCallback(async (items: SelectedItem[]) => {
+    try {
+      if (items.length > 0) {
+        const draft = {
+          selectedItems: items,
+          savedAt: new Date().toISOString(),
+        };
+        await AsyncStorage.setItem(MEAL_ITEMS_DRAFT_KEY, JSON.stringify(draft));
+      } else {
+        await AsyncStorage.removeItem(MEAL_ITEMS_DRAFT_KEY);
+      }
+    } catch (e) {
+      console.warn('Failed to save meal items draft:', e);
+    }
+  }, []);
+
+  // Restore draft from AsyncStorage on mount
+  useEffect(() => {
+    const restoreDraft = async () => {
+      try {
+        if (isNewSession || isReplaceMode) {
+          await AsyncStorage.removeItem(MEAL_ITEMS_DRAFT_KEY);
+          return;
+        }
+        // Only restore if no scanned food and no existing items with actual content
+        // existingItems is always passed but may be '[]', so check for actual items
+        const hasExistingItems = params.existingItems && params.existingItems !== '[]';
+        if (params.scannedFood || hasExistingItems) {
+          setDraftRestored(true);
+          return;
+        }
+        const stored = await AsyncStorage.getItem(MEAL_ITEMS_DRAFT_KEY);
+        if (stored) {
+          const draft = JSON.parse(stored);
+          // Only restore drafts less than 24 hours old
+          const savedAt = new Date(draft.savedAt);
+          const hoursSinceSave = (Date.now() - savedAt.getTime()) / (1000 * 60 * 60);
+          if (hoursSinceSave < 24 && draft.selectedItems?.length > 0) {
+            setSelectedItems(draft.selectedItems);
+            setShowBottomSheet(true);
+          } else {
+            await AsyncStorage.removeItem(MEAL_ITEMS_DRAFT_KEY);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to restore meal items draft:', e);
+      } finally {
+        setDraftRestored(true);
+      }
+    };
+    restoreDraft();
+  }, [isNewSession, isReplaceMode, params.scannedFood, params.existingItems]);
+
+  // Save draft when selected items change
+  useEffect(() => {
+    if (draftRestored) {
+      saveDraft(selectedItems);
+    }
+  }, [selectedItems, saveDraft, draftRestored]);
 
   // Load favorites list when component mounts or tab changes
   const loadFavorites = useCallback(async () => {
@@ -197,6 +298,9 @@ export default function LogMealItemsScreen() {
       } catch (error) {
         if (!controller.signal.aborted) {
           console.error('Search failed:', error);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
           setIsSearching(false);
         }
       }
@@ -262,16 +366,29 @@ export default function LogMealItemsScreen() {
   };
 
   const handleSave = () => {
-    // Navigate back to log-meal with selected items AND original form state
+    const returnTo = typeof params.returnTo === 'string' ? params.returnTo : '/log-meal';
+    const replaceIndex = typeof params.replaceIndex === 'string' ? Number(params.replaceIndex) : null;
+
+    if (replaceIndex !== null && !Number.isNaN(replaceIndex) && selectedItems.length !== 1) {
+      Alert.alert('Select one item', 'Pick a single item to replace.');
+      return;
+    }
+
+    // Navigate back with selected items and original form state
     router.navigate({
-      pathname: '/log-meal',
+      pathname: returnTo,
       params: {
         selectedFoods: JSON.stringify(selectedItems),
-        // Pass back original form state
+        ...(replaceIndex !== null && !Number.isNaN(replaceIndex)
+          ? { replaceIndex: String(replaceIndex) }
+          : {}),
         mealName: params.mealName || '',
+        mealTitleEdited: params.mealTitleEdited || '0',
         mealType: params.mealType || '',
         mealTime: params.mealTime || '',
+        mealNotes: params.mealNotes || '',
         imageUri: params.imageUri || '',
+        photoPath: params.photoPath || '',
         existingItems: params.existingItems || '[]',
       },
     });
@@ -280,6 +397,50 @@ export default function LogMealItemsScreen() {
   const clearSearch = () => {
     setSearchQuery('');
     setResults([]);
+  };
+
+  // Handle adding manual food entry
+  // Uses 'fdc' provider with 'Manual Entry' brand to avoid DB constraint issues
+  const handleManualEntry = () => {
+    if (!manualName.trim()) return;
+
+    const carbs = parseFloat(manualCarbs);
+    const protein = parseFloat(manualProtein);
+    const fat = parseFloat(manualFat);
+    const caloriesInput = parseFloat(manualCalories);
+
+    // Auto-calculate calories if not provided (use 0 for empty fields in calculation)
+    const calories = !isNaN(caloriesInput)
+      ? caloriesInput
+      : Math.round(((isNaN(carbs) ? 0 : carbs) * 4) + ((isNaN(protein) ? 0 : protein) * 4) + ((isNaN(fat) ? 0 : fat) * 9));
+
+    const manualFood: SelectedItem = {
+      provider: 'fdc',  // Use 'fdc' to satisfy DB constraint; 'Manual Entry' brand indicates it's manual
+      external_id: `manual-${uuid.v4()}`,  // Prefix with 'manual-' to identify manual entries
+      display_name: manualName.trim(),
+      brand: 'Manual Entry',  // This brand indicates a manual entry
+      serving_size: 1,
+      serving_unit: 'serving',
+      calories_kcal: !isNaN(calories) ? calories : null,
+      carbs_g: !isNaN(carbs) ? carbs : null,
+      protein_g: !isNaN(protein) ? protein : null,
+      fat_g: !isNaN(fat) ? fat : null,
+      fibre_g: null,
+      sugar_g: null,
+      sodium_mg: null,
+      quantity: 1,
+    };
+
+    setSelectedItems(prev => [...prev, manualFood]);
+    setShowBottomSheet(true);
+    setShowManualModal(false);
+
+    // Clear form
+    setManualName('');
+    setManualCarbs('');
+    setManualProtein('');
+    setManualFat('');
+    setManualCalories('');
   };
 
   const formatNutrientInfo = (food: NormalizedFood) => {
@@ -347,14 +508,14 @@ export default function LogMealItemsScreen() {
           style={styles.quantityButton}
           onPress={() => updateQuantity(item, -1)}
         >
-          <Ionicons name="remove" size={18} color="#FFFFFF" />
+          <Ionicons name="remove" size={22} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.quantityText}>{item.quantity}</Text>
         <TouchableOpacity
           style={styles.quantityButton}
           onPress={() => updateQuantity(item, 1)}
         >
-          <Ionicons name="add" size={18} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
     </View>
@@ -422,6 +583,16 @@ export default function LogMealItemsScreen() {
           </TouchableOpacity>
         )}
 
+        {/* Manual Entry Button */}
+        <TouchableOpacity
+          style={styles.manualEntryButton}
+          onPress={() => setShowManualModal(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="add-circle-outline" size={18} color="#3494D9" />
+          <Text style={styles.manualEntryButtonText}>Add Manual Entry</Text>
+        </TouchableOpacity>
+
         {/* Tabs */}
         <View style={styles.tabsContainer}>
           <TouchableOpacity
@@ -455,11 +626,7 @@ export default function LogMealItemsScreen() {
           {/* ALL Tab - Search Results */}
           {activeTab === 'all' && (
             <>
-              {isSearching ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator color="#3494D9" size="large" />
-                </View>
-              ) : results.length > 0 ? (
+              {results.length > 0 ? (
                 <FlatList
                   data={results}
                   keyExtractor={(item) => `${item.provider}-${item.external_id}`}
@@ -467,6 +634,10 @@ export default function LogMealItemsScreen() {
                   contentContainerStyle={styles.listContent}
                   showsVerticalScrollIndicator={false}
                 />
+              ) : isSearching ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator color="#3494D9" size="large" />
+                </View>
               ) : searchQuery.length >= 2 ? (
                 <View style={styles.emptyContainer}>
                   <Text style={styles.emptyText}>No foods found</Text>
@@ -553,6 +724,90 @@ export default function LogMealItemsScreen() {
             </TouchableOpacity>
           </View>
         )}
+
+        {/* Manual Entry Modal */}
+        <Modal
+          visible={showManualModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowManualModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Add Manual Entry</Text>
+                <TouchableOpacity onPress={() => setShowManualModal(false)}>
+                  <Ionicons name="close" size={24} color="#878787" />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.modalLabel}>Food Name *</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={manualName}
+                onChangeText={setManualName}
+                placeholder="e.g., Homemade Pasta"
+                placeholderTextColor="#878787"
+              />
+
+              <Text style={styles.modalLabel}>Carbs (g) *</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={manualCarbs}
+                onChangeText={setManualCarbs}
+                placeholder="0"
+                placeholderTextColor="#878787"
+                keyboardType="numeric"
+              />
+
+              <View style={styles.modalRow}>
+                <View style={styles.modalHalf}>
+                  <Text style={styles.modalLabel}>Protein (g)</Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    value={manualProtein}
+                    onChangeText={setManualProtein}
+                    placeholder="0"
+                    placeholderTextColor="#878787"
+                    keyboardType="numeric"
+                  />
+                </View>
+                <View style={styles.modalHalf}>
+                  <Text style={styles.modalLabel}>Fat (g)</Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    value={manualFat}
+                    onChangeText={setManualFat}
+                    placeholder="0"
+                    placeholderTextColor="#878787"
+                    keyboardType="numeric"
+                  />
+                </View>
+              </View>
+
+              <Text style={styles.modalLabel}>Calories (optional)</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={manualCalories}
+                onChangeText={setManualCalories}
+                placeholder="Auto-calculated from macros"
+                placeholderTextColor="#878787"
+                keyboardType="numeric"
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.modalAddButton,
+                  !manualName.trim() && styles.modalAddButtonDisabled,
+                ]}
+                onPress={handleManualEntry}
+                disabled={!manualName.trim()}
+              >
+                <Text style={styles.modalAddButtonText}>Add Item</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </View>
   );
@@ -603,11 +858,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 16,
-    marginTop: 8,
+    marginTop: 12,
+    marginBottom: 12,
     backgroundColor: 'rgba(63, 66, 67, 0.3)',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 48,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 52,
   },
   searchIcon: {
     marginRight: 8,
@@ -643,7 +899,7 @@ const styles = StyleSheet.create({
   tabsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    marginTop: 16,
+    marginTop: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#2A2D30',
   },
@@ -797,21 +1053,21 @@ const styles = StyleSheet.create({
   quantityControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
   quantityButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     backgroundColor: '#2A2D30',
     justifyContent: 'center',
     alignItems: 'center',
   },
   quantityText: {
     fontFamily: fonts.semiBold,
-    fontSize: 16,
+    fontSize: 18,
     color: '#FFFFFF',
-    minWidth: 24,
+    minWidth: 32,
     textAlign: 'center',
   },
   saveButton: {
@@ -824,6 +1080,90 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   saveButtonText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  // Manual Entry Button styles
+  manualEntryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    marginHorizontal: 16,
+    marginBottom: 0,
+    backgroundColor: 'rgba(52, 148, 217, 0.12)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 148, 217, 0.35)',
+    gap: 10,
+  },
+  manualEntryButtonText: {
+    fontFamily: fonts.medium,
+    fontSize: 14,
+    color: '#3494D9',
+    marginLeft: 6,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#1C1C1E',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 40,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 18,
+    color: '#FFFFFF',
+  },
+  modalLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 14,
+    color: '#878787',
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  modalInput: {
+    backgroundColor: '#2C2C2E',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontFamily: fonts.regular,
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  modalRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalHalf: {
+    flex: 1,
+  },
+  modalAddButton: {
+    backgroundColor: '#285E2A',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 24,
+  },
+  modalAddButtonDisabled: {
+    backgroundColor: '#3A3D40',
+  },
+  modalAddButtonText: {
     fontFamily: fonts.semiBold,
     fontSize: 16,
     color: '#FFFFFF',

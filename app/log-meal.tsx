@@ -1,51 +1,50 @@
-import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { SheetItem } from '@/components/ui/sheet-item';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { schedulePostMealReviewNotification } from '@/lib/notifications';
+import { rankResults, scoreResult } from '@/lib/foodSearch/rank';
+import { ParsedMealItem, parseMealDescription } from '@/lib/mealTextParser';
 import {
-  addMealItems,
-  createMeal,
-  CreateMealItemInput,
-  MealPhotoAnalysisResult,
-  MealPhotoAnalysisStatus,
+  AnalyzedItem,
   NormalizedFood,
-  supabase,
-  uploadMealPhoto
+  invokeMealPhotoAnalyze,
+  searchFoodsWithVariants,
+  uploadMealPhoto,
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { decode } from 'base64-arraybuffer';
-import uuid from 'react-native-uuid';
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   Image,
-  InteractionManager,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import uuid from 'react-native-uuid';
 
-// Selected item with quantity from food search
-interface SelectedFood extends NormalizedFood {
+const MEAL_DRAFT_KEY = 'meal_log_draft';
+const MEAL_ITEMS_DRAFT_KEY = 'meal_items_draft';
+const MAX_MATCH_CONCURRENCY = 4;
+const MAX_PHOTO_MATCH_CANDIDATES = 6;
+const MIN_PHOTO_TEXT_SCORE = 55;
+const MACRO_DISTANCE_MARGIN = 0.15;
+
+interface SelectedMealItem extends NormalizedFood {
   quantity: number;
+  source: 'matched' | 'manual';
+  originalText?: string;
 }
-
-type MealType = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
-
-// Order matches the provided design
-const MEAL_TYPES: MealType[] = ['Breakfast', 'Snack', 'Lunch', 'Dinner'];
 
 function formatTime(d: Date) {
   const hh = d.getHours();
@@ -53,21 +52,6 @@ function formatTime(d: Date) {
   const h12 = ((hh + 11) % 12) + 1;
   const ampm = hh >= 12 ? 'PM' : 'AM';
   return `${h12}:${String(mm).padStart(2, '0')} ${ampm}`;
-}
-
-function buildTimeOptions(stepMinutes: number = 30) {
-  const out: Date[] = [];
-  const base = new Date();
-  base.setSeconds(0);
-  base.setMilliseconds(0);
-  base.setHours(0);
-  base.setMinutes(0);
-  for (let i = 0; i < (24 * 60) / stepMinutes; i++) {
-    const d = new Date(base);
-    d.setMinutes(i * stepMinutes);
-    out.push(d);
-  }
-  return out;
 }
 
 function clamp(n: number, min: number, max: number) {
@@ -81,11 +65,11 @@ function toParts(date: Date) {
   return { hour12, minute: date.getMinutes(), period };
 }
 
-function fromParts(parts: { hour12: number; minute: number; period: 'AM' | 'PM' }) {
+function applyTime(base: Date, parts: { hour12: number; minute: number; period: 'AM' | 'PM' }) {
   const { hour12, minute, period } = parts;
   let hours24 = hour12 % 12;
   if (period === 'PM') hours24 += 12;
-  const d = new Date();
+  const d = new Date(base);
   d.setHours(hours24);
   d.setMinutes(minute);
   d.setSeconds(0);
@@ -97,333 +81,325 @@ function ChevronDown() {
   return <Ionicons name="chevron-down" size={16} color="#878787" />;
 }
 
-function ChevronRight() {
-  return <Ionicons name="chevron-forward" size={16} color="#E7E8E9" />;
+function buildManualItem(parsed: ParsedMealItem): SelectedMealItem {
+  return {
+    provider: 'fdc',
+    external_id: `manual-${uuid.v4()}`,
+    display_name: parsed.name,
+    brand: 'Manual Entry',
+    serving_size: null,
+    serving_unit: parsed.unit ?? 'serving',
+    calories_kcal: null,
+    carbs_g: null,
+    protein_g: null,
+    fat_g: null,
+    fibre_g: null,
+    sugar_g: null,
+    sodium_mg: null,
+    quantity: parsed.quantity || 1,
+    source: 'manual',
+    originalText: parsed.raw,
+  };
 }
 
-// Memoized wheel item component to prevent re-renders
-const WheelItem = React.memo(function WheelItem({
-  item,
-  isActive,
-}: {
-  item: string;
-  isActive: boolean;
-}) {
-  return (
-    <View style={[wheelItemStyles.item, isActive && wheelItemStyles.itemActive]}>
-      <Text style={[wheelItemStyles.text, isActive && wheelItemStyles.textActive]}>{item}</Text>
-    </View>
-  );
-});
+function buildAnalyzedItem(item: AnalyzedItem): SelectedMealItem {
+  return {
+    provider: 'fdc',
+    external_id: `ai-${uuid.v4()}`,
+    display_name: item.display_name,
+    brand: 'AI estimate',
+    serving_size: null,
+    serving_unit: item.unit || 'serving',
+    calories_kcal: item.nutrients.calories_kcal,
+    carbs_g: item.nutrients.carbs_g,
+    protein_g: item.nutrients.protein_g,
+    fat_g: item.nutrients.fat_g,
+    fibre_g: item.nutrients.fibre_g,
+    sugar_g: item.nutrients.sugar_g,
+    sodium_mg: item.nutrients.sodium_mg,
+    quantity: item.quantity || 1,
+    source: 'matched',
+    originalText: 'photo',
+  };
+}
 
-const wheelItemStyles = StyleSheet.create({
-  item: {
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  itemActive: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 8,
-  },
-  text: {
-    fontFamily: undefined, // Will be set via fonts.medium in styles
-    fontSize: 22,
-    color: '#878787',
-  },
-  textActive: {
-    color: '#FFFFFF',
-  },
-});
+function mapAnalyzedItems(items: AnalyzedItem[]): SelectedMealItem[] {
+  return items.map((item) => buildAnalyzedItem(item));
+}
+
+function normalizeUnitLabel(unit: string | null | undefined): string | null {
+  if (!unit) return null;
+  const cleaned = unit.trim().toLowerCase();
+  if (!cleaned) return null;
+  if (cleaned === 'serving' || cleaned === 'serve') return 'serving';
+  if (cleaned === 'g' || cleaned === 'gram' || cleaned === 'grams') return 'g';
+  if (cleaned === 'kg' || cleaned === 'kilogram' || cleaned === 'kilograms') return 'kg';
+  if (cleaned === 'ml' || cleaned === 'milliliter' || cleaned === 'milliliters') return 'ml';
+  if (cleaned === 'l' || cleaned === 'liter' || cleaned === 'liters') return 'l';
+  if (cleaned === 'oz' || cleaned === 'ounce' || cleaned === 'ounces') return 'oz';
+  if (cleaned === 'tbsp' || cleaned === 'tablespoon' || cleaned === 'tablespoons') return 'tbsp';
+  if (cleaned === 'tsp' || cleaned === 'teaspoon' || cleaned === 'teaspoons') return 'tsp';
+  if (cleaned === 'cup' || cleaned === 'cups') return 'cup';
+  if (cleaned === 'slice' || cleaned === 'slices') return 'slice';
+  if (cleaned === 'piece' || cleaned === 'pieces') return 'piece';
+  return cleaned.endsWith('s') ? cleaned.slice(0, -1) : cleaned;
+}
+
+function isUnitCompatible(aiUnit: string | null | undefined, servingUnit: string | null | undefined): boolean {
+  const aiNorm = normalizeUnitLabel(aiUnit);
+  const servingNorm = normalizeUnitLabel(servingUnit);
+  if (!aiNorm || aiNorm === 'serving') return true;
+  if (!servingNorm || servingNorm === 'serving') return true;
+  return aiNorm === servingNorm;
+}
+
+function countMacros(values: Array<number | null | undefined>): number {
+  return values.filter((value) => typeof value === 'number' && Number.isFinite(value)).length;
+}
+
+function getAiMacroCount(item: AnalyzedItem): number {
+  return countMacros([
+    item.nutrients.calories_kcal,
+    item.nutrients.carbs_g,
+    item.nutrients.protein_g,
+    item.nutrients.fat_g,
+  ]);
+}
+
+function getFoodMacroCount(food: NormalizedFood): number {
+  return countMacros([
+    food.calories_kcal,
+    food.carbs_g,
+    food.protein_g,
+    food.fat_g,
+  ]);
+}
+
+function computeMacroDistance(item: AnalyzedItem, food: NormalizedFood): number | null {
+  const pairs: Array<[number | null | undefined, number | null | undefined]> = [
+    [item.nutrients.calories_kcal, food.calories_kcal],
+    [item.nutrients.carbs_g, food.carbs_g],
+    [item.nutrients.protein_g, food.protein_g],
+    [item.nutrients.fat_g, food.fat_g],
+  ];
+
+  let total = 0;
+  let count = 0;
+  for (const [aiValue, candidateValue] of pairs) {
+    if (typeof aiValue === 'number' && aiValue > 0 && typeof candidateValue === 'number') {
+      total += Math.abs(candidateValue - aiValue) / Math.max(aiValue, 1);
+      count += 1;
+    }
+  }
+
+  if (count === 0) return null;
+  return total / count;
+}
+
+// Simple in-memory cache for food search results (faster repeat lookups)
+const foodSearchCache = new Map<string, NormalizedFood>();
+
+async function matchParsedItem(parsed: ParsedMealItem): Promise<SelectedMealItem> {
+  const cacheKey = parsed.name.toLowerCase().trim();
+
+  // Check cache first for faster repeat lookups
+  const cached = foodSearchCache.get(cacheKey);
+  if (cached) {
+    return {
+      ...cached,
+      quantity: parsed.quantity || 1,
+      serving_unit: parsed.unit ?? cached.serving_unit,
+      source: 'matched',
+      originalText: parsed.raw,
+    };
+  }
+
+  const results = await searchFoodsWithVariants(parsed.name, [], 15);
+
+  if (!results.length) {
+    return buildManualItem(parsed);
+  }
+
+  // Use the proper ranking system which handles multi-word queries correctly
+  // It scores based on token overlap, exact matches, and penalizes partial matches
+  const rankedResults = rankResults(results, parsed.name);
+  const best = rankedResults[0];
+
+  if (!best) {
+    return buildManualItem(parsed);
+  }
+
+  // Cache the result for future lookups
+  foodSearchCache.set(cacheKey, best);
+
+  return {
+    ...best,
+    quantity: parsed.quantity || 1,
+    serving_unit: parsed.unit ?? best.serving_unit,
+    source: 'matched',
+    originalText: parsed.raw,
+  };
+}
+
+async function matchAnalyzedItem(item: AnalyzedItem): Promise<SelectedMealItem> {
+  const query = item.display_name?.trim();
+  if (!query) {
+    return buildAnalyzedItem(item);
+  }
+
+  const cacheKey = `photo:${query.toLowerCase()}`;
+  const cached = foodSearchCache.get(cacheKey);
+  if (cached) {
+    return {
+      ...cached,
+      quantity: item.quantity || 1,
+      serving_unit: cached.serving_unit || item.unit || 'serving',
+      source: 'matched',
+      originalText: 'photo',
+    };
+  }
+
+  const results = await searchFoodsWithVariants(query, [], 15);
+  if (!results.length) {
+    return buildAnalyzedItem(item);
+  }
+
+  const scored = results
+    .map((food) => scoreResult(food, query))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_PHOTO_MATCH_CANDIDATES);
+
+  const bestText = scored[0];
+  if (!bestText) {
+    return buildAnalyzedItem(item);
+  }
+
+  const aiMacroCount = getAiMacroCount(item);
+  const bestTextDistance = computeMacroDistance(item, bestText.food);
+
+  let bestMacroCandidate = bestText;
+  let bestMacroDistance = bestTextDistance;
+
+  for (const candidate of scored) {
+    if (candidate.score < MIN_PHOTO_TEXT_SCORE) continue;
+    const distance = computeMacroDistance(item, candidate.food);
+    if (distance === null) continue;
+    if (bestMacroDistance === null || distance < bestMacroDistance) {
+      bestMacroCandidate = candidate;
+      bestMacroDistance = distance;
+    }
+  }
+
+  const shouldUseMacroMatch = bestMacroDistance !== null
+    && (bestTextDistance === null || bestMacroDistance + MACRO_DISTANCE_MARGIN < bestTextDistance);
+
+  const selected = shouldUseMacroMatch ? bestMacroCandidate : bestText;
+  const selectedFood = selected.food;
+  const selectedMacroCount = getFoodMacroCount(selectedFood);
+  const unitCompatible = isUnitCompatible(item.unit, selectedFood.serving_unit);
+  const aiWeak = aiMacroCount < 2 || item.confidence === 'low';
+
+  if (selectedMacroCount < 2) {
+    return buildAnalyzedItem(item);
+  }
+
+  if (!unitCompatible && !aiWeak) {
+    return buildAnalyzedItem(item);
+  }
+
+  foodSearchCache.set(cacheKey, selectedFood);
+
+  return {
+    ...selectedFood,
+    quantity: unitCompatible ? (item.quantity || 1) : 1,
+    serving_unit: selectedFood.serving_unit || item.unit || 'serving',
+    source: 'matched',
+    originalText: 'photo',
+  };
+}
+
+async function matchAnalyzedItems(items: AnalyzedItem[]): Promise<SelectedMealItem[]> {
+  const results: SelectedMealItem[] = new Array(items.length);
+  let cursor = 0;
+
+  const runWorker = async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await matchAnalyzedItem(items[index]);
+    }
+  };
+
+  const workerCount = Math.min(MAX_MATCH_CONCURRENCY, items.length || 1);
+  await Promise.all(Array.from({ length: workerCount }, runWorker));
+
+  return results;
+}
+
+async function matchParsedItems(parsedItems: ParsedMealItem[]): Promise<SelectedMealItem[]> {
+  const results: SelectedMealItem[] = new Array(parsedItems.length);
+  let cursor = 0;
+
+  const runWorker = async () => {
+    while (cursor < parsedItems.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await matchParsedItem(parsedItems[index]);
+    }
+  };
+
+  const workerCount = Math.min(MAX_MATCH_CONCURRENCY, parsedItems.length || 1);
+  await Promise.all(Array.from({ length: workerCount }, runWorker));
+
+  return results;
+}
 
 export default function LogMealScreen() {
-  const { user } = useAuth();
   const params = useLocalSearchParams();
+  const { user } = useAuth();
+  const isNewSession = React.useMemo(() => {
+    const value = params.newSession;
+    if (Array.isArray(value)) {
+      return value[0] === '1' || value[0] === 'true';
+    }
+    return value === '1' || value === 'true';
+  }, [params.newSession]);
+
   const [mealName, setMealName] = React.useState('');
-  const [mealType, setMealType] = React.useState<MealType | null>(null);
-  const [mealTime, setMealTime] = React.useState<Date | null>(null);
+  const [mealNotes, setMealNotes] = React.useState('');
   const [imageUri, setImageUri] = React.useState<string | null>(null);
-  const [mealItems, setMealItems] = React.useState<SelectedFood[]>([]);
-  const [isSaving, setIsSaving] = React.useState(false);
-  const [analysisStatus, setAnalysisStatus] = React.useState<MealPhotoAnalysisStatus | 'idle'>('idle');
-  const [analysisResult, setAnalysisResult] = React.useState<MealPhotoAnalysisResult | null>(null);
-  // Defer initialization until after navigation animation completes
-  const [isReady, setIsReady] = React.useState(false);
-
-  // Defer heavy work until after navigation animation
-  React.useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(() => {
-      setIsReady(true);
-    });
-    return () => task.cancel();
-  }, []);
-
-  // Stable meal ID for this session - lazy generate
-  const mealIdRef = React.useRef<string | null>(null);
-  const mealId = React.useMemo(() => {
-    if (!mealIdRef.current) {
-      mealIdRef.current = uuid.v4() as string;
-    }
-    return mealIdRef.current;
-  }, []);
-
-  const [typeModalOpen, setTypeModalOpen] = React.useState(false);
-  const [timeModalOpen, setTimeModalOpen] = React.useState(false);
+  const [photoPath, setPhotoPath] = React.useState<string | null>(null);
+  const [mealTime, setMealTime] = React.useState<Date>(new Date());
   const [imageSheetOpen, setImageSheetOpen] = React.useState(false);
+  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [analysisStep, setAnalysisStep] = React.useState<string | null>(null);
+  const isReadyRef = React.useRef(false);
+  const resumePromptedRef = React.useRef(false);
 
-  // Track if params have been consumed to prevent infinite loops
-  const paramsConsumedRef = React.useRef<string | null>(null);
-
-  // Restore form state from params (when returning from log-meal-items)
-  // Deferred until after navigation animation completes
-  React.useEffect(() => {
-    if (!isReady) return; // Wait for navigation to complete
-
-    // Create a unique key for the current params to detect changes
-    const paramsKey = `${params.selectedFoods || ''}-${params.mealName || ''}-${params.analyzedItems || ''}`;
-
-    // Skip if we've already processed these exact params
-    if (paramsConsumedRef.current === paramsKey) {
-      return;
-    }
-    paramsConsumedRef.current = paramsKey;
-
-    // Restore meal name
-    if (params.mealName && typeof params.mealName === 'string') {
-      setMealName(params.mealName);
-    }
-    // Restore meal type
-    if (params.mealType && typeof params.mealType === 'string') {
-      setMealType(params.mealType as MealType);
-    }
-    // Restore meal time
-    if (params.mealTime && typeof params.mealTime === 'string') {
-      setMealTime(new Date(params.mealTime));
-    }
-    // Restore image
-    if (params.imageUri && typeof params.imageUri === 'string') {
-      setImageUri(params.imageUri);
-    }
-    // Restore existing meal items
-    if (params.existingItems && typeof params.existingItems === 'string' && params.existingItems !== '[]') {
-      try {
-        const items = JSON.parse(params.existingItems) as SelectedFood[];
-        setMealItems(items);
-      } catch (e) {
-        console.error('Failed to parse existing items:', e);
-      }
-    }
-    // Handle analyzed items from photo estimate
-    if (params.analyzedItems && typeof params.analyzedItems === 'string') {
-      try {
-        const items = JSON.parse(params.analyzedItems) as SelectedFood[];
-        setMealItems(prev => [...prev, ...items]);
-        // Reset analysis state as items are now imported
-        setAnalysisStatus('idle');
-        setAnalysisResult(null);
-      } catch (e) {
-        console.error('Failed to parse analyzed items:', e);
-      }
-    }
-    // Handle selected foods from log-meal-items screen
-    if (params.selectedFoods && typeof params.selectedFoods === 'string') {
-      try {
-        const foods = JSON.parse(params.selectedFoods) as SelectedFood[];
-        setMealItems(prev => {
-          // Merge new items with existing, avoiding duplicates
-          const existingIds = new Set(prev.map(p => `${p.provider}-${p.external_id}`));
-          const newItems = foods.filter(f => !existingIds.has(`${f.provider}-${f.external_id}`));
-          return [...prev, ...newItems];
-        });
-      } catch (e) {
-        console.error('Failed to parse selected foods:', e);
-      }
-    }
-  }, [isReady, params.selectedFoods, params.mealName, params.mealType, params.mealTime, params.imageUri, params.existingItems, params.analyzedItems]);
-
-  const handleSaveMeal = async () => {
-    if (!user) {
-      Alert.alert('Error', 'You must be logged in to save a meal');
-      return;
-    }
-    if (!mealName.trim()) {
-      Alert.alert('Error', 'Please enter a meal name');
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      // Upload photo if present
-      let photoUrl: string | null = null;
-      if (imageUri) {
-        photoUrl = await uploadMealPhoto(user.id, imageUri);
-        // Continue even if photo upload fails
-      }
-
-      // Create the meal
-      const meal = await createMeal(user.id, {
-        name: mealName.trim(),
-        meal_type: mealType?.toLowerCase() as 'breakfast' | 'lunch' | 'dinner' | 'snack' | null,
-        logged_at: mealTime?.toISOString() || new Date().toISOString(),
-        photo_path: photoUrl,
-        notes: null,
-      });
-
-      if (!meal) {
-        Alert.alert('Error', 'Failed to save meal');
-        return;
-      }
-
-      // Add meal items if any
-      if (mealItems.length > 0) {
-        const items: CreateMealItemInput[] = mealItems.map(item => ({
-          provider: item.provider,
-          external_id: item.external_id,
-          display_name: item.display_name,
-          brand: item.brand,
-          quantity: item.quantity,
-          unit: 'serving',
-          serving_size: item.serving_size,
-          serving_unit: item.serving_unit,
-          nutrients: {
-            calories_kcal: item.calories_kcal,
-            carbs_g: item.carbs_g,
-            protein_g: item.protein_g,
-            fat_g: item.fat_g,
-            fibre_g: item.fibre_g,
-            sugar_g: item.sugar_g,
-            sodium_mg: item.sodium_mg,
-          },
-        }));
-        await addMealItems(user.id, meal.id, items);
-      }
-
-      // Schedule check-in notification for 2 hours after meal time
-      // If meal was in the past, schedule for 1 hour from now
-      const eatingTime = mealTime || new Date();
-      let checkInTime = new Date(eatingTime.getTime() + 2 * 60 * 60 * 1000); // +2 hours
-      if (checkInTime.getTime() <= Date.now()) {
-        checkInTime = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
-      }
-
-      await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime);
-
-      Alert.alert('Success', 'Meal saved successfully!', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
-    } catch (error) {
-      console.error('Save meal error:', error);
-      Alert.alert('Error', 'Failed to save meal');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Navigate to meal items screen while preserving form state
-  const navigateToMealItems = () => {
-    router.navigate({
-      pathname: '/log-meal-items',
-      params: {
-        mealName,
-        mealType: mealType || '',
-        mealTime: mealTime?.toISOString() || '',
-        imageUri: imageUri || '',
-        existingItems: JSON.stringify(mealItems),
-      },
-    });
-  };
-
-  // Wheel options (minute is 00-59)
+  const [timeModalOpen, setTimeModalOpen] = React.useState(false);
   const HOURS = React.useMemo(() => Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')), []);
   const MINUTES = React.useMemo(() => Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')), []);
   const PERIODS = React.useMemo(() => ['AM', 'PM'] as const, []);
 
-  const [tempHour12, setTempHour12] = React.useState(8);
-  const [tempMinute, setTempMinute] = React.useState(10);
-  const [tempPeriod, setTempPeriod] = React.useState<'AM' | 'PM'>('AM');
+  const initialParts = React.useMemo(() => toParts(new Date()), []);
+  const [tempHour12, setTempHour12] = React.useState(initialParts.hour12);
+  const [tempMinute, setTempMinute] = React.useState(initialParts.minute);
+  const [tempPeriod, setTempPeriod] = React.useState<'AM' | 'PM'>(initialParts.period);
 
-  const ITEM_H = 44; // More compact standard size
-  const V_PAD = ITEM_H * 1; // one item above/below visible center
+  const ITEM_H = 44;
+  const V_PAD = ITEM_H * 1;
+  const hourRef = React.useRef<FlatList<string>>(null);
+  const minuteRef = React.useRef<FlatList<string>>(null);
+  const periodRef = React.useRef<FlatList<'AM' | 'PM'>>(null);
 
-  // Lazy load heavy modules to avoid blocking navigation
-  const processPhoto = React.useCallback(async (uri: string) => {
-    setImageUri(uri);
-    // AI analysis disabled for now - just upload and display
-    setAnalysisStatus('idle');
-
-    try {
-      if (!user) return;
-
-      // Lazy load FileSystem module
-      const FileSystem = await import('expo-file-system/legacy');
-
-      // Upload photo to storage
-      const ext = uri.split('.').pop()?.toLowerCase() || 'jpg';
-      const fileName = `${user.id}/${Date.now()}.${ext}`;
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-
-      const { error: uploadError } = await supabase.storage
-        .from('meal-photos')
-        .upload(fileName, decode(base64), {
-          contentType: `image/${ext}`,
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error('Photo upload failed:', uploadError);
-        // Still show the local image even if upload fails
-      }
-    } catch (e) {
-      console.error('Photo processing failed:', e);
-      // Still show the local image even if processing fails
-    }
-  }, [user]);
-
-  const pickFromCamera = React.useCallback(async () => {
-    // Lazy load ImagePicker module
-    const ImagePicker = await import('expo-image-picker');
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) return;
-    const res = await ImagePicker.launchCameraAsync({
-      quality: 0.8,
-      allowsEditing: true,
-      aspect: [4, 3],
-    });
-    if (!res.canceled && res.assets?.[0]?.uri) {
-      processPhoto(res.assets[0].uri);
-    }
-  }, [processPhoto]);
-
-  const pickFromLibrary = React.useCallback(async () => {
-    // Lazy load ImagePicker module
-    const ImagePicker = await import('expo-image-picker');
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return;
-    const res = await ImagePicker.launchImageLibraryAsync({
-      quality: 0.8,
-      allowsEditing: true,
-      aspect: [4, 3],
-    });
-    if (!res.canceled && res.assets?.[0]?.uri) {
-      processPhoto(res.assets[0].uri);
-    }
-  }, [processPhoto]);
-
-  // Initialize temp picker values when opening the time sheet
   React.useEffect(() => {
     if (!timeModalOpen) return;
-    const base = mealTime ?? new Date();
-    const parts = toParts(base);
+    const parts = toParts(mealTime);
     setTempHour12(parts.hour12);
     setTempMinute(parts.minute);
     setTempPeriod(parts.period);
   }, [timeModalOpen, mealTime]);
 
-  const hourRef = React.useRef<FlatList<string>>(null);
-  const minuteRef = React.useRef<FlatList<string>>(null);
-  const periodRef = React.useRef<FlatList<'AM' | 'PM'>>(null);
-
-  // Snap wheels to the selected values when opened (after layout)
   React.useEffect(() => {
     if (!timeModalOpen) return;
     const t = setTimeout(() => {
@@ -441,360 +417,447 @@ export default function LogMealScreen() {
     if (kind === 'period') setTempPeriod(idx >= 1 ? 'PM' : 'AM');
   }, [ITEM_H]);
 
+  const resetDraft = React.useCallback(() => {
+    setMealName('');
+    setMealNotes('');
+    setImageUri(null);
+    setPhotoPath(null);
+    setMealTime(new Date());
+  }, []);
+
+  const saveDraft = React.useCallback(async () => {
+    try {
+      if (!mealName.trim() && !mealNotes.trim() && !imageUri) return;
+
+      const draft = {
+        mealName,
+        mealNotes,
+        imageUri,
+        photoPath,
+        mealTime: mealTime.toISOString(),
+        savedAt: new Date().toISOString(),
+      };
+      await AsyncStorage.setItem(MEAL_DRAFT_KEY, JSON.stringify(draft));
+    } catch (e) {
+      console.warn('Failed to save meal draft:', e);
+    }
+  }, [mealName, mealNotes, imageUri, photoPath, mealTime]);
+
+  React.useEffect(() => {
+    const restoreDraft = async () => {
+      try {
+        if (isNewSession) {
+          resetDraft();
+          await AsyncStorage.multiRemove([MEAL_DRAFT_KEY, MEAL_ITEMS_DRAFT_KEY]);
+          return;
+        }
+
+        const stored = await AsyncStorage.getItem(MEAL_DRAFT_KEY);
+        if (stored) {
+          const draft = JSON.parse(stored);
+          const savedAt = new Date(draft.savedAt);
+          const hoursSinceSave = (Date.now() - savedAt.getTime()) / (1000 * 60 * 60);
+          if (hoursSinceSave < 24) {
+            if (!resumePromptedRef.current) {
+              resumePromptedRef.current = true;
+              Alert.alert('Resume draft?', 'You have an unfinished meal log.', [
+                {
+                  text: 'Start new',
+                  style: 'destructive',
+                  onPress: async () => {
+                    resetDraft();
+                    await AsyncStorage.multiRemove([MEAL_DRAFT_KEY, MEAL_ITEMS_DRAFT_KEY]);
+                  },
+                },
+                {
+                  text: 'Resume',
+                  onPress: () => {
+                    if (draft.mealName) setMealName(draft.mealName);
+                    if (draft.mealNotes) setMealNotes(draft.mealNotes);
+                    if (draft.imageUri) setImageUri(draft.imageUri);
+                    if (draft.photoPath) setPhotoPath(draft.photoPath);
+                    if (draft.mealTime) {
+                      const parsed = new Date(draft.mealTime);
+                      if (!Number.isNaN(parsed.getTime())) {
+                        setMealTime(parsed);
+                      }
+                    }
+                  },
+                },
+              ]);
+            }
+          } else {
+            await AsyncStorage.removeItem(MEAL_DRAFT_KEY);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to restore meal draft:', e);
+      }
+    };
+
+    if (!isReadyRef.current) {
+      isReadyRef.current = true;
+      restoreDraft();
+    }
+  }, [isNewSession, resetDraft]);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      saveDraft();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [mealName, mealNotes, imageUri, photoPath, mealTime, saveDraft]);
+
+  React.useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        saveDraft();
+      }
+    });
+    return () => subscription?.remove();
+  }, [saveDraft]);
+
+  const pickFromCamera = React.useCallback(async () => {
+    const ImagePicker = await import('expo-image-picker');
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) return;
+
+    const res = await ImagePicker.launchCameraAsync({
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [4, 3],
+    });
+    if (!res.canceled && res.assets?.[0]?.uri) {
+      setImageUri(res.assets[0].uri);
+      setPhotoPath(null);
+    }
+  }, []);
+
+  const pickFromLibrary = React.useCallback(async () => {
+    const ImagePicker = await import('expo-image-picker');
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return;
+
+    const res = await ImagePicker.launchImageLibraryAsync({
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [4, 3],
+    });
+    if (!res.canceled && res.assets?.[0]?.uri) {
+      setImageUri(res.assets[0].uri);
+      setPhotoPath(null);
+    }
+  }, []);
+
+  const analyzeMeal = async () => {
+    const trimmedNotes = mealNotes.trim();
+    const hasText = Boolean(trimmedNotes);
+    const hasPhoto = Boolean(imageUri);
+
+    if (!hasText && !hasPhoto) {
+      Alert.alert('Add details', 'Include a photo or describe what you ate.');
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setAnalysisStep('Preparing...');
+
+    try {
+      let nextPhotoPath = photoPath;
+      let matchedItems: SelectedMealItem[] = [];
+
+      if (hasPhoto) {
+        if (!user) {
+          Alert.alert('Sign in required', 'Please sign in to analyze a meal photo.');
+          return;
+        }
+
+        if (!nextPhotoPath) {
+          setAnalysisStep('Uploading photo...');
+          nextPhotoPath = await uploadMealPhoto(user.id, imageUri!);
+          if (!nextPhotoPath) {
+            Alert.alert('Upload failed', 'Please try again with a different photo.');
+            return;
+          }
+          setPhotoPath(nextPhotoPath);
+        }
+
+        setAnalysisStep('Analyzing photo...');
+        const analysis = await invokeMealPhotoAnalyze(
+          user.id,
+          null,
+          nextPhotoPath,
+          mealTime.toISOString(),
+          undefined,
+          undefined,
+          trimmedNotes || undefined
+        );
+
+        if (analysis?.status === 'complete' && analysis.items?.length) {
+          setAnalysisStep('Refining items...');
+          matchedItems = await matchAnalyzedItems(analysis.items);
+          if (!matchedItems.length) {
+            matchedItems = mapAnalyzedItems(analysis.items);
+          }
+        }
+      }
+
+      if (!matchedItems.length) {
+        if (!trimmedNotes) {
+          Alert.alert('No items found', 'Describe what you ate or try another photo.');
+          return;
+        }
+        setAnalysisStep('Parsing your meal...');
+        const parsed = parseMealDescription(trimmedNotes);
+        if (parsed.length === 0) {
+          Alert.alert('Could not parse', 'Try separating items with commas.');
+          return;
+        }
+        setAnalysisStep('Matching foods...');
+        matchedItems = await matchParsedItems(parsed);
+      }
+
+      router.push({
+        pathname: '/log-meal-review',
+        params: {
+          items: JSON.stringify(matchedItems),
+          mealName: '',
+          mealNotes: trimmedNotes,
+          imageUri: imageUri || '',
+          photoPath: nextPhotoPath || '',
+          mealTime: mealTime.toISOString(),
+        },
+      });
+    } catch (e) {
+      console.error('Meal analyze error:', e);
+      Alert.alert('Analysis failed', 'Please try again in a moment.');
+    } finally {
+      setIsAnalyzing(false);
+      setAnalysisStep(null);
+    }
+  };
+
+
+
+
+
   return (
     <View style={styles.root}>
       <LinearGradient
         colors={['#1a1f24', '#181c20', '#111111']}
-        locations={[0, 0.3, 1]}
+        locations={[0, 0.35, 1]}
         style={styles.topGlow}
       />
 
       <SafeAreaView edges={['top']} style={styles.safe}>
-        {/* Header */}
         <View style={styles.header}>
-          <Pressable onPress={() => router.dismissTo('/(tabs)')} style={styles.headerIconBtn}>
-            <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
+          <Pressable
+            onPress={() => router.dismissTo('/(tabs)')}
+            style={({ pressed }) => [
+              styles.headerIconBtn,
+              pressed && styles.headerIconBtnPressed,
+            ]}
+          >
+            <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
           </Pressable>
-
           <Text style={styles.headerTitle}>LOG MEAL</Text>
-
-          {/* spacer for centering */}
           <View style={styles.headerIconBtnSpacer} />
         </View>
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}
-        >
-          {/* Form card */}
-          <View style={styles.formCard}>
-            {/* Meal Name */}
-            <View style={styles.block}>
-              <Text style={styles.label}>Meal Name</Text>
-              <Input
-                value={mealName}
-                onChangeText={setMealName}
-                placeholder="Enter Meal Name"
-                returnKeyType="done"
-              />
-            </View>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <View style={styles.contentBlock}>
+            <Text style={styles.sectionLabel}>Photo</Text>
+            <Pressable style={styles.photoTile} onPress={() => setImageSheetOpen(true)}>
+              {imageUri ? (
+                <Image source={{ uri: imageUri }} style={styles.photoPreview} />
+              ) : (
+                <View style={styles.photoPlaceholder}>
+                  <Ionicons name="camera" size={22} color="#9AA0A6" />
+                  <Text style={styles.photoPlaceholderText}>Add a photo (optional)</Text>
+                </View>
+              )}
+              {imageUri ? (
+                <Pressable
+                  onPress={() => setImageUri(null)}
+                  style={styles.photoRemove}
+                  hitSlop={10}
+                >
+                  <Ionicons name="close" size={14} color="#FFFFFF" />
+                </Pressable>
+              ) : null}
+            </Pressable>
 
-            {/* Meal Type */}
-            <View style={styles.block}>
-              <Text style={styles.label}>Meal Type</Text>
-              <DropdownMenu
-                open={typeModalOpen}
-                onOpenChange={setTypeModalOpen}
-                trigger={
-                  <Pressable
-                    onPress={() => setTypeModalOpen(true)}
-                    style={styles.selectShell}
-                  >
-                    <Text style={[styles.selectText, mealType && styles.selectTextActive]}>
-                      {mealType ?? 'Select Meal Type'}
-                    </Text>
-                    <ChevronDown />
-                  </Pressable>
-                }
+            <View style={styles.timeCard}>
+              <Text style={styles.sectionLabel}>Meal time</Text>
+              <Pressable
+                onPress={() => setTimeModalOpen(true)}
+                style={({ pressed }) => [
+                  styles.timeRow,
+                  pressed && styles.timeRowPressed,
+                ]}
               >
-                {MEAL_TYPES.map((type) => (
-                  <DropdownMenuItem
-                    key={type}
-                    onSelect={() => {
-                      setMealType(type);
-                      setTypeModalOpen(false);
-                    }}
-                  >
-                    <Text style={styles.dropdownItemText}>{type}</Text>
-                    {mealType === type && (
-                      <Ionicons name="checkmark" size={18} color="#FFFFFF" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenu>
-            </View>
-
-            {/* Meal Time */}
-            <View style={styles.block}>
-              <Text style={styles.label}>Meal Time</Text>
-              <Pressable onPress={() => setTimeModalOpen(true)} style={styles.selectShell}>
-                <Text style={[styles.selectText, mealTime && styles.selectTextActive]}>
-                  {mealTime ? formatTime(mealTime) : 'Select Meal Time'}
-                </Text>
+                <Text style={styles.timeValue}>{formatTime(mealTime)}</Text>
                 <ChevronDown />
               </Pressable>
             </View>
-          </View>
 
-          {/* Add Image - Camera first */}
-          {imageUri ? (
-            <View style={styles.imagePreviewSection}>
-              <Image source={{ uri: imageUri }} style={styles.imagePreview} />
-              <View style={styles.imageActions}>
-                <Pressable
-                  onPress={() => setImageSheetOpen(true)}
-                  style={styles.imageActionBtn}
-                >
-                  <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
-                  <Text style={styles.imageActionText}>Replace</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setImageUri(null)}
-                  style={[styles.imageActionBtn, styles.imageActionBtnDanger]}
-                >
-                  <Ionicons name="trash-outline" size={18} color="#F44336" />
-                  <Text style={[styles.imageActionText, { color: '#F44336' }]}>Remove</Text>
-                </Pressable>
+            <View style={styles.textBlock}>
+              <Text style={styles.sectionLabel}>What did you eat?</Text>
+              <TextInput
+                value={mealNotes}
+                onChangeText={setMealNotes}
+                multiline
+                placeholder="Type the food name or specific ingredients"
+                placeholderTextColor="#6F6F6F"
+                style={styles.textArea}
+              />
+              <Text style={styles.helperText}>Separate items with commas for best matches.</Text>
+              <View style={styles.tipBox}>
+                <Ionicons name="bulb-outline" size={16} color="#7ED3FF" style={styles.tipIcon} />
+                <Text style={styles.tipText}>
+                  Add quantities like "1 cup", "2 tbsp", or "200g" to improve accuracy.
+                </Text>
               </View>
             </View>
-          ) : (
-            <Pressable onPress={pickFromCamera} style={styles.actionRow}>
-              <View style={styles.actionLeft}>
-                <Ionicons name="camera" size={20} color="#4CAF50" />
-                <Text style={styles.actionText}>Add Photo</Text>
-              </View>
-              <View style={styles.actionRight}>
-                <Pressable
-                  onPress={(e) => { e.stopPropagation(); setImageSheetOpen(true); }}
-                  style={styles.libraryBtn}
-                  hitSlop={8}
-                >
-                  <Ionicons name="images-outline" size={18} color="#878787" />
-                </Pressable>
-                <ChevronRight />
-              </View>
-            </Pressable>
-          )}
 
-          {/* Add Meal Items */}
-          <Pressable onPress={() => navigateToMealItems()} style={styles.actionRow}>
-            <Text style={styles.actionText}>Add Meal Items</Text>
-            <View style={styles.actionRight}>
-              {mealItems.length > 0 && (
-                <View style={styles.itemCountBadge}>
-                  <Text style={styles.itemCountText}>{mealItems.length}</Text>
-                </View>
-              )}
-              <ChevronRight />
-            </View>
-          </Pressable>
-
-          {/* Selected Meal Items */}
-          {mealItems.length > 0 && (
-            <View style={styles.mealItemsSection}>
-              <View style={styles.mealItemsHeader}>
-                <Text style={styles.mealItemsSectionTitle}>Meal Items</Text>
-                <Pressable onPress={() => navigateToMealItems()}>
-                  <Text style={styles.mealItemsEditBtn}>Edit</Text>
-                </Pressable>
-              </View>
-              {mealItems.map((item, index) => (
-                <View key={`${item.provider}-${item.external_id}`}>
-                  <View style={styles.mealItemRow}>
-                    <View style={styles.mealItemInfo}>
-                      <Text style={styles.mealItemName}>{item.display_name}</Text>
-                      <Text style={styles.mealItemSource}>
-                        {item.provider === 'fdc' ? 'USDA' : 'OFF'}
-                      </Text>
-                      <Text style={styles.mealItemNutrients} numberOfLines={2}>
-                        {item.calories_kcal ? `${item.calories_kcal * item.quantity} kcal` : ''}
-                        {item.carbs_g ? ` • ${item.carbs_g * item.quantity}g carbs` : ''}
-                        {item.protein_g ? ` • ${item.protein_g * item.quantity}g protein` : ''}
-                      </Text>
-                    </View>
-                    <View style={styles.quantityControls}>
-                      <Pressable
-                        onPress={() => {
-                          if (item.quantity <= 1) {
-                            setMealItems(prev => prev.filter((_, i) => i !== index));
-                          } else {
-                            setMealItems(prev => prev.map((it, i) =>
-                              i === index ? { ...it, quantity: it.quantity - 1 } : it
-                            ));
-                          }
-                        }}
-                        style={styles.quantityBtn}
-                      >
-                        <Text style={styles.quantityBtnText}>−</Text>
-                      </Pressable>
-                      <View style={styles.quantityValue}>
-                        <Text style={styles.quantityValueText}>{item.quantity}</Text>
-                      </View>
-                      <Pressable
-                        onPress={() => {
-                          setMealItems(prev => prev.map((it, i) =>
-                            i === index ? { ...it, quantity: it.quantity + 1 } : it
-                          ));
-                        }}
-                        style={styles.quantityBtn}
-                      >
-                        <Text style={styles.quantityBtnText}>+</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                  {index < mealItems.length - 1 && <View style={styles.dashedDivider} />}
-                </View>
-              ))}
-            </View>
-          )}
-
-          {/* Action Buttons */}
-          <View style={styles.actionButtonsRow}>
-            {/* Run Pre Meal Check Button */}
             <Pressable
-              onPress={() => {
-                // Navigate to pre-meal check with meal data
-                router.push({
-                  pathname: '/pre-meal-check',
-                  params: {
-                    mealName,
-                    mealTime: mealTime?.toISOString() || '',
-                    imageUri: imageUri || '',
-                    mealItems: JSON.stringify(mealItems),
-                  },
-                } as any);
-              }}
-              disabled={!mealItems.length}
+              onPress={analyzeMeal}
+              disabled={isAnalyzing || (!mealNotes.trim() && !imageUri)}
               style={[
-                styles.preMealCheckButtonWrapper,
-                !mealItems.length && styles.preMealCheckButtonDisabled,
+                styles.primaryButton,
+                (isAnalyzing || (!mealNotes.trim() && !imageUri)) && styles.primaryButtonDisabled,
               ]}
             >
-              <LinearGradient
-                colors={['#27AFDD', '#79C581']}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={styles.preMealCheckButton}
-              >
-                <Ionicons name="sparkles" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-                <Text style={styles.preMealCheckButtonText}>Pre Meal Check</Text>
-              </LinearGradient>
-            </Pressable>
-
-            {/* Save Button */}
-            <Pressable
-              onPress={handleSaveMeal}
-              disabled={isSaving || !mealName.trim()}
-              style={[
-                styles.saveButton,
-                (isSaving || !mealName.trim()) && styles.saveButtonDisabled,
-              ]}
-            >
-              <Text style={styles.saveButtonText}>
-                {isSaving ? 'Saving...' : 'Save'}
-              </Text>
+              <Text style={styles.primaryButtonText}>{isAnalyzing ? 'Reviewing...' : 'Review Meal'}</Text>
             </Pressable>
           </View>
         </ScrollView>
+      </SafeAreaView>
 
-        {/* Meal Time sheet */}
-        <Sheet open={timeModalOpen} onOpenChange={setTimeModalOpen}>
-          <SheetContent showHandle={false} style={styles.timeSheet}>
-            <View style={styles.timeSheetTopRow}>
-              <View />
-              <Pressable
-                onPress={() => {
-                  setMealTime(fromParts({ hour12: tempHour12, minute: tempMinute, period: tempPeriod }));
-                  setTimeModalOpen(false);
-                }}
-              >
-                <Text style={styles.timeSheetSave}>Save</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.timePickerRow}>
-              {/* Hour */}
-              <View style={styles.timeBox}>
-                <FlatList
-                  ref={hourRef}
-                  data={HOURS}
-                  keyExtractor={(v) => v}
-                  showsVerticalScrollIndicator={false}
-                  snapToInterval={ITEM_H}
-                  decelerationRate="fast"
-                  contentContainerStyle={{ paddingVertical: V_PAD }}
-                  getItemLayout={(_, index) => ({ length: ITEM_H, offset: ITEM_H * index, index })}
-                  onMomentumScrollEnd={(e) => onWheelEnd('hour', e.nativeEvent.contentOffset.y)}
-                  extraData={tempHour12}
-                  renderItem={({ item, index }) => (
-                    <WheelItem item={item} isActive={index === tempHour12 - 1} />
-                  )}
-                />
-              </View>
-
-              <Text style={styles.timeColon}>:</Text>
-
-              {/* Minute */}
-              <View style={styles.timeBox}>
-                <FlatList
-                  ref={minuteRef}
-                  data={MINUTES}
-                  keyExtractor={(v) => v}
-                  showsVerticalScrollIndicator={false}
-                  snapToInterval={ITEM_H}
-                  decelerationRate="fast"
-                  contentContainerStyle={{ paddingVertical: V_PAD }}
-                  getItemLayout={(_, index) => ({ length: ITEM_H, offset: ITEM_H * index, index })}
-                  onMomentumScrollEnd={(e) => onWheelEnd('minute', e.nativeEvent.contentOffset.y)}
-                  extraData={tempMinute}
-                  renderItem={({ item, index }) => (
-                    <WheelItem item={item} isActive={index === tempMinute} />
-                  )}
-                />
-              </View>
-
-              {/* Period */}
-              <View style={styles.timeBox}>
-                <FlatList
-                  ref={periodRef}
-                  data={[...PERIODS]}
-                  keyExtractor={(v) => v}
-                  showsVerticalScrollIndicator={false}
-                  snapToInterval={ITEM_H}
-                  decelerationRate="fast"
-                  contentContainerStyle={{ paddingVertical: V_PAD }}
-                  getItemLayout={(_, index) => ({ length: ITEM_H, offset: ITEM_H * index, index })}
-                  onMomentumScrollEnd={(e) => onWheelEnd('period', e.nativeEvent.contentOffset.y)}
-                  extraData={tempPeriod}
-                  renderItem={({ item, index }) => (
-                    <WheelItem item={item} isActive={(tempPeriod === 'AM' ? 0 : 1) === index} />
-                  )}
-                />
-              </View>
-            </View>
-          </SheetContent>
-        </Sheet>
-
-        {/* Image source sheet */}
-        <Sheet open={imageSheetOpen} onOpenChange={setImageSheetOpen}>
-          <SheetContent>
-            <Text style={styles.sheetTitle}>Add Image</Text>
-            <SheetItem
-              title="Camera"
-              onPress={async () => {
-                setImageSheetOpen(false);
-                await pickFromCamera();
+      <Sheet open={timeModalOpen} onOpenChange={setTimeModalOpen}>
+        <SheetContent showHandle={false} style={styles.timeSheet}>
+          <View style={styles.timeSheetTopRow}>
+            <View />
+            <Pressable
+              onPress={() => {
+                setMealTime(applyTime(mealTime, { hour12: tempHour12, minute: tempMinute, period: tempPeriod }));
+                setTimeModalOpen(false);
               }}
-            />
-            <SheetItem
-              title="Photo Library"
-              onPress={async () => {
-                setImageSheetOpen(false);
-                await pickFromLibrary();
-              }}
-            />
-            {imageUri ? (
-              <SheetItem
-                title="Remove Image"
-                onPress={() => {
-                  setImageUri(null);
-                  setImageSheetOpen(false);
+            >
+              <Text style={styles.timeSheetSave}>Save</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.timePickerRow}>
+            <View style={styles.timeBox}>
+              <FlatList
+                ref={hourRef}
+                data={HOURS}
+                keyExtractor={(v) => v}
+                showsVerticalScrollIndicator={false}
+                snapToInterval={ITEM_H}
+                decelerationRate="fast"
+                contentContainerStyle={{ paddingVertical: V_PAD }}
+                getItemLayout={(_, index) => ({ length: ITEM_H, offset: ITEM_H * index, index })}
+                onMomentumScrollEnd={(e) => onWheelEnd('hour', e.nativeEvent.contentOffset.y)}
+                renderItem={({ item, index }) => {
+                  const isActive = index === tempHour12 - 1;
+                  return (
+                    <View style={[styles.wheelItem, isActive && styles.wheelItemActive]}>
+                      <Text style={[styles.wheelText, isActive && styles.wheelTextActive]}>{item}</Text>
+                    </View>
+                  );
                 }}
               />
-            ) : null}
-          </SheetContent>
-        </Sheet>
-      </SafeAreaView>
+            </View>
+
+            <Text style={styles.timeColon}>:</Text>
+
+            <View style={styles.timeBox}>
+              <FlatList
+                ref={minuteRef}
+                data={MINUTES}
+                keyExtractor={(v) => v}
+                showsVerticalScrollIndicator={false}
+                snapToInterval={ITEM_H}
+                decelerationRate="fast"
+                contentContainerStyle={{ paddingVertical: V_PAD }}
+                getItemLayout={(_, index) => ({ length: ITEM_H, offset: ITEM_H * index, index })}
+                onMomentumScrollEnd={(e) => onWheelEnd('minute', e.nativeEvent.contentOffset.y)}
+                renderItem={({ item, index }) => {
+                  const isActive = index === tempMinute;
+                  return (
+                    <View style={[styles.wheelItem, isActive && styles.wheelItemActive]}>
+                      <Text style={[styles.wheelText, isActive && styles.wheelTextActive]}>{item}</Text>
+                    </View>
+                  );
+                }}
+              />
+            </View>
+
+            <View style={styles.timeBox}>
+              <FlatList
+                ref={periodRef}
+                data={[...PERIODS]}
+                keyExtractor={(v) => v}
+                showsVerticalScrollIndicator={false}
+                snapToInterval={ITEM_H}
+                decelerationRate="fast"
+                contentContainerStyle={{ paddingVertical: V_PAD }}
+                getItemLayout={(_, index) => ({ length: ITEM_H, offset: ITEM_H * index, index })}
+                onMomentumScrollEnd={(e) => onWheelEnd('period', e.nativeEvent.contentOffset.y)}
+                renderItem={({ item, index }) => {
+                  const isActive = (tempPeriod === 'AM' ? 0 : 1) === index;
+                  return (
+                    <View style={[styles.wheelItem, isActive && styles.wheelItemActive]}>
+                      <Text style={[styles.wheelText, isActive && styles.wheelTextActive]}>{item}</Text>
+                    </View>
+                  );
+                }}
+              />
+            </View>
+          </View>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={imageSheetOpen} onOpenChange={setImageSheetOpen}>
+        <SheetContent>
+          <SheetItem
+            title="Take Photo"
+            icon="camera"
+            onPress={() => {
+              setImageSheetOpen(false);
+              pickFromCamera();
+            }}
+          />
+          <SheetItem
+            title="Choose from Library"
+            icon="image"
+            onPress={() => {
+              setImageSheetOpen(false);
+              pickFromLibrary();
+            }}
+          />
+          {imageUri ? (
+            <SheetItem
+              title="Remove Photo"
+              icon="trash"
+              onPress={() => {
+                setImageSheetOpen(false);
+                setImageUri(null);
+                setPhotoPath(null);
+              }}
+            />
+          ) : null}
+        </SheetContent>
+      </Sheet>
+
+      {isAnalyzing ? (
+        <View style={styles.analyzeOverlay}>
+          <ActivityIndicator size="large" color={Colors.buttonPrimary} />
+          <Text style={styles.analyzeText}>{analysisStep || 'Analyzing...'}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -809,7 +872,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 220,
+    height: 280,
   },
   safe: {
     flex: 1,
@@ -818,170 +881,195 @@ const styles = StyleSheet.create({
     height: 72,
     paddingHorizontal: 16,
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 18,
+    letterSpacing: 1,
+    color: Colors.textPrimary,
   },
   headerIconBtn: {
     width: 48,
     height: 48,
     borderRadius: 33,
-    backgroundColor: 'rgba(63,66,67,0.3)',
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(63,66,67,0.3)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.25,
     shadowRadius: 2,
+  },
+  headerIconBtnPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.97 }],
   },
   headerIconBtnSpacer: {
     width: 48,
     height: 48,
     opacity: 0,
   },
-  headerTitle: {
-    fontFamily: fonts.bold,
-    fontSize: 18,
-    color: Colors.textPrimary,
-    letterSpacing: 1,
-  },
   content: {
     paddingHorizontal: 16,
-    paddingTop: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
-    gap: 24,
+    paddingBottom: 32,
   },
-  formCard: {
-    backgroundColor: 'rgba(63,66,67,0.25)',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-    gap: 24,
+  contentBlock: {
+    paddingBottom: 8,
   },
-  block: {
-    gap: 24,
-  },
-  label: {
-    fontFamily: fonts.medium,
-    fontSize: 16,
-    color: Colors.textPrimary,
-    lineHeight: 16 * 0.95,
-  },
-  // input styles are provided by <Input />
-  selectShell: {
-    backgroundColor: '#1b1b1c',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#313135',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  selectText: {
-    fontFamily: fonts.regular,
-    fontSize: 16,
-    color: '#878787',
-    lineHeight: 16 * 0.95,
-  },
-  selectTextActive: {
-    color: Colors.textPrimary,
-  },
-  actionRow: {
-    backgroundColor: 'rgba(63,66,67,0.25)',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    overflow: 'hidden',
-  },
-  actionText: {
-    fontFamily: fonts.medium,
-    fontSize: 14,
-    color: Colors.textPrimary,
-    lineHeight: 14 * 0.95,
-  },
-  actionRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  actionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  libraryBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imagePreviewSection: {
-    backgroundColor: 'rgba(63,66,67,0.25)',
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  imagePreview: {
-    width: '100%',
-    height: 180,
-    backgroundColor: '#1b1b1c',
-  },
-  imageActions: {
-    flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  imageActionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  imageActionBtnDanger: {
-    backgroundColor: 'rgba(244,67,54,0.1)',
-  },
-  imageActionText: {
+  sectionLabel: {
     fontFamily: fonts.medium,
     fontSize: 13,
+    color: '#A7A7A7',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    marginBottom: 8,
+  },
+  photoTile: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  photoPreview: {
+    width: '100%',
+    height: 180,
+  },
+  photoPlaceholder: {
+    height: 140,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  photoPlaceholderText: {
+    fontFamily: fonts.medium,
+    fontSize: 14,
+    color: '#9AA0A6',
+  },
+  photoRemove: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  textBlock: {
+    marginBottom: 20,
+  },
+  nameInput: {
+    borderRadius: 14,
+    padding: 12,
     color: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    fontFamily: fonts.regular,
+    fontSize: 15,
   },
-  thumb: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: '#1b1b1c',
+  timeCard: {
+    borderRadius: 16,
+    padding: 16,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+    marginBottom: 20,
   },
-  sheetTitle: {
-    fontFamily: fonts.bold,
-    fontSize: 16,
-    color: Colors.textPrimary,
-    marginBottom: 6,
-  },
-  sheetTitleRow: {
+  timeRow: {
+    marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  sheetAction: {
+  timeRowPressed: {
+    opacity: 0.8,
+  },
+  timeValue: {
+    fontFamily: fonts.semiBold,
+    fontSize: 15,
+    color: Colors.textPrimary,
+  },
+  textArea: {
+    minHeight: 120,
+    borderRadius: 14,
+    padding: 12,
+    color: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    fontFamily: fonts.regular,
+    fontSize: 15,
+    textAlignVertical: 'top',
+  },
+  helperText: {
+    marginTop: 8,
+    fontFamily: fonts.regular,
+    color: '#7D7D7D',
+    fontSize: 12,
+  },
+  tipBox: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(126,211,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(126,211,255,0.15)',
+  },
+  tipIcon: {
+    marginRight: 10,
+    marginTop: 2,
+  },
+  tipText: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: '#A7C7D3',
+    lineHeight: 18,
+  },
+  primaryButton: {
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    backgroundColor: Colors.buttonPrimary,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.6,
+  },
+  primaryButtonText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  analyzeOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  analyzeText: {
     fontFamily: fonts.medium,
+    color: '#FFFFFF',
     fontSize: 14,
-    color: '#3494D9',
   },
-  sheetList: {
-    maxHeight: 520,
-  },
-  // Meal Time wheel sheet (match provided design)
   timeSheet: {
     backgroundColor: '#3F4243',
     borderWidth: 0,
@@ -1013,7 +1101,7 @@ const styles = StyleSheet.create({
   },
   timeBox: {
     width: 70,
-    height: 132, // 3 items visible (44 * 3)
+    height: 132,
     borderRadius: 8,
     backgroundColor: '#1b1b1c',
     borderWidth: 1,
@@ -1032,7 +1120,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   wheelItemActive: {
-    // subtle emphasis for the centered value
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
   wheelText: {
@@ -1044,197 +1131,4 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontFamily: fonts.semiBold,
   },
-  // Meal Type options (match provided design)
-  mealTypeSheet: {
-    backgroundColor: '#3F4243',
-    borderWidth: 0,
-    left: 16,
-    right: 16,
-    bottom: 120,
-    paddingVertical: 26,
-    paddingHorizontal: 22,
-    borderRadius: 26,
-  },
-  mealTypeList: {
-    gap: 26,
-  },
-  mealTypeRow: {
-    paddingVertical: 10,
-  },
-  mealTypeRowPressed: {
-    opacity: 0.9,
-  },
-  mealTypeText: {
-    fontFamily: fonts.medium,
-    fontSize: 24,
-    color: Colors.textPrimary,
-  },
-  dropdownItemText: {
-    fontFamily: fonts.medium,
-    fontSize: 15,
-    color: Colors.textPrimary,
-    flex: 1,
-  },
-  // Meal items styles
-  itemCountBadge: {
-    backgroundColor: '#3494D9',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 6,
-    marginRight: 8,
-  },
-  itemCountText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 12,
-    color: '#FFFFFF',
-  },
-  mealItemsSection: {
-    marginTop: 16,
-    backgroundColor: 'rgba(63, 66, 67, 0.25)',
-    borderRadius: 14,
-    padding: 16,
-  },
-  mealItemsSectionTitle: {
-    fontFamily: fonts.medium,
-    fontSize: 14,
-    color: '#878787',
-    marginBottom: 12,
-  },
-  mealItemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(135, 135, 135, 0.2)',
-  },
-  mealItemInfo: {
-    flex: 1,
-  },
-  mealItemName: {
-    fontFamily: fonts.medium,
-    fontSize: 15,
-    color: '#FFFFFF',
-  },
-  mealItemDetails: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-    color: '#878787',
-    marginTop: 2,
-  },
-  mealItemRemove: {
-    padding: 4,
-  },
-  saveButton: {
-    flex: 1,
-    backgroundColor: '#285E2A',
-    borderWidth: 1,
-    borderColor: '#448D47',
-    borderRadius: 12,
-    paddingVertical: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  saveButtonDisabled: {
-    backgroundColor: '#3F4243',
-    borderColor: '#5A5D60',
-    opacity: 0.6,
-  },
-  saveButtonText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 16,
-    color: '#FFFFFF',
-  },
-  // New meal items Figma styles
-  mealItemsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  mealItemsEditBtn: {
-    fontFamily: fonts.medium,
-    fontSize: 14,
-    color: '#3494D9',
-  },
-  mealItemSource: {
-    fontFamily: fonts.semiBold,
-    fontSize: 12,
-    color: '#3494D9',
-    marginTop: 2,
-  },
-  mealItemNutrients: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-    color: '#878787',
-    marginTop: 6,
-    lineHeight: 18,
-  },
-  quantityControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  quantityBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#3F4243',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  quantityBtnText: {
-    fontFamily: fonts.medium,
-    fontSize: 20,
-    color: '#FFFFFF',
-  },
-  quantityValue: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#5A5D60',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  quantityValueText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 16,
-    color: '#FFFFFF',
-  },
-  dashedDivider: {
-    height: 1,
-    borderStyle: 'dashed',
-    borderWidth: 1,
-    borderColor: 'rgba(135, 135, 135, 0.3)',
-    marginVertical: 16,
-  },
-  actionButtonsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 24,
-    marginBottom: 32,
-  },
-  preMealCheckButtonWrapper: {
-    flex: 1,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  preMealCheckButton: {
-    paddingVertical: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-  },
-  preMealCheckButtonDisabled: {
-    opacity: 0.5,
-  },
-  preMealCheckButtonText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 15,
-    color: '#FFFFFF',
-  },
 });
-

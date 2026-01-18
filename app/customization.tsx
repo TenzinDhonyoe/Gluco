@@ -175,7 +175,13 @@ export default function CustomizationScreen() {
             <SafeAreaView style={styles.safeArea} edges={['top']}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <Pressable style={styles.backButton} onPress={handleBack}>
+                    <Pressable
+                        style={({ pressed }) => [
+                            styles.backButton,
+                            pressed && styles.backButtonPressed,
+                        ]}
+                        onPress={handleBack}
+                    >
                         <Ionicons name="chevron-back" size={20} color="#E7E8E9" />
                     </Pressable>
                     <Text style={styles.headerTitle}>CUSTOMIZATION</Text>
@@ -343,6 +349,10 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.25,
         shadowRadius: 2,
         elevation: 2,
+    },
+    backButtonPressed: {
+        opacity: 0.7,
+        transform: [{ scale: 0.97 }],
     },
     headerTitle: {
         fontFamily: fonts.bold,

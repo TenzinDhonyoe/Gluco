@@ -1,3 +1,4 @@
+import { ONBOARDING_STEP_KEY } from '@/app/index';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -10,6 +11,7 @@ import React, { useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    AppState,
     ImageBackground,
     Platform,
     ScrollView,
@@ -29,6 +31,8 @@ interface TrackingOption {
     disabled: boolean;
 }
 
+const TRACKING_DRAFT_KEY = 'onboarding_tracking_draft';
+
 export default function Onboarding4Screen() {
     const isIOS = Platform.OS === 'ios';
 
@@ -41,6 +45,48 @@ export default function Onboarding4Screen() {
     const { user } = useAuth();
     const currentStep = 4;
     const totalSteps = 5;
+
+    const saveDraft = React.useCallback(async (mode: TrackingMode) => {
+        try {
+            await AsyncStorage.setItem(TRACKING_DRAFT_KEY, JSON.stringify({
+                selectedMode: mode,
+                savedAt: new Date().toISOString(),
+            }));
+        } catch (error) {
+            console.warn('Failed to save tracking draft:', error);
+        }
+    }, []);
+
+    React.useEffect(() => {
+        const restoreDraft = async () => {
+            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, '4');
+            try {
+                const stored = await AsyncStorage.getItem(TRACKING_DRAFT_KEY);
+                if (stored) {
+                    const draft = JSON.parse(stored);
+                    if (draft.selectedMode) {
+                        setSelectedMode(draft.selectedMode as TrackingMode);
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to restore tracking draft:', error);
+            }
+        };
+        restoreDraft();
+    }, []);
+
+    React.useEffect(() => {
+        saveDraft(selectedMode);
+    }, [selectedMode, saveDraft]);
+
+    React.useEffect(() => {
+        const subscription = AppState.addEventListener('change', (nextAppState) => {
+            if (nextAppState === 'background' || nextAppState === 'inactive') {
+                saveDraft(selectedMode);
+            }
+        });
+        return () => subscription?.remove();
+    }, [saveDraft, selectedMode]);
 
     const trackingOptions: TrackingOption[] = [
         {
@@ -81,9 +127,10 @@ export default function Onboarding4Screen() {
                 await updateUserProfile(user.id, {
                     tracking_mode: selectedMode,
                     manual_glucose_enabled: selectedMode === 'manual_glucose_optional',
-                    has_cgm: false, // Legacy field, not used in onboarding
                 });
             }
+            await AsyncStorage.removeItem(TRACKING_DRAFT_KEY);
+            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, '5');
             router.push('/onboarding-5' as never);
         } catch (error) {
             Alert.alert('Error', 'Failed to save your preferences. Please try again.');
@@ -107,7 +154,7 @@ export default function Onboarding4Screen() {
     return (
         <View style={styles.container}>
             <ImageBackground
-                source={require('../assets/images/background.png')}
+                source={require('../assets/images/backgrounds/background.png')}
                 style={styles.backgroundImage}
                 resizeMode="cover"
             >

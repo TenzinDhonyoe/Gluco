@@ -21,7 +21,10 @@ const NUTRIENT_IDS = {
 };
 
 // Max concurrent searches per request
-const MAX_CONCURRENCY = 3;
+const MAX_CONCURRENCY = 2;  // Reduced from 3 for faster response
+
+// Fetch timeout for external API calls (ms)
+const FETCH_TIMEOUT_MS = 2000;
 
 interface NormalizedFood {
     provider: 'fdc' | 'off';
@@ -87,6 +90,9 @@ function normalizeFdcFood(food: any): NormalizedFood {
 async function searchFdc(query: string, pageSize: number, apiKey: string): Promise<NormalizedFood[]> {
     const searchUrl = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${apiKey}`;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     try {
         const response = await fetch(searchUrl, {
             method: 'POST',
@@ -96,6 +102,7 @@ async function searchFdc(query: string, pageSize: number, apiKey: string): Promi
                 pageSize: Math.min(pageSize, 50),
                 dataType: ['Foundation', 'SR Legacy', 'Branded'],
             }),
+            signal: controller.signal,
         });
 
         if (!response.ok) {
@@ -105,9 +112,15 @@ async function searchFdc(query: string, pageSize: number, apiKey: string): Promi
 
         const data = await response.json();
         return (data.foods || []).map(normalizeFdcFood);
-    } catch (error) {
-        console.error('FDC search failed:', error);
+    } catch (error: unknown) {
+        if (error instanceof Error && error.name === 'AbortError') {
+            console.warn('FDC search timed out');
+        } else {
+            console.error('FDC search failed:', error);
+        }
         return [];
+    } finally {
+        clearTimeout(timeoutId);
     }
 }
 
@@ -149,11 +162,15 @@ async function searchOff(query: string, pageSize: number): Promise<NormalizedFoo
     searchUrl.searchParams.set('page_size', String(Math.min(pageSize, 50)));
     searchUrl.searchParams.set('fields', 'code,product_name,product_name_en,brands,categories,nutriments');
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     try {
         const response = await fetch(searchUrl.toString(), {
             headers: {
                 'User-Agent': 'GlucoFigma/1.0 (food logging app)',
             },
+            signal: controller.signal,
         });
 
         if (!response.ok) {
@@ -167,9 +184,15 @@ async function searchOff(query: string, pageSize: number): Promise<NormalizedFoo
         return products
             .map(normalizeOffFood)
             .filter((food: NormalizedFood | null): food is NormalizedFood => food !== null);
-    } catch (error) {
-        console.error('OFF search failed:', error);
+    } catch (error: unknown) {
+        if (error instanceof Error && error.name === 'AbortError') {
+            console.warn('OFF search timed out');
+        } else {
+            console.error('OFF search failed:', error);
+        }
         return [];
+    } finally {
+        clearTimeout(timeoutId);
     }
 }
 
@@ -180,11 +203,13 @@ async function searchBothProviders(
     pageSize: number,
     fdcApiKey: string | undefined
 ): Promise<NormalizedFood[]> {
-    const perProvider = Math.ceil(pageSize / 2);
+    // Skip OFF for very short queries (<=3 chars) - reduces latency on initial keystrokes
+    const skipOff = query.trim().length <= 3;
+    const perProvider = skipOff ? pageSize : Math.ceil(pageSize / 2);
 
     const [fdcResults, offResults] = await Promise.all([
         fdcApiKey ? searchFdc(query, perProvider, fdcApiKey) : Promise.resolve([]),
-        searchOff(query, perProvider),
+        skipOff ? Promise.resolve([]) : searchOff(query, perProvider),
     ]);
 
     return [...fdcResults, ...offResults];

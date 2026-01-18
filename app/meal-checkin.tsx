@@ -77,7 +77,7 @@ export default function MealCheckinScreen() {
         <View style={styles.container}>
             <StatusBar style="light" />
             <ImageBackground
-                source={require('../assets/images/background.png')}
+                source={require('../assets/images/backgrounds/background.png')}
                 style={styles.backgroundImage}
                 resizeMode="cover"
             >

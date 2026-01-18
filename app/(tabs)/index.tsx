@@ -1,11 +1,11 @@
-import { AnimatedFAB, type AnimatedFABRef } from '@/components/animated-fab';
-import { AnimatedInteger, AnimatedNumber } from '@/components/animated-number';
-import { AnimatedScreen } from '@/components/animated-screen';
+import { AnimatedFAB, type AnimatedFABRef } from '@/components/animations/animated-fab';
+import { AnimatedInteger, AnimatedNumber } from '@/components/animations/animated-number';
+import { AnimatedScreen } from '@/components/animations/animated-screen';
+import { MealCheckinCard } from '@/components/cards/MealCheckinCard';
+import { PersonalInsightsCarousel } from '@/components/carousels/PersonalInsightsCarousel';
+import { GlucoseTrendChart, type TrendPoint } from '@/components/charts/glucose-trend-chart';
+import { SegmentedControl } from '@/components/controls/segmented-control';
 import { ActiveExperimentWidget } from '@/components/experiments/ActiveExperimentWidget';
-import { GlucoseTrendChart, type TrendPoint } from '@/components/glucose-trend-chart';
-import { MealCheckinCard } from '@/components/MealCheckinCard';
-import { PersonalInsightsCarousel } from '@/components/PersonalInsightsCarousel';
-import { SegmentedControl } from '@/components/segmented-control';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
@@ -282,7 +282,7 @@ function StatCard({ icon, iconColor, title, value, unit, description }: {
 
 // Elevated reading threshold - readings above this are considered elevated (mmol/L)
 const ELEVATED_THRESHOLD = 10.0;
-// Memoized In Target Band Stat Card - calculates % of days where glucose was in target band
+// Memoized In Target Band Stat Card - calculates % of READINGS (not days) in target range
 const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
     range: RangeKey;
     glucoseLogs: GlucoseLog[];
@@ -298,32 +298,13 @@ const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
 
         if (filteredLogs.length === 0) return 0;
 
-        // Group logs by day and check if daily average is in range
-        const dailyData: { [dateKey: string]: number[] } = {};
+        // Count individual readings in range (not daily averages)
+        const inRangeReadings = filteredLogs.filter(
+            log => log.glucose_level >= targetMin && log.glucose_level <= targetMax
+        ).length;
 
-        filteredLogs.forEach(log => {
-            const logDate = new Date(log.logged_at);
-            const dateKey = logDate.toISOString().split('T')[0];
-            if (!dailyData[dateKey]) dailyData[dateKey] = [];
-            dailyData[dateKey].push(log.glucose_level);
-        });
-
-        // Count days where average was in range
-        let inRangeCount = 0;
-        const daysWithData = Object.keys(dailyData);
-
-        daysWithData.forEach(dateKey => {
-            const dayValues = dailyData[dateKey];
-            const dayAvg = dayValues.reduce((a, b) => a + b, 0) / dayValues.length;
-            if (dayAvg >= targetMin && dayAvg <= targetMax) {
-                inRangeCount++;
-            }
-        });
-
-        // Calculate percentage
-        return daysWithData.length > 0
-            ? Math.round((inRangeCount / daysWithData.length) * 100)
-            : 0;
+        // Calculate percentage based on individual readings
+        return Math.round((inRangeReadings / filteredLogs.length) * 100);
     }, [glucoseLogs, range, targetMin, targetMax]);
 
     return (
@@ -1262,7 +1243,7 @@ export default function TodayScreen() {
                             size={56}
                             onPress={handleFabOpenChange}
                             onLogMeal={() => {
-                                router.push({ pathname: '/log-meal' } as any);
+                                router.push({ pathname: '/meal-scanner' } as any);
                             }}
                             onLogActivity={() => {
                                 router.push({ pathname: '/log-activity' } as any);
@@ -1752,49 +1733,6 @@ const styles = StyleSheet.create({
         fontFamily: fonts.regular,
         fontSize: 12,
         marginTop: 4,
-    },
-    // CGM Connection Card
-    cgmCard: {
-        backgroundColor: 'rgba(63, 66, 67, 0.25)',
-        borderRadius: 12,
-        marginHorizontal: 16,
-        marginBottom: 16,
-    },
-    cgmCardContent: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 16,
-    },
-    cgmIconContainer: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: 'rgba(52, 148, 217, 0.15)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 12,
-    },
-    cgmTextContainer: {
-        flex: 1,
-    },
-    cgmCardTitle: {
-        fontFamily: fonts.semiBold,
-        fontSize: 15,
-        color: Colors.textPrimary,
-        marginBottom: 2,
-    },
-    cgmCardSubtitle: {
-        fontFamily: fonts.regular,
-        fontSize: 13,
-        color: '#878787',
-    },
-    cgmSyncButton: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: '#3494D9',
-        justifyContent: 'center',
-        alignItems: 'center',
     },
     // Mini chart styles for meal card
     miniChartContainer: {

@@ -214,9 +214,9 @@ export default function DataSourcesScreen() {
                         <View style={styles.integrationRow}>
                             <View style={styles.integrationIconContainer}>
                                 <Image
-                                    source={require('@/assets/images/apple-health-icon.png')}
+                                    source={require('@/assets/images/icons/apple-health-icon.png')}
                                     style={styles.integrationIcon}
-                                    defaultSource={require('@/assets/images/apple-health-icon.png')}
+                                    defaultSource={require('@/assets/images/icons/apple-health-icon.png')}
                                 />
                             </View>
                             <View style={styles.integrationInfo}>
@@ -243,7 +243,7 @@ export default function DataSourcesScreen() {
                     <View style={styles.infoCard}>
                         <Ionicons name="finger-print-outline" size={24} color="#878787" />
                         <Text style={styles.infoText}>
-                            Log your glucose readings manually using the Log tab. CGM integrations coming soon.
+                            Log your glucose readings manually using the Log tab.
                         </Text>
                     </View>
 

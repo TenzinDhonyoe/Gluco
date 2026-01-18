@@ -1,14 +1,17 @@
+import { ONBOARDING_STEP_KEY } from '@/app/index';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    AppState,
     Animated,
     Dimensions,
     ImageBackground,
@@ -30,6 +33,8 @@ const HEIGHT_INCHES_OPTIONS = Array.from({ length: 12 }, (_, i) => i); // 0-11 i
 const WEIGHT_KG_OPTIONS = Array.from({ length: 171 }, (_, i) => 30 + i); // 30-200 kg
 const WEIGHT_LBS_OPTIONS = Array.from({ length: 375 }, (_, i) => 66 + i); // 66-440 lbs
 
+const BODY_DRAFT_KEY = 'onboarding_body_draft';
+
 export default function Onboarding3Screen() {
     // Height state
     const [heightCm, setHeightCm] = useState<number | null>(null);
@@ -49,6 +54,70 @@ export default function Onboarding3Screen() {
     const { user } = useAuth();
     const currentStep = 3;
     const totalSteps = 5;
+
+    const saveDraft = React.useCallback(async () => {
+        try {
+            const hasInput = heightCm !== null || weightKg !== null ||
+                (heightUnit === 'ft' && (heightFeet > 0 || heightInches > 0)) ||
+                (weightUnit === 'lbs' && weightLbs > 0);
+
+            if (!hasInput) {
+                await AsyncStorage.removeItem(BODY_DRAFT_KEY);
+                return;
+            }
+
+            await AsyncStorage.setItem(BODY_DRAFT_KEY, JSON.stringify({
+                heightCm,
+                heightFeet,
+                heightInches,
+                heightUnit,
+                weightKg,
+                weightLbs,
+                weightUnit,
+                savedAt: new Date().toISOString(),
+            }));
+        } catch (error) {
+            console.warn('Failed to save body draft:', error);
+        }
+    }, [heightCm, heightFeet, heightInches, heightUnit, weightKg, weightLbs, weightUnit]);
+
+    React.useEffect(() => {
+        const restoreDraft = async () => {
+            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, '3');
+            try {
+                const stored = await AsyncStorage.getItem(BODY_DRAFT_KEY);
+                if (stored) {
+                    const draft = JSON.parse(stored);
+                    if (draft.heightUnit) setHeightUnit(draft.heightUnit);
+                    if (typeof draft.heightCm === 'number') setHeightCm(draft.heightCm);
+                    if (typeof draft.heightFeet === 'number') setHeightFeet(draft.heightFeet);
+                    if (typeof draft.heightInches === 'number') setHeightInches(draft.heightInches);
+                    if (draft.weightUnit) setWeightUnit(draft.weightUnit);
+                    if (typeof draft.weightKg === 'number') setWeightKg(draft.weightKg);
+                    if (typeof draft.weightLbs === 'number') setWeightLbs(draft.weightLbs);
+                }
+            } catch (error) {
+                console.warn('Failed to restore body draft:', error);
+            }
+        };
+        restoreDraft();
+    }, []);
+
+    React.useEffect(() => {
+        const timer = setTimeout(() => {
+            saveDraft();
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [heightCm, heightFeet, heightInches, heightUnit, weightKg, weightLbs, weightUnit, saveDraft]);
+
+    React.useEffect(() => {
+        const subscription = AppState.addEventListener('change', (nextAppState) => {
+            if (nextAppState === 'background' || nextAppState === 'inactive') {
+                saveDraft();
+            }
+        });
+        return () => subscription?.remove();
+    }, [saveDraft]);
 
     // Animation values
     const heightSlideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
@@ -210,6 +279,8 @@ export default function Onboarding3Screen() {
                     await updateUserProfile(user.id, updates);
                 }
             }
+            await AsyncStorage.removeItem(BODY_DRAFT_KEY);
+            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, '4');
             router.push('/onboarding-4' as never);
         } catch (error) {
             Alert.alert('Error', 'Failed to save your information. Please try again.');
@@ -220,6 +291,8 @@ export default function Onboarding3Screen() {
     };
 
     const handleSkip = () => {
+        AsyncStorage.removeItem(BODY_DRAFT_KEY).catch(() => null);
+        AsyncStorage.setItem(ONBOARDING_STEP_KEY, '4').catch(() => null);
         router.push('/onboarding-4' as never);
     };
 
@@ -234,7 +307,7 @@ export default function Onboarding3Screen() {
     return (
         <View style={styles.container}>
             <ImageBackground
-                source={require('../assets/images/background.png')}
+                source={require('../assets/images/backgrounds/background.png')}
                 style={styles.backgroundImage}
                 resizeMode="cover"
             >

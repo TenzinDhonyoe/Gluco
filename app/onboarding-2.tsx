@@ -1,3 +1,4 @@
+import { ONBOARDING_STEP_KEY } from '@/app/index';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -5,11 +6,13 @@ import { updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    AppState,
     Animated,
     Dimensions,
     ImageBackground,
@@ -57,6 +60,8 @@ const BIOLOGICAL_SEX_OPTIONS = [
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'];
+
+const PROFILE_DRAFT_KEY = 'onboarding_profile_draft';
 
 export default function Onboarding2Screen() {
     const [firstName, setFirstName] = useState('');
@@ -132,6 +137,68 @@ export default function Onboarding2Screen() {
     const currentStep = 1;
     const totalSteps = 5;
 
+    const saveDraft = React.useCallback(async () => {
+        try {
+            if (!firstName && !lastName && !region && !biologicalSex && !birthDate) {
+                await AsyncStorage.removeItem(PROFILE_DRAFT_KEY);
+                return;
+            }
+            await AsyncStorage.setItem(PROFILE_DRAFT_KEY, JSON.stringify({
+                firstName,
+                lastName,
+                region,
+                biologicalSex,
+                birthDate: birthDate ? birthDate.toISOString() : null,
+                savedAt: new Date().toISOString(),
+            }));
+        } catch (error) {
+            console.warn('Failed to save profile draft:', error);
+        }
+    }, [firstName, lastName, region, biologicalSex, birthDate]);
+
+    React.useEffect(() => {
+        const restoreDraft = async () => {
+            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, '1');
+            try {
+                const stored = await AsyncStorage.getItem(PROFILE_DRAFT_KEY);
+                if (stored) {
+                    const draft = JSON.parse(stored);
+                    if (draft.firstName) setFirstName(draft.firstName);
+                    if (draft.lastName) setLastName(draft.lastName);
+                    if (draft.region) setRegion(draft.region);
+                    if (draft.biologicalSex) setBiologicalSex(draft.biologicalSex);
+                    if (draft.birthDate) {
+                        const parsedDate = new Date(draft.birthDate);
+                        if (!isNaN(parsedDate.getTime())) {
+                            setBirthDate(parsedDate);
+                            const formattedDate = `${MONTH_NAMES[parsedDate.getMonth()]} ${parsedDate.getDate()}, ${parsedDate.getFullYear()}`;
+                            setBirthDateDisplay(formattedDate);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to restore profile draft:', error);
+            }
+        };
+        restoreDraft();
+    }, []);
+
+    React.useEffect(() => {
+        const timer = setTimeout(() => {
+            saveDraft();
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [firstName, lastName, region, biologicalSex, birthDate, saveDraft]);
+
+    React.useEffect(() => {
+        const subscription = AppState.addEventListener('change', (nextAppState) => {
+            if (nextAppState === 'background' || nextAppState === 'inactive') {
+                saveDraft();
+            }
+        });
+        return () => subscription?.remove();
+    }, [saveDraft]);
+
     const handleContinue = async () => {
         if (!firstName.trim() || !lastName.trim()) return;
 
@@ -153,6 +220,8 @@ export default function Onboarding2Screen() {
                     region: region.trim() || null,
                 });
             }
+            await AsyncStorage.removeItem(PROFILE_DRAFT_KEY);
+            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, '2');
             router.push('/onboarding-1' as never);
         } catch (error) {
             Alert.alert('Error', 'Failed to save your information. Please try again.');
@@ -234,7 +303,7 @@ export default function Onboarding2Screen() {
     return (
         <View style={styles.container}>
             <ImageBackground
-                source={require('../assets/images/background.png')}
+                source={require('../assets/images/backgrounds/background.png')}
                 style={styles.backgroundImage}
                 resizeMode="cover"
             >
@@ -290,6 +359,7 @@ export default function Onboarding2Screen() {
                                         onChangeText={setFirstName}
                                         autoCapitalize="words"
                                         autoCorrect={false}
+                                        textContentType="none"
                                     />
                                 </View>
 
@@ -304,6 +374,7 @@ export default function Onboarding2Screen() {
                                         onChangeText={setLastName}
                                         autoCapitalize="words"
                                         autoCorrect={false}
+                                        textContentType="none"
                                     />
                                 </View>
 

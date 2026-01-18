@@ -119,7 +119,6 @@ export interface UserProfile {
     region: string | null;
     birth_date: string | null;
     biological_sex: string | null;
-    cgm_device: string | null;
     goals: string[] | null;
     onboarding_completed: boolean;
     target_min: number | null;  // Custom glucose target minimum (mmol/L)
@@ -127,7 +126,6 @@ export interface UserProfile {
     glucose_unit: GlucoseUnit;  // User preferred display unit (default: mmol/L)
     // Tracking mode settings
     tracking_mode: TrackingMode;
-    has_cgm: boolean;
     manual_glucose_enabled: boolean;
     // Body metrics (new for wellness onboarding)
     height_cm: number | null;
@@ -291,21 +289,29 @@ export async function ensureSignedMealPhotoUrl(photoPath: string): Promise<strin
 
 export async function invokeMealPhotoAnalyze(
     userId: string,
-    mealId: string,
+    mealId: string | null,
     photoPath: string,
     mealTime?: string,
-    mealType?: string
+    mealType?: string,
+    mealName?: string,
+    mealNotes?: string
 ): Promise<MealPhotoAnalysisResult | null> {
     try {
         const photoUrl = await ensureSignedMealPhotoUrl(photoPath);
+        if (!photoUrl) {
+            console.error('Missing signed photo URL for analysis');
+            return null;
+        }
 
         const { data, error } = await supabase.functions.invoke('meal-photo-analyze', {
             body: {
                 user_id: userId,
-                meal_id: mealId,
+                meal_id: mealId ?? undefined,
                 photo_url: photoUrl,
                 meal_time: mealTime,
-                meal_type: mealType
+                meal_type: mealType,
+                meal_name: mealName,
+                meal_notes: mealNotes,
             }
         });
 

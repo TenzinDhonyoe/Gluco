@@ -1,4 +1,4 @@
-import { AnimatedScreen } from '@/components/animated-screen';
+import { AnimatedScreen } from '@/components/animations/animated-screen';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
@@ -61,21 +61,21 @@ const TIPS_DATA: TipCardData[] = [
         category: 'glucose',
         title: 'Glucose',
         description: 'Gathering your data...',
-        image: require('@/assets/images/glucose-tip-bg.png'),
+        image: require('@/assets/images/tips/glucose-tip-bg.png'),
     },
     {
         id: '2',
         category: 'meal',
         title: 'Meal',
         description: 'Gathering your data...',
-        image: require('@/assets/images/meal-tip-bg.png'),
+        image: require('@/assets/images/tips/meal-tip-bg.png'),
     },
     {
         id: '3',
         category: 'activity',
         title: 'Activity',
         description: 'Gathering your data...',
-        image: require('@/assets/images/activity-tip-bg.png'),
+        image: require('@/assets/images/tips/activity-tip-bg.png'),
     },
 ];
 
@@ -363,10 +363,10 @@ export default function LogScreen() {
                             articleUrl: tip.articleUrl,
                             metric: tip.metric,
                             image: tip.category === 'glucose'
-                                ? require('@/assets/images/glucose-tip-bg.png')
+                                ? require('@/assets/images/tips/glucose-tip-bg.png')
                                 : tip.category === 'meal'
-                                    ? require('@/assets/images/meal-tip-bg.png')
-                                    : require('@/assets/images/activity-tip-bg.png'),
+                                    ? require('@/assets/images/tips/meal-tip-bg.png')
+                                    : require('@/assets/images/tips/activity-tip-bg.png'),
                         }));
                         setTipsData(personalizedTips);
                     }

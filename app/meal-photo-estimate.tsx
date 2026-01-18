@@ -131,7 +131,10 @@ export default function MealPhotoEstimateScreen() {
             <View style={styles.root}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <Pressable onPress={() => router.back()} style={styles.backBtn}>
+                    <Pressable
+                        onPress={() => router.back()}
+                        style={({ pressed }) => [styles.backBtn, pressed && styles.backBtnPressed]}
+                    >
                         <Ionicons name="arrow-back" size={24} color={Colors.textPrimary} />
                     </Pressable>
                     <Text style={styles.title}>Edit Estimate</Text>
@@ -208,6 +211,10 @@ const styles = StyleSheet.create({
     backBtn: {
         padding: 8,
         marginLeft: -8,
+    },
+    backBtnPressed: {
+        opacity: 0.6,
+        transform: [{ scale: 0.97 }],
     },
     title: {
         fontFamily: fonts.bold,

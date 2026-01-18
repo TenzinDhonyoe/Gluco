@@ -1,7 +1,7 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireUser } from '../_shared/auth.ts';
-import { requireAiEnabled } from '../_shared/ai.ts';
+// Note: AI enabled check removed - label scanning is available to all users
 
 /**
  * Label Parse Edge Function
@@ -100,8 +100,7 @@ Deno.serve(async (req) => {
         const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
         if (errorResponse) return errorResponse;
 
-        const aiBlocked = await requireAiEnabled(supabase, user.id, corsHeaders);
-        if (aiBlocked) return aiBlocked;
+        // Note: AI enabled check removed - label scanning is available to all users
 
         const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
 

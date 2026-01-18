@@ -1,7 +1,7 @@
 // app/experiment-detail.tsx
 // Detailed view of a user's experiment with progress tracking, exposure logging, and results
 
-import { AnimatedScreen } from '@/components/animated-screen';
+import { AnimatedScreen } from '@/components/animations/animated-screen';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { runLocalExperimentAnalysis } from '@/lib/experiment-analysis';
@@ -325,13 +325,13 @@ export default function ExperimentDetailScreen() {
                 <SafeAreaView edges={['top']} style={styles.safeArea}>
                     {/* Header */}
                     <View style={styles.header}>
-                        <TouchableOpacity onPress={() => router.back()} style={styles.headerIconBtn}>
+                        <TouchableOpacity onPress={() => router.back()} style={styles.headerIconBtn} activeOpacity={0.7}>
                             <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
                         </TouchableOpacity>
                         <Text style={styles.headerTitle} numberOfLines={1}>
                             {template?.title?.toUpperCase() || 'EXPERIMENT'}
                         </Text>
-                        <TouchableOpacity onPress={handleArchiveExperiment} style={styles.headerIconBtn}>
+                        <TouchableOpacity onPress={handleArchiveExperiment} style={styles.headerIconBtn} activeOpacity={0.7}>
                             <Ionicons name="ellipsis-horizontal" size={24} color="#FFFFFF" />
                         </TouchableOpacity>
                     </View>
@@ -1214,4 +1214,3 @@ const styles = StyleSheet.create({
         color: '#3494D9',
     },
 });
-

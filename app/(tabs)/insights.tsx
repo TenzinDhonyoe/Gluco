@@ -1,5 +1,5 @@
-import { AnimatedScreen } from '@/components/animated-screen';
-import { SegmentedControl } from '@/components/segmented-control';
+import { AnimatedScreen } from '@/components/animations/animated-screen';
+import { SegmentedControl } from '@/components/controls/segmented-control';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Disclaimer } from '@/components/ui/Disclaimer';
 import { Images } from '@/constants/Images';

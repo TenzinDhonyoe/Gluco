@@ -142,7 +142,7 @@ export default function NotificationsListScreen() {
             <SafeAreaView style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+                    <TouchableOpacity onPress={handleBack} style={styles.backButton} activeOpacity={0.7}>
                         <Ionicons name="chevron-back" size={24} color="#E7E8E9" />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>NOTIFICATIONS</Text>

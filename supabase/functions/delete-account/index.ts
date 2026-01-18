@@ -100,8 +100,6 @@ serve(async (req) => {
             'user_experiment_analysis',
             'user_experiments',
             'personalized_tip_seen',
-            'dexcom_tokens',
-            'dexcom_connections',
         ];
 
         for (const table of tables) {

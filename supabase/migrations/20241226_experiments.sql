@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS experiment_templates (
     protocol JSONB NOT NULL DEFAULT '{}',
     
     -- Optional eligibility rules
-    -- e.g., { "requires_cgm": false, "requires_meal_logging": true }
     eligibility_rules JSONB DEFAULT '{}',
     
     -- Icon/emoji for UI display
@@ -560,4 +559,3 @@ GRANT ALL ON experiment_variants TO service_role;
 GRANT ALL ON user_experiments TO service_role;
 GRANT ALL ON user_experiment_events TO service_role;
 GRANT ALL ON user_experiment_analysis TO service_role;
-

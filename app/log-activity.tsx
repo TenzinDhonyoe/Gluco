@@ -185,7 +185,13 @@ export default function LogActivityScreen() {
             <SafeAreaView edges={['top']} style={styles.safe}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <Pressable onPress={() => router.back()} style={styles.headerIconBtn}>
+                    <Pressable
+                        onPress={() => router.back()}
+                        style={({ pressed }) => [
+                            styles.headerIconBtn,
+                            pressed && styles.headerIconBtnPressed,
+                        ]}
+                    >
                         <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
                     </Pressable>
 
@@ -429,6 +435,10 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.25,
         shadowRadius: 2,
+    },
+    headerIconBtnPressed: {
+        opacity: 0.7,
+        transform: [{ scale: 0.97 }],
     },
     headerIconBtnSpacer: {
         width: 48,

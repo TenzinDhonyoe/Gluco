@@ -1,14 +1,17 @@
+import { ONBOARDING_STEP_KEY } from '@/app/index';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    AppState,
     Dimensions,
     ImageBackground,
     ScrollView,
@@ -31,6 +34,7 @@ const GOALS = [
 ];
 
 const MAX_SELECTIONS = 3;
+const GOALS_DRAFT_KEY = 'onboarding_goals_draft';
 
 export default function Onboarding1Screen() {
     const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
@@ -39,6 +43,55 @@ export default function Onboarding1Screen() {
     const { user, signOut } = useAuth();
     const currentStep = 2;
     const totalSteps = 5;
+
+    const saveDraft = React.useCallback(async (goals: string[]) => {
+        try {
+            if (goals.length === 0) {
+                await AsyncStorage.removeItem(GOALS_DRAFT_KEY);
+                return;
+            }
+            await AsyncStorage.setItem(GOALS_DRAFT_KEY, JSON.stringify({
+                selectedGoals: goals,
+                savedAt: new Date().toISOString(),
+            }));
+        } catch (error) {
+            console.warn('Failed to save goals draft:', error);
+        }
+    }, []);
+
+    React.useEffect(() => {
+        const restoreDraft = async () => {
+            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, '2');
+            try {
+                const stored = await AsyncStorage.getItem(GOALS_DRAFT_KEY);
+                if (stored) {
+                    const draft = JSON.parse(stored);
+                    if (Array.isArray(draft.selectedGoals)) {
+                        setSelectedGoals(draft.selectedGoals);
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to restore goals draft:', error);
+            }
+        };
+        restoreDraft();
+    }, []);
+
+    React.useEffect(() => {
+        const timer = setTimeout(() => {
+            saveDraft(selectedGoals);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [selectedGoals, saveDraft]);
+
+    React.useEffect(() => {
+        const subscription = AppState.addEventListener('change', (nextAppState) => {
+            if (nextAppState === 'background' || nextAppState === 'inactive') {
+                saveDraft(selectedGoals);
+            }
+        });
+        return () => subscription?.remove();
+    }, [saveDraft, selectedGoals]);
 
     const handleToggleGoal = (goal: string) => {
         setSelectedGoals(prev => {
@@ -62,6 +115,9 @@ export default function Onboarding1Screen() {
                     goals: selectedGoals,
                 });
             }
+            // Save next step before navigating
+            await AsyncStorage.removeItem(GOALS_DRAFT_KEY);
+            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, '3');
             router.push('/onboarding-3' as never);
         } catch (error) {
             Alert.alert('Error', 'Failed to save your goals. Please try again.');
@@ -87,7 +143,7 @@ export default function Onboarding1Screen() {
     return (
         <View style={styles.container}>
             <ImageBackground
-                source={require('../assets/images/background.png')}
+                source={require('../assets/images/backgrounds/background.png')}
                 style={styles.backgroundImage}
                 resizeMode="cover"
             >

@@ -1,8 +1,8 @@
 // app/experiments-list.tsx
 // Screen to view all user experiments (active, completed, archived)
 
-import { AnimatedScreen } from '@/components/animated-screen';
-import { SegmentedControl } from '@/components/segmented-control';
+import { AnimatedScreen } from '@/components/animations/animated-screen';
+import { SegmentedControl } from '@/components/controls/segmented-control';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import {
@@ -233,7 +233,7 @@ export default function ExperimentsListScreen() {
                 <SafeAreaView edges={['top']} style={styles.safeArea}>
                     {/* Header */}
                     <View style={styles.header}>
-                        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                        <TouchableOpacity onPress={() => router.back()} style={styles.backButton} activeOpacity={0.7}>
                             <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
                         </TouchableOpacity>
                         <Text style={styles.headerTitle}>My Experiments</Text>
@@ -612,4 +612,3 @@ const styles = StyleSheet.create({
         backgroundColor: '#3F4243',
     },
 });
-
