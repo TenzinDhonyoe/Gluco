@@ -16,8 +16,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    Alert,
     ActivityIndicator,
+    Alert,
     Image,
     Platform,
     ScrollView,

@@ -225,7 +225,7 @@ export default function MealScannerScreen() {
         try {
             photoPath = await uploadMealPhoto(user.id, imageUri);
             if (!photoPath) {
-                throw new Error('Upload failed');
+                throw new Error('Photo upload failed. Please check your connection and try again.');
             }
 
             setAnalysisStep('Analyzing photo...');
@@ -236,6 +236,7 @@ export default function MealScannerScreen() {
                 new Date().toISOString(),
             );
 
+            // Check if we got a valid response with items
             if (analysis?.status === 'complete' && analysis.items?.length) {
                 setAnalysisStep('Matching foods...');
                 const matchedItems = await matchAnalyzedItems(analysis.items);
@@ -249,24 +250,80 @@ export default function MealScannerScreen() {
                 setScannerState('ready');
                 setAnalysisStep(null);
                 // Don't clear capturedImageUri - let the results view use it
-            } else {
-                // No items detected - show alert and return to scanner
+            } else if (analysis === null) {
+                // API call failed completely - offer retry or manual entry
                 Alert.alert(
-                    'Analysis Failed',
-                    'Could not detect any food items. Try taking a clearer picture.',
-                    [{ text: 'Retry', onPress: () => { } }]
+                    'Analysis Unavailable',
+                    'Could not connect to the analysis service. You can try again or add items manually.',
+                    [
+                        { text: 'Retry', onPress: () => analyzeImage(imageUri) },
+                        {
+                            text: 'Add Manually',
+                            onPress: () => {
+                                setScannerState('ready');
+                                setAnalysisStep(null);
+                                setCapturedImageUri(null);
+                                setScanMode('manual_add');
+                            }
+                        },
+                    ]
                 );
                 setScannerState('ready');
                 setAnalysisStep(null);
-                setCapturedImageUri(null);
+            } else {
+                // Analysis returned but no items detected - offer options
+                const disclaimer = analysis?.disclaimer || '';
+                Alert.alert(
+                    'No Food Detected',
+                    'Could not identify food items in this photo. Try taking a clearer picture with better lighting, or add items manually.',
+                    [
+                        { text: 'Retake Photo', onPress: () => {
+                            setScannerState('ready');
+                            setAnalysisStep(null);
+                            setCapturedImageUri(null);
+                        }},
+                        {
+                            text: 'Search Database',
+                            onPress: () => {
+                                setScannerState('ready');
+                                setAnalysisStep(null);
+                                setCapturedImageUri(null);
+                                setScanMode('food_database');
+                            }
+                        },
+                        {
+                            text: 'Add Manually',
+                            onPress: () => {
+                                setScannerState('ready');
+                                setAnalysisStep(null);
+                                setCapturedImageUri(null);
+                                setScanMode('manual_add');
+                            }
+                        },
+                    ]
+                );
+                setScannerState('ready');
+                setAnalysisStep(null);
             }
         } catch (error) {
             console.error('Analysis error:', error);
-            // Show alert and return to scanner for retry
+            const errorMessage = error instanceof Error ? error.message : 'Something went wrong';
+            // Show alert with helpful options
             Alert.alert(
                 'Analysis Failed',
-                'Something went wrong. Please try taking another picture.',
-                [{ text: 'Retry', onPress: () => { } }]
+                errorMessage + '. You can try again or add items manually.',
+                [
+                    { text: 'Retry', onPress: () => analyzeImage(imageUri) },
+                    {
+                        text: 'Add Manually',
+                        onPress: () => {
+                            setScannerState('ready');
+                            setAnalysisStep(null);
+                            setCapturedImageUri(null);
+                            setScanMode('manual_add');
+                        }
+                    },
+                ]
             );
             setScannerState('ready');
             setAnalysisStep(null);
@@ -400,8 +457,6 @@ export default function MealScannerScreen() {
     }, [labelScanResult]);
 
     const handleLabelRetake = useCallback(() => {
-        setLabelScanResult(null);
-        setScannerState('ready');
         setLabelScanResult(null);
         setScannerState('ready');
     }, []);

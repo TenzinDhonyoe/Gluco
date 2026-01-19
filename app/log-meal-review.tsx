@@ -36,8 +36,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 const MEAL_DRAFT_KEY = 'meal_log_draft';
 const MEAL_ITEMS_DRAFT_KEY = 'meal_items_draft';
 
-type GlucoseContext = 'pre_meal' | 'post_meal' | 'random';
-
 interface SelectedMealItem extends NormalizedFood {
   quantity: number;
   source?: 'matched' | 'manual';

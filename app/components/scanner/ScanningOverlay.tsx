@@ -16,7 +16,7 @@ import {
     View,
 } from 'react-native';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const FRAME_SIZE = SCREEN_WIDTH * 0.85;
 const SCAN_LINE_HEIGHT = 3;
 

@@ -276,13 +276,17 @@ export async function ensureSignedMealPhotoUrl(photoPath: string): Promise<strin
             .from('meal-photos')
             .createSignedUrl(photoPath, 60 * 60); // 1 hour
 
-        if (error || !data?.signedUrl) {
-            // Silently fail - photo may not exist or path is invalid
+        if (error) {
+            console.error('Failed to create signed URL:', error.message);
+            return null;
+        }
+        if (!data?.signedUrl) {
+            console.error('No signed URL returned for path:', photoPath);
             return null;
         }
         return data.signedUrl;
-    } catch {
-        // Silently fail on network errors
+    } catch (e) {
+        console.error('Exception creating signed URL:', e);
         return null;
     }
 }
@@ -297,11 +301,14 @@ export async function invokeMealPhotoAnalyze(
     mealNotes?: string
 ): Promise<MealPhotoAnalysisResult | null> {
     try {
+        console.log('[meal-photo-analyze] Starting analysis for path:', photoPath);
+
         const photoUrl = await ensureSignedMealPhotoUrl(photoPath);
         if (!photoUrl) {
-            console.error('Missing signed photo URL for analysis');
+            console.error('[meal-photo-analyze] Failed to get signed URL for:', photoPath);
             return null;
         }
+        console.log('[meal-photo-analyze] Got signed URL, invoking edge function...');
 
         const { data, error } = await supabase.functions.invoke('meal-photo-analyze', {
             body: {
@@ -315,10 +322,22 @@ export async function invokeMealPhotoAnalyze(
             }
         });
 
-        if (error) throw error;
+        if (error) {
+            console.error('[meal-photo-analyze] Edge function error:', error);
+            throw error;
+        }
+
+        console.log('[meal-photo-analyze] Response:', JSON.stringify(data, null, 2));
+
+        // Check if response indicates an error from the edge function
+        if (data?.error) {
+            console.error('[meal-photo-analyze] Server returned error:', data.error);
+            return null;
+        }
+
         return data as MealPhotoAnalysisResult;
     } catch (e) {
-        console.error('Error invoking meal-photo-analyze:', e);
+        console.error('[meal-photo-analyze] Exception:', e);
         return null; // Let UI handle failure
     }
 }

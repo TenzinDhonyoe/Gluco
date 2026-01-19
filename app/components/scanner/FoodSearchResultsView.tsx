@@ -25,9 +25,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Tab = 'all' | 'recents' | 'favorites';
 
-// Selected item with quantity
+// Selected item with quantity and source tracking
 export interface SelectedItem extends NormalizedFood {
     quantity: number;
+    source?: 'matched' | 'manual';
 }
 
 interface FoodSearchResultsViewProps {
@@ -51,7 +52,7 @@ export default function FoodSearchResultsView({
     const [results, setResults] = useState<NormalizedFood[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const [selectedItems, setSelectedItems] = useState<SelectedItem[]>(initialSelectedItems);
-    const [showBottomSheet, setShowBottomSheet] = useState(false);
+    const [showCartModal, setShowCartModal] = useState(false);
 
     // Search state
     const [correctedQuery, setCorrectedQuery] = useState<string | null>(null);
@@ -204,7 +205,7 @@ export default function FoodSearchResultsView({
             clearTimeout(timer);
             controller.abort();
         };
-    }, [searchQuery]);
+    }, [searchQuery, profile?.ai_enabled]);
 
     const isSelected = (food: NormalizedFood) => {
         return selectedItems.some(
@@ -221,7 +222,7 @@ export default function FoodSearchResultsView({
             );
         } else {
             setSelectedItems(prev => [...prev, { ...food, quantity: 1 }]);
-            setShowBottomSheet(true);
+            // Don't auto-show modal, just update badge
 
             // Also add to recents when selecting
             if (user) {
@@ -352,12 +353,25 @@ export default function FoodSearchResultsView({
                         <Ionicons name="chevron-back" size={20} color="#E7E8E9" />
                     </TouchableOpacity>
                     <View style={styles.headerSpacer} />
+                    <View style={styles.headerSpacer} />
+
+                    {/* Cart Button (replaces barcode button) */}
                     <TouchableOpacity
-                        style={styles.barcodeButton}
-                        onPress={onScanBarcode}
+                        style={[styles.cartButton, selectedItems.length > 0 && styles.cartButtonActive]}
+                        onPress={() => setShowCartModal(true)}
                         activeOpacity={0.7}
+                        disabled={selectedItems.length === 0}
                     >
-                        <Ionicons name="scan-outline" size={22} color="#E7E8E9" />
+                        <Ionicons
+                            name={selectedItems.length > 0 ? "basket" : "basket-outline"}
+                            size={22}
+                            color={selectedItems.length > 0 ? "#FFFFFF" : "#E7E8E9"}
+                        />
+                        {selectedItems.length > 0 && (
+                            <View style={styles.badge}>
+                                <Text style={styles.badgeText}>{selectedItems.length}</Text>
+                            </View>
+                        )}
                     </TouchableOpacity>
                 </View>
 
@@ -508,24 +522,39 @@ export default function FoodSearchResultsView({
                     )}
                 </View>
 
-                {/* Bottom Sheet for Selected Items */}
-                {selectedItems.length > 0 && (
-                    <View style={styles.bottomSheet}>
-                        <View style={styles.bottomSheetHandle} />
-                        <FlatList
-                            data={selectedItems}
-                            keyExtractor={(item) => `${item.provider}-${item.external_id}`}
-                            renderItem={renderSelectedItem}
-                            style={styles.selectedList}
-                            showsVerticalScrollIndicator={false}
-                        />
+                {/* Cart Modal Overlay */}
+                {showCartModal && (
+                    <View style={styles.cartModalOverlay}>
                         <TouchableOpacity
-                            style={styles.saveButton}
-                            onPress={handleSavePress}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.saveButtonText}>Save ({selectedItems.length})</Text>
-                        </TouchableOpacity>
+                            style={styles.cartModalBackdrop}
+                            activeOpacity={1}
+                            onPress={() => setShowCartModal(false)}
+                        />
+                        <View style={styles.cartModalContent}>
+                            <View style={styles.cartModalHeader}>
+                                <Text style={styles.cartModalTitle}>Selected Foods ({selectedItems.length})</Text>
+                                <TouchableOpacity onPress={() => setShowCartModal(false)}>
+                                    <Ionicons name="close" size={24} color="#E7E8E9" />
+                                </TouchableOpacity>
+                            </View>
+
+                            <FlatList
+                                data={selectedItems}
+                                keyExtractor={(item) => `${item.provider}-${item.external_id}`}
+                                renderItem={renderSelectedItem}
+                                style={styles.cartList}
+                                contentContainerStyle={styles.cartListContent}
+                                showsVerticalScrollIndicator={false}
+                            />
+
+                            <TouchableOpacity
+                                style={styles.modalSaveButton}
+                                onPress={handleSavePress}
+                                activeOpacity={0.8}
+                            >
+                                <Text style={styles.saveButtonText}>Add to Meal</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 )}
             </View>
@@ -723,30 +752,86 @@ const styles = StyleSheet.create({
         backgroundColor: '#3494D9',
         borderColor: '#3494D9',
     },
-    bottomSheet: {
+    // New Cart Styles
+    cartButton: {
+        width: 48,
+        height: 48,
+        borderRadius: 12,
+        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        position: 'relative',
+    },
+    cartButtonActive: {
+        backgroundColor: 'rgba(52, 148, 217, 0.3)',
+        borderWidth: 1,
+        borderColor: 'rgba(52, 148, 217, 0.5)',
+    },
+    badge: {
         position: 'absolute',
-        bottom: 80, // Lift above option bar
-        left: 0,
-        right: 0,
+        top: -4,
+        right: -4,
+        backgroundColor: '#FF3B30',
+        minWidth: 18,
+        height: 18,
+        borderRadius: 9,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 4,
+        borderWidth: 1.5,
+        borderColor: '#111111',
+    },
+    badgeText: {
+        fontFamily: fonts.bold,
+        fontSize: 10,
+        color: '#FFFFFF',
+    },
+    cartModalOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        zIndex: 1000,
+        justifyContent: 'flex-end',
+    },
+    cartModalBackdrop: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    },
+    cartModalContent: {
         backgroundColor: '#1A1D1F',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        paddingTop: 12,
-        paddingHorizontal: 16,
-        paddingBottom: 34,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingTop: 16,
+        paddingHorizontal: 20,
+        paddingBottom: 40,
+        maxHeight: '70%',
+    },
+    cartModalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 16,
+        paddingBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#2A2D30',
+    },
+    cartModalTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 18,
+        color: '#FFFFFF',
+    },
+    cartList: {
         maxHeight: 300,
     },
-    bottomSheetHandle: {
-        width: 36,
-        height: 4,
-        backgroundColor: '#3A3D40',
-        borderRadius: 2,
-        alignSelf: 'center',
-        marginBottom: 16,
+    cartListContent: {
+        paddingBottom: 16,
     },
-    selectedList: {
-        maxHeight: 150,
+    modalSaveButton: {
+        backgroundColor: '#3494D9',
+        borderRadius: 16,
+        paddingVertical: 16,
+        alignItems: 'center',
+        marginTop: 16,
     },
+    // End Cart Styles
     selectedItemRow: {
         flexDirection: 'row',
         alignItems: 'center',

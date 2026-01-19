@@ -82,7 +82,7 @@ export default function LabelScanResultsView({
                 <View style={styles.warningsCard}>
                     <Ionicons name="alert-circle" size={20} color="#F44336" />
                     <Text style={styles.warningText}>
-                        Couldn't extract enough nutrition data. You may need to enter values manually.
+                        Could not extract enough nutrition data. You may need to enter values manually.
                     </Text>
                 </View>
             )}

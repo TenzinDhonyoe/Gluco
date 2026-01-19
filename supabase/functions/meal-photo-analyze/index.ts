@@ -309,13 +309,25 @@ async function getAccessToken(): Promise<{ token: string; model: string; project
 }
 
 async function fetchImageAsBase64(photoUrl: string): Promise<{ data: string; mimeType: string }> {
+    console.log('Fetching image from:', photoUrl.substring(0, 100) + '...');
+
     const response = await fetch(photoUrl);
     if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.status}`);
+        const errorText = await response.text().catch(() => 'Unknown error');
+        console.error('Failed to fetch image:', response.status, errorText);
+        throw new Error(`Failed to fetch image: ${response.status} - ${errorText.substring(0, 100)}`);
     }
+
     const mimeType = response.headers.get('content-type') || 'image/jpeg';
     const buffer = await response.arrayBuffer();
     const bytes = new Uint8Array(buffer);
+
+    console.log('Image fetched successfully:', bytes.length, 'bytes, type:', mimeType);
+
+    if (bytes.length < 1000) {
+        console.warn('Image is very small, might be empty or corrupted');
+    }
+
     let binary = '';
     const chunkSize = 0x8000;
     for (let i = 0; i < bytes.length; i += chunkSize) {
@@ -334,17 +346,26 @@ async function analyzePhotoWithGemini(
     const { token, model, projectId, region } = await getAccessToken();
     const { data: imageBase64, mimeType } = await fetchImageAsBase64(photoUrl);
 
-    const systemPrompt = `You are a nutrition estimation assistant focused on general wellness.
-    
-CRITICAL RULES:
-1. Identify the dish AND the main visible items (protein, starch, vegetables, sauces, toppings).
-2. Estimate portion sizes and nutrition for each item. Prefer grams when possible.
-3. Use ONLY wellness language (e.g., "energy", "nutrients", "fuel").
-4. NEVER use medical/clinical terms (spike, risk, diabetes, insulin, treat, cure, etc.).
-5. Do NOT make health claims.
-6. If the image is unclear or not food, return an empty item list with a status of "failed".
-7. Totals must be the sum of the item nutrients (approximate).
-8. Output MUST be valid JSON only.
+    const systemPrompt = `You are a nutrition estimation assistant that helps people track what they eat.
+
+YOUR TASK: Analyze this food photo and identify all visible food items with their estimated nutrition.
+
+RULES:
+1. ALWAYS try to identify food items, even if the image quality is not perfect.
+2. List each distinct food item separately (e.g., "Grilled Chicken Breast", "Steamed Rice", "Mixed Vegetables").
+3. For each item, estimate the portion size and macronutrients.
+4. Use common serving units: "piece", "cup", "oz", "g", "slice", "serving".
+5. Set confidence to "low" if uncertain, "medium" if reasonably sure, "high" if very clear.
+6. If you can see ANY food at all, return status "complete" with your best estimates.
+7. ONLY return status "failed" if the image contains NO food whatsoever (e.g., a blank wall, a person, text only).
+8. Use wellness language. Avoid medical terms.
+9. Output MUST be valid JSON.
+
+EXAMPLES OF WHAT TO IDENTIFY:
+- A plate with rice and chicken → list "Rice" and "Grilled Chicken" separately
+- A sandwich → list "Sandwich" or break down into "Bread", "Deli Meat", "Cheese", etc.
+- A salad → list main components like "Mixed Greens", "Tomatoes", "Dressing"
+- A smoothie or drink → list "Smoothie" or "Coffee with Milk", etc.
 
 OUTPUT FORMAT:
 {
@@ -352,35 +373,36 @@ OUTPUT FORMAT:
   "disclaimer": "${DEFAULT_DISCLAIMER}",
   "items": [
     {
-      "display_name": "Grilled Salmon",
+      "display_name": "Grilled Chicken Breast",
       "quantity": 1,
-      "unit": "g",
-      "confidence": "high",
+      "unit": "piece",
+      "confidence": "medium",
       "nutrients": {
-        "calories_kcal": 350,
+        "calories_kcal": 165,
         "carbs_g": 0,
-        "protein_g": 35,
-        "fat_g": 20,
+        "protein_g": 31,
+        "fat_g": 3.6,
         "fibre_g": 0,
         "sugar_g": 0,
-        "sodium_mg": 150
+        "sodium_mg": 74
       }
     }
   ],
   "totals": {
-    "calories_kcal": 350,
+    "calories_kcal": 165,
     "carbs_g": 0,
-    "protein_g": 35,
-    "fat_g": 20,
+    "protein_g": 31,
+    "fat_g": 3.6,
     "fibre_g": 0
   }
 }`;
 
     const timeNote = mealTime ? ` Meal time: ${mealTime}.` : '';
-    const nameNote = mealName ? ` Meal name: ${mealName}.` : '';
-    const notesNote = mealNotes ? ` Notes: ${mealNotes}.` : '';
-    const userPrompt = `Analyze this food image${mealType ? ` (Meal Type: ${mealType})` : ''}.${timeNote}${nameNote}${notesNote}
-    Provide a wellness-focused estimation of the items and nutrition.`;
+    const nameNote = mealName ? ` Meal name hint: ${mealName}.` : '';
+    const notesNote = mealNotes ? ` User notes: ${mealNotes}.` : '';
+    const userPrompt = `Please analyze this food photo and identify all the food items you can see.${mealType ? ` This appears to be a ${mealType} meal.` : ''}${timeNote}${nameNote}${notesNote}
+
+List each food item with estimated portion size and nutrition values. Even if the image is not perfect, please provide your best estimates with appropriate confidence levels.`;
 
     try {
         const endpoint = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
@@ -403,10 +425,10 @@ OUTPUT FORMAT:
                     },
                 ],
                 generationConfig: {
-                    temperature: 0.2,
-                    topP: 0.8,
-                    topK: 10,
-                    maxOutputTokens: 800,
+                    temperature: 0.4,
+                    topP: 0.9,
+                    topK: 40,
+                    maxOutputTokens: 2048,
                     responseMimeType: 'application/json',
                 },
                 safetySettings: [
@@ -419,33 +441,50 @@ OUTPUT FORMAT:
         });
 
         if (!response.ok) {
-            console.error('Vertex AI error:', await response.text());
-            throw new Error('Failed to analyze image');
+            const errorText = await response.text();
+            console.error('Vertex AI error:', response.status, errorText);
+            throw new Error(`Vertex AI request failed: ${response.status}`);
         }
 
         const data = await response.json();
-        const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        console.log('Vertex AI raw response:', JSON.stringify(data, null, 2));
 
-        let parsed: unknown = null;
-        if (content) {
-            try {
-                parsed = JSON.parse(content);
-            } catch {
-                const jsonMatch = content.match(/\{[\s\S]*\}/);
-                if (!jsonMatch) {
-                    throw new Error('No JSON found in response');
-                }
-                parsed = JSON.parse(jsonMatch[0]);
-            }
+        // Check for blocked content or other issues
+        if (data?.candidates?.[0]?.finishReason === 'SAFETY') {
+            console.warn('Response was blocked by safety filters');
+            throw new Error('Content was blocked by safety filters');
         }
 
-        return normalizeAnalysisResult(parsed);
+        const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        console.log('Extracted content:', content);
+
+        if (!content) {
+            console.warn('No content in Vertex AI response');
+            throw new Error('Empty response from AI');
+        }
+
+        let parsed: unknown = null;
+        try {
+            parsed = JSON.parse(content);
+        } catch {
+            // Try to extract JSON from the response
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                console.error('No JSON found in response:', content);
+                throw new Error('Could not parse AI response');
+            }
+            parsed = JSON.parse(jsonMatch[0]);
+        }
+
+        const result = normalizeAnalysisResult(parsed);
+        console.log('Normalized result:', JSON.stringify(result, null, 2));
+        return result;
 
     } catch (error) {
         console.error('Gemini Analysis failed:', error);
         return {
             status: 'failed',
-            disclaimer: 'Could not analyze photo. Please add items manually.',
+            disclaimer: 'Could not analyze photo. Try taking a clearer picture or add items manually.',
             items: [],
             totals: { calories_kcal: 0, carbs_g: 0, protein_g: 0, fat_g: 0, fibre_g: 0 }
         };

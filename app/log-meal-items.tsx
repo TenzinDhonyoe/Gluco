@@ -54,7 +54,7 @@ export default function LogMealItemsScreen() {
   const [results, setResults] = useState<NormalizedFood[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
-  const [showBottomSheet, setShowBottomSheet] = useState(false);
+  const [, setShowBottomSheet] = useState(false);
 
   // Search state
   const [correctedQuery, setCorrectedQuery] = useState<string | null>(null);
@@ -310,7 +310,7 @@ export default function LogMealItemsScreen() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [searchQuery]);
+  }, [searchQuery, profile?.ai_enabled]);
 
   const handleBack = () => {
     router.back();

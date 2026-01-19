@@ -28,6 +28,8 @@ Camera-first meal logging interface providing 5 distinct input modes for capturi
 - **Option Dock**: Floating pill bar with smooth sliding animation
 - **Camera View**: Full-screen with corner bracket overlay
 - **Capture Controls**: Flash toggle + capture button (photo modes only)
+- **Scanning Overlay**: Animated red scan line during photo analysis (`ScanningOverlay.tsx`)
+- **Analysis Results**: Full preview with macros and metabolic score (`AnalysisResultsView.tsx`)
 - **Inline Views**: `FoodSearchResultsView`, `LabelScanResultsView`, `ManualAddView`
 
 ## Key Features
@@ -35,18 +37,70 @@ Camera-first meal logging interface providing 5 distinct input modes for capturi
 - **Smooth Animations**: Sliding pill indicator + vertical dock transitions
 - **Smart Revert**: Photo album cancellation returns to previous mode
 - **Consistent Styling**: Matches app design language (dark theme, pill shapes, shadow buttons)
+- **Progressive Search**: Cache → edge function → Gemini fallback for optimal speed
+- **Source Tracking**: Items marked with `source: 'manual'` or `source: 'matched'` for review UI
+
+## Data Types
+
+### SelectedItem Interface
+```typescript
+interface SelectedItem extends NormalizedFood {
+    quantity: number;
+    source?: 'matched' | 'manual';  // Tracks origin for review screen
+}
+```
+
+### SelectedMealItem Interface (meal-scanner internal)
+```typescript
+interface SelectedMealItem extends NormalizedFood {
+    quantity: number;
+    source: 'matched' | 'manual';
+    originalText?: string;  // 'photo' for AI-analyzed items
+}
+```
 
 ## Related Components
-- `app/components/scanner/FoodSearchResultsView.tsx`
-- `app/components/scanner/LabelScanResultsView.tsx`
-- `app/components/scanner/ManualAddView.tsx`
+- `app/components/scanner/FoodSearchResultsView.tsx` - Search with cart modal, favorites/recents tabs
+- `app/components/scanner/LabelScanResultsView.tsx` - OCR results with confidence display
+- `app/components/scanner/ManualAddView.tsx` - Form for custom food entry
+- `app/components/scanner/AnalysisResultsView.tsx` - AI analysis preview with macros
+- `app/components/scanner/ScanningOverlay.tsx` - Animated scanning indicator
 
 ## Backend Functions
 - `uploadMealPhoto()` - Upload image to Supabase storage
-- `invokeMealPhotoAnalyze()` - AI meal analysis edge function
+- `invokeMealPhotoAnalyze()` - AI meal analysis edge function (Vertex AI Gemini)
 - `parseLabelFromImage()` - OCR nutrition label parsing
-- `searchFoodsWithVariants()` - Food database search
+- `searchFoodsWithVariants()` - Food database search with variants
+- `matchAnalyzedItems()` - Batch match AI items to database entries
 
 ## Navigation
 - Back button in sub-views → Home screen (`router.dismissTo('/(tabs)')`)
 - Successful save → `log-meal-review.tsx` → Home screen
+
+## Error Handling
+- AI not enabled: Shows "AI Insights Disabled" screen with link to privacy settings
+- Analysis failure: Alert with retry option AND option to add items manually
+- No items detected: Alert with three options:
+  - "Retake Photo" - return to camera
+  - "Search Database" - switch to food search mode
+  - "Add Manually" - switch to manual entry mode
+- API unavailable: Alert with retry option and manual entry fallback
+- Label scan failure: Displays confidence-colored warnings, disables save if invalid
+
+## AI Photo Analysis (Vertex AI Gemini)
+The photo analysis uses Vertex AI Gemini to identify food items:
+
+**Prompt Strategy:**
+- Encourages identification even with imperfect images
+- Returns items with confidence levels (low/medium/high)
+- Only returns "failed" status if NO food is visible
+- Lists each food item separately with portion estimates
+
+**Generation Config:**
+- Temperature: 0.4 (balanced between accuracy and creativity)
+- Max tokens: 2048 (allows for detailed multi-item responses)
+- Output format: JSON with structured nutrition data
+
+**Fallback Behavior:**
+- If AI returns empty results, user is offered alternative input methods
+- Manual entry and database search are always available as fallbacks
