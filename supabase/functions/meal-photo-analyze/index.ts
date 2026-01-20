@@ -353,7 +353,7 @@ function normalizeAnalysisResult(raw: unknown, debug?: { model: string; processi
 // ============================================
 
 const VERTEX_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
-const DEFAULT_VERTEX_MODEL = 'gemini-1.5-pro';
+const DEFAULT_VERTEX_MODEL = 'gemini-2.5-flash';
 
 interface ServiceAccountKey {
     client_email: string;

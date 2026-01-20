@@ -2588,3 +2588,49 @@ export async function needsProfileRefresh(userId: string): Promise<boolean> {
     const hoursSinceUpdate = (Date.now() - lastUpdated.getTime()) / (1000 * 60 * 60);
     return hoursSinceUpdate >= 24;
 }
+
+// ==========================================
+// MEAL ADJUSTMENTS
+// ==========================================
+
+export interface MealAdjustment {
+    id: string;
+    action: string;
+    impact: string;
+    description: string;
+    priority: 'high' | 'medium' | 'low';
+}
+
+export interface MealAdjustmentsResult {
+    adjustments: MealAdjustment[];
+    context?: {
+        patterns: string[];
+    };
+}
+
+export interface MealItemForAdjustments {
+    display_name: string;
+    calories_kcal: number | null;
+    carbs_g: number | null;
+    protein_g: number | null;
+    fat_g: number | null;
+    fibre_g: number | null;
+    sugar_g: number | null;
+    quantity: number;
+}
+
+/**
+ * Invoke meal-adjustments Edge Function
+ * Generates personalized meal adjustment suggestions based on meal composition and user history
+ */
+export async function invokeMealAdjustments(
+    userId: string,
+    mealItems: MealItemForAdjustments[],
+    mealType?: string
+): Promise<MealAdjustmentsResult | null> {
+    return invokeWithRetry<MealAdjustmentsResult>('meal-adjustments', {
+        user_id: userId,
+        meal_items: mealItems,
+        meal_type: mealType,
+    });
+}

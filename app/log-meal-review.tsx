@@ -9,6 +9,8 @@ import {
   createGlucoseLog,
   createMeal,
   CreateMealItemInput,
+  invokeMealAdjustments,
+  MealAdjustment,
   NormalizedFood,
   uploadMealPhoto,
 } from '@/lib/supabase';
@@ -22,6 +24,7 @@ import React from 'react';
 import {
   Alert,
   Animated,
+  Dimensions,
   FlatList,
   Image,
   Pressable,
@@ -31,8 +34,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const MEAL_DRAFT_KEY = 'meal_log_draft';
 const MEAL_ITEMS_DRAFT_KEY = 'meal_items_draft';
 
@@ -41,6 +45,10 @@ interface SelectedMealItem extends NormalizedFood {
   source?: 'matched' | 'manual';
   originalText?: string;
 }
+
+// ============================================
+// UTILITY FUNCTIONS
+// ============================================
 
 function formatTime(d: Date) {
   const hh = d.getHours();
@@ -73,10 +81,6 @@ function applyTime(base: Date, parts: { hour12: number; minute: number; period: 
   return d;
 }
 
-function ChevronDown() {
-  return <Ionicons name="chevron-down" size={16} color="#878787" />;
-}
-
 function buildMealName(items: SelectedMealItem[], fallbackText: string) {
   const names = items
     .map((item) => item.display_name?.trim())
@@ -88,8 +92,8 @@ function buildMealName(items: SelectedMealItem[], fallbackText: string) {
   }
 
   if (names.length === 1) return names[0];
-  if (names.length === 2) return `${names[0]} + ${names[1]}`;
-  return `${names[0]} + ${names[1]} +${names.length - 2}`;
+  if (names.length === 2) return `${names[0]} & ${names[1]}`;
+  return `${names[0]}, ${names[1]} +${names.length - 2} more`;
 }
 
 function mergeItems(existing: SelectedMealItem[], incoming: SelectedMealItem[]) {
@@ -103,10 +107,245 @@ function mergeItems(existing: SelectedMealItem[], incoming: SelectedMealItem[]) 
   return next;
 }
 
+function determineMealType(mealTime: Date): 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack' {
+  const hour = mealTime.getHours();
+  if (hour >= 5 && hour < 11) return 'Breakfast';
+  if (hour >= 11 && hour < 15) return 'Lunch';
+  if (hour >= 15 && hour < 18) return 'Snack';
+  if (hour >= 18 && hour < 22) return 'Dinner';
+  return 'Snack';
+}
+
+// Calculate a simple meal score based on nutritional balance (0-10)
+function calculateMealScore(summary: { calories: number; carbs: number; protein: number; fat: number }): number {
+  if (summary.calories === 0) return 0;
+
+  // Simple scoring based on macro balance
+  const proteinRatio = summary.protein * 4 / summary.calories; // protein calories ratio
+  const carbRatio = summary.carbs * 4 / summary.calories;
+  const fatRatio = summary.fat * 9 / summary.calories;
+
+  let score = 5; // Base score
+
+  // Protein bonus (15-35% is ideal)
+  if (proteinRatio >= 0.15 && proteinRatio <= 0.35) score += 2;
+  else if (proteinRatio >= 0.10 && proteinRatio <= 0.40) score += 1;
+
+  // Balanced carbs (40-55% is ideal)
+  if (carbRatio >= 0.40 && carbRatio <= 0.55) score += 2;
+  else if (carbRatio >= 0.30 && carbRatio <= 0.60) score += 1;
+
+  // Moderate fat (20-35% is ideal)
+  if (fatRatio >= 0.20 && fatRatio <= 0.35) score += 1;
+
+  return Math.min(10, Math.max(1, Math.round(score)));
+}
+
+// ============================================
+// ANNOTATION BUBBLE POSITIONS
+// ============================================
+
+function getBubblePositions(itemCount: number, photoHeight: number): { x: number; y: number; align: 'left' | 'right' }[] {
+  const positions: { x: number; y: number; align: 'left' | 'right' }[] = [
+    { x: 16, y: photoHeight * 0.15, align: 'left' },
+    { x: SCREEN_WIDTH - 16, y: photoHeight * 0.2, align: 'right' },
+    { x: 16, y: photoHeight * 0.4, align: 'left' },
+    { x: SCREEN_WIDTH - 16, y: photoHeight * 0.45, align: 'right' },
+    { x: 16, y: photoHeight * 0.65, align: 'left' },
+  ];
+  return positions.slice(0, Math.min(itemCount, 5));
+}
+
+// ============================================
+// SUB-COMPONENTS
+// ============================================
+
+function MealTypeBadge({ type }: { type: string }) {
+  const colors: Record<string, string> = {
+    Breakfast: '#FF9500',
+    Lunch: '#34C759',
+    Dinner: '#5856D6',
+    Snack: '#FF2D55',
+  };
+  const color = colors[type] || '#8E8E93';
+
+  return (
+    <View style={[styles.mealTypeBadge, { backgroundColor: `${color}20` }]}>
+      <Text style={[styles.mealTypeBadgeText, { color }]}>{type}</Text>
+    </View>
+  );
+}
+
+function FoodAnnotationBubble({
+  item,
+  position,
+  index,
+}: {
+  item: SelectedMealItem;
+  position: { x: number; y: number; align: 'left' | 'right' };
+  index: number;
+}) {
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const translateAnim = React.useRef(new Animated.Value(position.align === 'left' ? -20 : 20)).current;
+
+  React.useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        delay: index * 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateAnim, {
+        toValue: 0,
+        duration: 400,
+        delay: index * 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [fadeAnim, translateAnim, index]);
+
+  const bubbleStyle = position.align === 'left'
+    ? { left: position.x, top: position.y }
+    : { right: SCREEN_WIDTH - position.x, top: position.y };
+
+  const calories = Math.round((item.calories_kcal ?? 0) * (item.quantity || 1));
+
+  return (
+    <Animated.View
+      style={[
+        styles.annotationBubble,
+        bubbleStyle,
+        {
+          opacity: fadeAnim,
+          transform: [{ translateX: translateAnim }],
+        },
+      ]}
+    >
+      <Text style={styles.annotationName} numberOfLines={1}>{item.display_name}</Text>
+      <Text style={styles.annotationCalories}>{calories}</Text>
+    </Animated.View>
+  );
+}
+
+const MACRO_CONFIG = [
+  { key: 'calories' as const, label: 'Calories', icon: 'flame' as const, color: '#FF9500', unit: '' },
+  { key: 'carbs' as const, label: 'Carbs', icon: 'nutrition' as const, color: '#34C759', unit: 'g' },
+  { key: 'protein' as const, label: 'Protein', icon: 'barbell' as const, color: '#FF3B30', unit: 'g' },
+  { key: 'fat' as const, label: 'Fat', icon: 'water' as const, color: '#AF52DE', unit: 'g' },
+];
+
+function MacroGrid({ totals }: { totals: { calories: number; carbs: number; protein: number; fat: number } }) {
+  return (
+    <View style={styles.macroGrid}>
+      {MACRO_CONFIG.map((macro) => (
+        <View key={macro.key} style={styles.macroItem}>
+          <View style={[styles.macroIconContainer, { backgroundColor: `${macro.color}20` }]}>
+            <Ionicons name={macro.icon} size={18} color={macro.color} />
+          </View>
+          <Text style={styles.macroLabel}>{macro.label}</Text>
+          <Text style={styles.macroValue}>
+            {Math.round(totals[macro.key])}{macro.unit}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function MetabolicScoreBar({ score }: { score: number }) {
+  const percentage = (score / 10) * 100;
+  const getScoreColor = () => {
+    if (score >= 7) return '#34C759';
+    if (score >= 4) return '#FF9500';
+    return '#FF3B30';
+  };
+
+  return (
+    <View style={styles.scoreContainer}>
+      <View style={styles.scoreHeader}>
+        <View style={styles.scoreIconContainer}>
+          <Ionicons name="heart" size={18} color="#FF2D55" />
+        </View>
+        <Text style={styles.scoreLabel}>Metabolic score</Text>
+        <Text style={styles.scoreValue}>{score}/10</Text>
+      </View>
+      <View style={styles.scoreBarBackground}>
+        <View
+          style={[
+            styles.scoreBarFill,
+            { width: `${percentage}%`, backgroundColor: getScoreColor() },
+          ]}
+        />
+      </View>
+    </View>
+  );
+}
+
+function QuantityStepper({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (newValue: number) => void;
+}) {
+  return (
+    <View style={styles.quantityStepper}>
+      <Pressable
+        onPress={() => onChange(Math.max(1, value - 1))}
+        style={styles.stepperButton}
+      >
+        <Ionicons name="remove" size={16} color="#FFFFFF" />
+      </Pressable>
+      <Text style={styles.stepperValue}>{value}</Text>
+      <Pressable
+        onPress={() => onChange(value + 1)}
+        style={styles.stepperButton}
+      >
+        <Ionicons name="add" size={16} color="#FFFFFF" />
+      </Pressable>
+    </View>
+  );
+}
+
+function AdjustmentCard({
+  adjustment,
+  isSelected,
+  onToggle,
+}: {
+  adjustment: MealAdjustment;
+  isSelected: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onToggle}
+      style={({ pressed }) => [
+        styles.adjustmentCard,
+        pressed && styles.adjustmentCardPressed,
+      ]}
+    >
+      <View style={styles.adjustmentContent}>
+        <Text style={styles.adjustmentAction}>{adjustment.action}</Text>
+        <Text style={styles.adjustmentImpact}>{adjustment.impact}</Text>
+        <Text style={styles.adjustmentDescription}>{adjustment.description}</Text>
+      </View>
+      <View style={[styles.adjustmentCheckbox, isSelected && styles.adjustmentCheckboxSelected]}>
+        {isSelected && <Ionicons name="checkmark" size={16} color="#FFFFFF" />}
+      </View>
+    </Pressable>
+  );
+}
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
+
 export default function LogMealReviewScreen() {
   const { user } = useAuth();
   const glucoseUnit = useGlucoseUnit();
   const params = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
 
   const [items, setItems] = React.useState<SelectedMealItem[]>([]);
   const [mealNotes, setMealNotes] = React.useState('');
@@ -117,11 +356,16 @@ export default function LogMealReviewScreen() {
   const [photoPath, setPhotoPath] = React.useState<string | null>(null);
   const [mealTime, setMealTime] = React.useState<Date>(new Date());
   const [isSaving, setIsSaving] = React.useState(false);
+  const [servings, setServings] = React.useState(1);
   const [quantityInputs, setQuantityInputs] = React.useState<Record<string, string>>({});
 
   const [glucoseValue, setGlucoseValue] = React.useState('');
-  const [showMacroBubble, setShowMacroBubble] = React.useState(false);
-  const bubbleAnim = React.useRef(new Animated.Value(0)).current;
+  const [fixResultsOpen, setFixResultsOpen] = React.useState(false);
+
+  // Adjustments state
+  const [adjustments, setAdjustments] = React.useState<MealAdjustment[]>([]);
+  const [adjustmentsLoading, setAdjustmentsLoading] = React.useState(false);
+  const [selectedAdjustments, setSelectedAdjustments] = React.useState<Set<string>>(new Set());
 
   const [timeModalOpen, setTimeModalOpen] = React.useState(false);
   const HOURS = React.useMemo(() => Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')), []);
@@ -138,6 +382,8 @@ export default function LogMealReviewScreen() {
   const hourRef = React.useRef<FlatList<string>>(null);
   const minuteRef = React.useRef<FlatList<string>>(null);
   const periodRef = React.useRef<FlatList<'AM' | 'PM'>>(null);
+
+  const PHOTO_HEIGHT = SCREEN_HEIGHT * 0.45;
 
   React.useEffect(() => {
     if (!timeModalOpen) return;
@@ -164,17 +410,6 @@ export default function LogMealReviewScreen() {
     if (kind === 'period') setTempPeriod(idx >= 1 ? 'PM' : 'AM');
   }, [ITEM_H]);
 
-  const toggleMacroBubble = React.useCallback(() => {
-    const toValue = showMacroBubble ? 0 : 1;
-    setShowMacroBubble(!showMacroBubble);
-    Animated.spring(bubbleAnim, {
-      toValue,
-      useNativeDriver: true,
-      tension: 80,
-      friction: 10,
-    }).start();
-  }, [showMacroBubble, bubbleAnim]);
-
   const summary = React.useMemo(() => {
     const totals = items.reduce(
       (acc, item) => {
@@ -192,16 +427,16 @@ export default function LogMealReviewScreen() {
     );
 
     return {
-      countLabel: `${items.length} ${items.length === 1 ? 'item' : 'items'}`,
-      carbsLabel: totals.hasData ? `${Math.round(totals.carbs)}g carbs` : '-- carbs',
-      calories: Math.round(totals.calories),
-      carbs: Math.round(totals.carbs),
-      protein: Math.round(totals.protein),
-      fat: Math.round(totals.fat),
-      fibre: Math.round(totals.fibre),
+      calories: Math.round(totals.calories * servings),
+      carbs: Math.round(totals.carbs * servings),
+      protein: Math.round(totals.protein * servings),
+      fat: Math.round(totals.fat * servings),
+      fibre: Math.round(totals.fibre * servings),
       hasData: totals.hasData,
     };
-  }, [items]);
+  }, [items, servings]);
+
+  const mealScore = React.useMemo(() => calculateMealScore(summary), [summary]);
 
   const autoMealTitle = React.useMemo(
     () => buildMealName(items, mealNotes || mealNameHint),
@@ -214,16 +449,46 @@ export default function LogMealReviewScreen() {
     }
   }, [autoMealTitle, mealTitleEdited]);
 
-  const needsReviewItems = React.useMemo(
-    () => items.map((item, index) => ({ item, index })).filter(({ item }) => item.source === 'manual'),
-    [items]
-  );
+  const mealType = React.useMemo(() => determineMealType(mealTime), [mealTime]);
 
-  const matchedItems = React.useMemo(
-    () => items.map((item, index) => ({ item, index })).filter(({ item }) => item.source !== 'manual'),
-    [items]
-  );
+  // Fetch adjustments when items change
+  React.useEffect(() => {
+    if (!user || items.length === 0) {
+      setAdjustments([]);
+      return;
+    }
 
+    const fetchAdjustments = async () => {
+      setAdjustmentsLoading(true);
+      try {
+        const mealItemsForApi = items.map(item => ({
+          display_name: item.display_name,
+          calories_kcal: item.calories_kcal,
+          carbs_g: item.carbs_g,
+          protein_g: item.protein_g,
+          fat_g: item.fat_g,
+          fibre_g: item.fibre_g,
+          sugar_g: item.sugar_g ?? null,
+          quantity: item.quantity || 1,
+        }));
+
+        const result = await invokeMealAdjustments(user.id, mealItemsForApi, mealType.toLowerCase());
+        if (result?.adjustments) {
+          setAdjustments(result.adjustments);
+        }
+      } catch (error) {
+        console.error('Failed to fetch adjustments:', error);
+      } finally {
+        setAdjustmentsLoading(false);
+      }
+    };
+
+    // Debounce to avoid too many API calls
+    const timeout = setTimeout(fetchAdjustments, 500);
+    return () => clearTimeout(timeout);
+  }, [user, items, mealType]);
+
+  // Parse params
   React.useEffect(() => {
     if (params.items && typeof params.items === 'string') {
       try {
@@ -344,72 +609,12 @@ export default function LogMealReviewScreen() {
     });
   };
 
-  const renderItemRow = (item: SelectedMealItem, index: number, highlight: boolean) => (
-    <View
-      key={`${item.provider}-${item.external_id}`}
-      style={[styles.itemRow, highlight && styles.itemRowNeedsReview]}
-    >
-      <View style={styles.itemHeader}>
-        <Text style={styles.itemName}>{item.display_name}</Text>
-        {item.source === 'manual' ? (
-          <View style={styles.needsReviewPill}>
-            <Text style={styles.needsReviewText}>Needs review</Text>
-          </View>
-        ) : null}
-        <Pressable onPress={() => handleReplaceItem(index)} style={styles.replaceButton}>
-          <Text style={styles.replaceButtonText}>Replace</Text>
-        </Pressable>
-        <Pressable onPress={() => handleRemoveItem(index)} style={styles.removeButton} hitSlop={8}>
-          <Ionicons name="close" size={18} color="#FFFFFF" />
-        </Pressable>
-      </View>
-
-      <View style={styles.itemMetaRow}>
-        <View style={styles.qtyRow}>
-          <Pressable onPress={() => handleUpdateQuantity(index, -0.25)} style={styles.qtyButton}>
-            <Ionicons name="remove" size={20} color="#FFFFFF" />
-          </Pressable>
-          <TextInput
-            value={quantityInputs[`${item.provider}-${item.external_id}`] ?? String(item.quantity || 1)}
-            onChangeText={(text) => handleQuantityInputChange(index, text)}
-            onBlur={() => handleQuantityInputBlur(index)}
-            keyboardType="decimal-pad"
-            style={styles.qtyInput}
-          />
-          <Pressable onPress={() => handleUpdateQuantity(index, 0.25)} style={styles.qtyButton}>
-            <Ionicons name="add" size={20} color="#FFFFFF" />
-          </Pressable>
-        </View>
-        <View style={styles.unitRow}>
-          {getUnitOptions(item).map((unit) => {
-            const active = (item.serving_unit || 'serving') === unit;
-            return (
-              <Pressable
-                key={unit}
-                onPress={() => handleUnitChange(index, unit)}
-                style={[styles.unitChip, active && styles.unitChipActive]}
-              >
-                <Text style={[styles.unitText, active && styles.unitTextActive]}>{unit}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <View style={styles.macroRow}>
-          <Text style={styles.macroText}>{item.calories_kcal ?? '--'} kcal</Text>
-          <Text style={styles.macroText}>{item.carbs_g ?? '--'}g carbs</Text>
-          <Text style={styles.macroText}>{item.protein_g ?? '--'}g protein</Text>
-          <Text style={styles.macroText}>{item.fat_g ?? '--'}g fat</Text>
-        </View>
-      </View>
-    </View>
-  );
-
   const handleRemoveItem = (index: number) => {
     setItems((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleAddItem = () => {
+    setFixResultsOpen(false);
     router.push({
       pathname: '/log-meal-items',
       params: {
@@ -426,6 +631,7 @@ export default function LogMealReviewScreen() {
   };
 
   const handleReplaceItem = (index: number) => {
+    setFixResultsOpen(false);
     router.push({
       pathname: '/log-meal-items',
       params: {
@@ -474,7 +680,7 @@ export default function LogMealReviewScreen() {
       const finalMealTitle = mealTitle.trim() || autoMealTitle;
       const meal = await createMeal(user.id, {
         name: finalMealTitle,
-        meal_type: null,
+        meal_type: mealType.toLowerCase(),
         logged_at: mealTime.toISOString(),
         photo_path: photoUrl,
         notes: mealNotes || null,
@@ -490,7 +696,7 @@ export default function LogMealReviewScreen() {
         external_id: item.external_id,
         display_name: item.display_name,
         brand: item.brand,
-        quantity: item.quantity,
+        quantity: item.quantity * servings,
         unit: 'serving',
         serving_size: item.serving_size,
         serving_unit: item.serving_unit,
@@ -524,9 +730,7 @@ export default function LogMealReviewScreen() {
 
       await AsyncStorage.multiRemove([MEAL_DRAFT_KEY, MEAL_ITEMS_DRAFT_KEY]);
 
-      Alert.alert('Success', 'Meal saved successfully!', [
-        { text: 'OK', onPress: () => router.dismissTo('/(tabs)') },
-      ]);
+      router.dismissTo('/(tabs)');
     } catch (error) {
       console.error('Save meal error:', error);
       Alert.alert('Error', 'Failed to save meal.');
@@ -535,74 +739,240 @@ export default function LogMealReviewScreen() {
     }
   };
 
-  return (
-    <View style={styles.root}>
-      <LinearGradient
-        colors={['#1a1f24', '#181c20', '#111111']}
-        locations={[0, 0.35, 1]}
-        style={styles.topGlow}
-      />
+  const renderItemRow = (item: SelectedMealItem, index: number) => (
+    <View key={`${item.provider}-${item.external_id}`} style={styles.fixItemRow}>
+      <View style={styles.fixItemHeader}>
+        <Text style={styles.fixItemName}>{item.display_name}</Text>
+        {item.source === 'manual' && (
+          <View style={styles.needsReviewPill}>
+            <Text style={styles.needsReviewText}>Needs review</Text>
+          </View>
+        )}
+      </View>
 
-      <SafeAreaView edges={['top']} style={styles.safe}>
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [
-              styles.headerIconBtn,
-              pressed && styles.headerIconBtnPressed,
-            ]}
-          >
-            <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
+      <View style={styles.fixItemControls}>
+        <View style={styles.qtyRow}>
+          <Pressable onPress={() => handleUpdateQuantity(index, -0.25)} style={styles.qtyButton}>
+            <Ionicons name="remove" size={18} color="#FFFFFF" />
           </Pressable>
-          <Text style={styles.headerTitle}>REVIEW MEAL</Text>
-          <View style={styles.headerIconBtnSpacer} />
+          <TextInput
+            value={quantityInputs[`${item.provider}-${item.external_id}`] ?? String(item.quantity || 1)}
+            onChangeText={(text) => handleQuantityInputChange(index, text)}
+            onBlur={() => handleQuantityInputBlur(index)}
+            keyboardType="decimal-pad"
+            style={styles.qtyInput}
+          />
+          <Pressable onPress={() => handleUpdateQuantity(index, 0.25)} style={styles.qtyButton}>
+            <Ionicons name="add" size={18} color="#FFFFFF" />
+          </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          {imageUri ? (
-            <View style={styles.photoCard}>
-              <Image source={{ uri: imageUri }} style={styles.photoPreview} />
-            </View>
-          ) : null}
+        <View style={styles.fixItemActions}>
+          <Pressable onPress={() => handleReplaceItem(index)} style={styles.replaceButton}>
+            <Text style={styles.replaceButtonText}>Replace</Text>
+          </Pressable>
+          <Pressable onPress={() => handleRemoveItem(index)} style={styles.removeButton} hitSlop={8}>
+            <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
+          </Pressable>
+        </View>
+      </View>
 
-          <View style={styles.nameCard}>
-            <Text style={styles.sectionLabel}>Meal name</Text>
-            <TextInput
-              value={mealTitle}
-              onChangeText={(text) => {
-                setMealTitle(text);
-                setMealTitleEdited(Boolean(text.trim()));
-              }}
-              placeholder="Auto-generated"
-              placeholderTextColor="#6F6F6F"
-              style={styles.nameInput}
-            />
-          </View>
-
-          {mealNotes ? (
-            <View style={styles.descriptionCard}>
-              <Text style={styles.sectionLabel}>Description</Text>
-              <Text style={styles.descriptionText}>{mealNotes}</Text>
-            </View>
-          ) : null}
-
-          <View style={styles.timeCard}>
-            <Text style={styles.sectionLabel}>Meal time</Text>
+      <View style={styles.unitRow}>
+        {getUnitOptions(item).map((unit) => {
+          const active = (item.serving_unit || 'serving') === unit;
+          return (
             <Pressable
-              onPress={() => setTimeModalOpen(true)}
-              style={({ pressed }) => [
-                styles.timeRow,
-                pressed && styles.timeRowPressed,
-              ]}
+              key={unit}
+              onPress={() => handleUnitChange(index, unit)}
+              style={[styles.unitChip, active && styles.unitChipActive]}
             >
-              <Text style={styles.timeValue}>{formatTime(mealTime)}</Text>
-              <ChevronDown />
+              <Text style={[styles.unitText, active && styles.unitTextActive]}>{unit}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={styles.itemMacros}>
+        <Text style={styles.itemMacroText}>{Math.round((item.calories_kcal ?? 0) * (item.quantity || 1))} cal</Text>
+        <Text style={styles.itemMacroText}>{Math.round((item.carbs_g ?? 0) * (item.quantity || 1))}g carbs</Text>
+        <Text style={styles.itemMacroText}>{Math.round((item.protein_g ?? 0) * (item.quantity || 1))}g protein</Text>
+      </View>
+    </View>
+  );
+
+  const bubblePositions = getBubblePositions(items.length, PHOTO_HEIGHT);
+
+  return (
+    <View style={styles.root}>
+      {/* Full-screen photo background */}
+      <View style={[styles.photoContainer, { height: PHOTO_HEIGHT + insets.top }]}>
+        {imageUri ? (
+          <Image source={{ uri: imageUri }} style={styles.photo} resizeMode="cover" />
+        ) : (
+          <LinearGradient
+            colors={['#2C3E50', '#1a1a2e']}
+            style={styles.photoPlaceholder}
+          >
+            <Ionicons name="restaurant-outline" size={64} color="rgba(255,255,255,0.3)" />
+          </LinearGradient>
+        )}
+
+        {/* Gradient overlay for readability */}
+        <LinearGradient
+          colors={['rgba(0,0,0,0.4)', 'transparent', 'rgba(17,17,17,0.95)']}
+          locations={[0, 0.3, 0.85]}
+          style={styles.photoOverlay}
+        />
+
+        {/* Annotation bubbles */}
+        {items.slice(0, 5).map((item, index) => (
+          <FoodAnnotationBubble
+            key={`${item.provider}-${item.external_id}`}
+            item={item}
+            position={bubblePositions[index]}
+            index={index}
+          />
+        ))}
+      </View>
+
+      {/* Floating header */}
+      <SafeAreaView edges={['top']} style={styles.floatingHeader}>
+        <Pressable
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
+        >
+          <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
+        </Pressable>
+        <Text style={styles.headerTitle}>Nutrition</Text>
+        <Pressable
+          onPress={() => {}}
+          style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
+        >
+          <Ionicons name="ellipsis-horizontal" size={22} color="#FFFFFF" />
+        </Pressable>
+      </SafeAreaView>
+
+      {/* Bottom overlay card */}
+      <View style={[styles.bottomCard, { paddingBottom: insets.bottom + 16 }]}>
+        <View style={styles.dragHandle} />
+
+        <ScrollView
+          style={styles.cardScrollView}
+          contentContainerStyle={styles.cardScrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          <View style={styles.cardContent}>
+            {/* Meal type badge */}
+            <MealTypeBadge type={mealType} />
+
+            {/* Meal name and servings */}
+            <View style={styles.mealNameRow}>
+              <Text style={styles.mealName} numberOfLines={2}>{mealTitle || 'Untitled Meal'}</Text>
+              <QuantityStepper value={servings} onChange={setServings} />
+            </View>
+
+            {/* Macro grid */}
+            <MacroGrid totals={summary} />
+
+            {/* Metabolic score */}
+            {summary.hasData && <MetabolicScoreBar score={mealScore} />}
+
+            {/* Personalized Adjustments */}
+            {(adjustments.length > 0 || adjustmentsLoading) && (
+              <View style={styles.adjustmentsSection}>
+                <Text style={styles.adjustmentsTitle}>Try these adjustments:</Text>
+                {adjustmentsLoading ? (
+                  <View style={styles.adjustmentsLoading}>
+                    <Text style={styles.adjustmentsLoadingText}>Personalizing suggestions...</Text>
+                  </View>
+                ) : (
+                  adjustments.map((adjustment) => (
+                    <AdjustmentCard
+                      key={adjustment.id}
+                      adjustment={adjustment}
+                      isSelected={selectedAdjustments.has(adjustment.id)}
+                      onToggle={() => {
+                        setSelectedAdjustments((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(adjustment.id)) {
+                            next.delete(adjustment.id);
+                          } else {
+                            next.add(adjustment.id);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                  ))
+                )}
+              </View>
+            )}
+
+            {/* Action buttons */}
+            <View style={styles.actionButtons}>
+              <Pressable
+                onPress={() => setFixResultsOpen(true)}
+                style={({ pressed }) => [styles.fixResultsButton, pressed && styles.buttonPressed]}
+              >
+                <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+                <Text style={styles.fixResultsText}>Fix Results</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleSaveMeal}
+                disabled={isSaving || items.length === 0}
+                style={({ pressed }) => [
+                  styles.doneButton,
+                  (isSaving || items.length === 0) && styles.doneButtonDisabled,
+                  pressed && styles.buttonPressed,
+                ]}
+              >
+                <Text style={styles.doneButtonText}>{isSaving ? 'Saving...' : 'Done'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </ScrollView>
+      </View>
+
+      {/* Fix Results Sheet */}
+      <Sheet open={fixResultsOpen} onOpenChange={setFixResultsOpen}>
+        <SheetContent style={styles.fixResultsSheet}>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Edit Meal</Text>
+            <Pressable onPress={() => setFixResultsOpen(false)} hitSlop={10}>
+              <Ionicons name="close" size={24} color="#FFFFFF" />
             </Pressable>
           </View>
 
-          <View style={styles.glucoseCard}>
-            <Text style={styles.sectionLabel}>Pre-meal Glucose (optional)</Text>
-            <View style={styles.glucoseInputRow}>
+          <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+            {/* Meal name edit */}
+            <View style={styles.sheetSection}>
+              <Text style={styles.sheetSectionLabel}>Meal Name</Text>
+              <TextInput
+                value={mealTitle}
+                onChangeText={(text) => {
+                  setMealTitle(text);
+                  setMealTitleEdited(Boolean(text.trim()));
+                }}
+                placeholder="Enter meal name"
+                placeholderTextColor="#6F6F6F"
+                style={styles.sheetInput}
+              />
+            </View>
+
+            {/* Time edit */}
+            <View style={styles.sheetSection}>
+              <Text style={styles.sheetSectionLabel}>Time</Text>
+              <Pressable onPress={() => setTimeModalOpen(true)} style={styles.timeButton}>
+                <Ionicons name="time-outline" size={18} color="#7ED3FF" />
+                <Text style={styles.timeButtonText}>{formatTime(mealTime)}</Text>
+                <Ionicons name="chevron-down" size={16} color="#878787" />
+              </Pressable>
+            </View>
+
+            {/* Glucose */}
+            <View style={styles.sheetSection}>
+              <Text style={styles.sheetSectionLabel}>Pre-meal Glucose (optional)</Text>
               <Input
                 value={glucoseValue}
                 onChangeText={setGlucoseValue}
@@ -610,45 +980,27 @@ export default function LogMealReviewScreen() {
                 keyboardType="decimal-pad"
               />
             </View>
-          </View>
 
-          <View style={styles.itemsCard}>
-            <View style={styles.itemsHeader}>
-              <Text style={styles.sectionLabel}>Items</Text>
-              <Pressable onPress={handleAddItem} hitSlop={10}>
-                <Text style={styles.addItemText}>Add item</Text>
-              </Pressable>
-            </View>
-
-            {items.length === 0 ? (
-              <Text style={styles.emptyText}>No items yet. Add one to continue.</Text>
-            ) : (
-              <View style={styles.sectionStack}>
-                {needsReviewItems.length > 0 ? (
-                  <View style={styles.sectionBlock}>
-                    <View style={styles.sectionHeader}>
-                      <Text style={styles.sectionTitle}>Needs review</Text>
-                      <View style={styles.sectionBadge}>
-                        <Text style={styles.sectionBadgeText}>{needsReviewItems.length}</Text>
-                      </View>
-                    </View>
-                    <Text style={styles.sectionHelper}>Check these items for accuracy.</Text>
-                    {needsReviewItems.map(({ item, index }) => renderItemRow(item, index, true))}
-                  </View>
-                ) : null}
-
-                {matchedItems.length > 0 ? (
-                  <View style={styles.sectionBlock}>
-                    {matchedItems.map(({ item, index }) => renderItemRow(item, index, false))}
-                  </View>
-                ) : null}
+            {/* Items */}
+            <View style={styles.sheetSection}>
+              <View style={styles.itemsHeader}>
+                <Text style={styles.sheetSectionLabel}>Items ({items.length})</Text>
+                <Pressable onPress={handleAddItem}>
+                  <Text style={styles.addItemText}>+ Add item</Text>
+                </Pressable>
               </View>
-            )}
-          </View>
 
-        </ScrollView>
-      </SafeAreaView>
+              {items.length === 0 ? (
+                <Text style={styles.emptyText}>No items yet. Add one to continue.</Text>
+              ) : (
+                items.map((item, index) => renderItemRow(item, index))
+              )}
+            </View>
+          </ScrollView>
+        </SheetContent>
+      </Sheet>
 
+      {/* Time Picker Sheet */}
       <Sheet open={timeModalOpen} onOpenChange={setTimeModalOpen}>
         <SheetContent showHandle={false} style={styles.timeSheet}>
           <View style={styles.timeSheetTopRow}>
@@ -734,257 +1086,433 @@ export default function LogMealReviewScreen() {
           </View>
         </SheetContent>
       </Sheet>
-
-      {/* Overlay to close bubble when tapping outside */}
-      {showMacroBubble && (
-        <Pressable
-          style={styles.bubbleOverlay}
-          onPress={toggleMacroBubble}
-        />
-      )}
-
-      <SafeAreaView edges={['bottom']} style={styles.footerSafe}>
-        <View style={styles.footer}>
-          {/* Animated Macro Bubble */}
-          <Animated.View
-            style={[
-              styles.macroBubble,
-              {
-                opacity: bubbleAnim,
-                transform: [
-                  {
-                    translateY: bubbleAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [20, 0],
-                    }),
-                  },
-                  {
-                    scale: bubbleAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.9, 1],
-                    }),
-                  },
-                ],
-              },
-            ]}
-            pointerEvents={showMacroBubble ? 'auto' : 'none'}
-          >
-            <View style={styles.macroBubbleContent}>
-              <View style={styles.macroBubbleRow}>
-                <Text style={styles.macroBubbleLabel}>🔥 Calories</Text>
-                <Text style={styles.macroBubbleValue}>{summary.calories} kcal</Text>
-              </View>
-              <View style={styles.macroBubbleRow}>
-                <Text style={styles.macroBubbleLabel}>🥩 Protein</Text>
-                <Text style={styles.macroBubbleValue}>{summary.protein}g</Text>
-              </View>
-              <View style={styles.macroBubbleRow}>
-                <Text style={styles.macroBubbleLabel}>🧈 Fat</Text>
-                <Text style={styles.macroBubbleValue}>{summary.fat}g</Text>
-              </View>
-              <View style={styles.macroBubbleRow}>
-                <Text style={styles.macroBubbleLabel}>🥬 Fiber</Text>
-                <Text style={styles.macroBubbleValue}>{summary.fibre}g</Text>
-              </View>
-              <View style={styles.macroBubbleRow}>
-                <Text style={styles.macroBubbleLabel}>🍞 Carbs</Text>
-                <Text style={styles.macroBubbleValue}>{summary.carbs}g</Text>
-              </View>
-            </View>
-          </Animated.View>
-
-            <Pressable onPress={toggleMacroBubble} style={styles.summaryTouchable}>
-            <View style={styles.summaryRow}>
-              <Text style={styles.footerTitle}>{summary.countLabel}</Text>
-              <Text style={styles.footerDivider}>•</Text>
-              <Text style={styles.footerCarbs}>{summary.carbsLabel}</Text>
-            </View>
-            <Text style={styles.tapToSeeMore}>
-              {showMacroBubble ? 'tap to close' : 'tap to see more'}
-            </Text>
-          </Pressable>
-          <View style={styles.footerButtons}>
-            <Pressable
-              onPress={() => {
-                const mealName = mealTitle.trim() || autoMealTitle;
-                router.push({
-                  pathname: '/pre-meal-check',
-                  params: {
-                    mealName,
-                    mealTime: mealTime.toISOString(),
-                    imageUri: imageUri || '',
-                    mealItems: JSON.stringify(items),
-                  },
-                } as any);
-              }}
-              disabled={!items.length}
-              style={({ pressed }) => [
-                styles.preMealButton,
-                !items.length && styles.secondaryButtonDisabled,
-                pressed && styles.saveButtonPressed,
-              ]}
-            >
-              <Ionicons name="sparkles" size={16} color="#FFFFFF" />
-            </Pressable>
-            <Pressable
-              onPress={handleSaveMeal}
-              disabled={isSaving || items.length === 0}
-              style={({ pressed }) => [
-                styles.saveButton,
-                (isSaving || items.length === 0) && styles.saveButtonDisabled,
-                pressed && styles.saveButtonPressed,
-              ]}
-            >
-              <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save Meal'}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </SafeAreaView>
     </View>
   );
 }
+
+// ============================================
+// STYLES
+// ============================================
 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: '#111111',
   },
-  topGlow: {
+
+  // Photo section
+  photoContainer: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: 280,
   },
-  safe: {
-    flex: 1,
+  photo: {
+    width: '100%',
+    height: '100%',
   },
-  header: {
-    height: 72,
-    paddingHorizontal: 16,
+  photoPlaceholder: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+
+  // Annotation bubbles
+  annotationBubble: {
+    position: 'absolute',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+    maxWidth: 140,
+  },
+  annotationName: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: '#1a1a1a',
+    textAlign: 'center',
+  },
+  annotationCalories: {
+    fontFamily: fonts.bold,
+    fontSize: 15,
+    color: '#333',
+    marginTop: 2,
+  },
+
+  // Floating header
+  floatingHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerButtonPressed: {
+    opacity: 0.7,
   },
   headerTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 16,
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+
+  // Bottom card
+  bottomCard: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(20, 20, 20, 0.98)',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 12,
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  cardScrollView: {
+    maxHeight: SCREEN_HEIGHT * 0.55,
+  },
+  cardScrollContent: {
+    flexGrow: 1,
+  },
+  cardContent: {
+    paddingHorizontal: 20,
+  },
+
+  // Meal type badge
+  mealTypeBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginBottom: 12,
+  },
+  mealTypeBadgeText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+
+  // Meal name row
+  mealNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+    gap: 16,
+  },
+  mealName: {
+    flex: 1,
+    fontFamily: fonts.bold,
+    fontSize: 22,
+    color: '#FFFFFF',
+    lineHeight: 28,
+  },
+
+  // Quantity stepper
+  quantityStepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 24,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+  },
+  stepperButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperValue: {
+    fontFamily: fonts.semiBold,
+    fontSize: 16,
+    color: '#FFFFFF',
+    marginHorizontal: 16,
+  },
+
+  // Macro grid
+  macroGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 16,
+  },
+  macroItem: {
+    width: (SCREEN_WIDTH - 50) / 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 16,
+    padding: 14,
+  },
+  macroIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  macroLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: '#A0A0A0',
+    marginBottom: 2,
+  },
+  macroValue: {
     fontFamily: fonts.bold,
     fontSize: 18,
-    letterSpacing: 1,
-    color: Colors.textPrimary,
+    color: '#FFFFFF',
   },
-  headerIconBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 33,
-    justifyContent: 'center',
+
+  // Metabolic score
+  scoreContainer: {
+    backgroundColor: 'rgba(52, 199, 89, 0.08)',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 20,
+  },
+  scoreHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(63,66,67,0.3)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.25,
-    shadowRadius: 2,
+    marginBottom: 10,
   },
-  headerIconBtnPressed: {
-    opacity: 0.7,
-    transform: [{ scale: 0.97 }],
+  scoreIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 45, 85, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
   },
-  headerIconBtnSpacer: {
-    width: 48,
-    height: 48,
-    opacity: 0,
+  scoreLabel: {
+    flex: 1,
+    fontFamily: fonts.medium,
+    fontSize: 14,
+    color: '#FFFFFF',
   },
-  content: {
-    paddingHorizontal: 16,
-    paddingBottom: 140,
+  scoreValue: {
+    fontFamily: fonts.bold,
+    fontSize: 16,
+    color: '#FFFFFF',
   },
-  sectionLabel: {
+  scoreBarBackground: {
+    height: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  scoreBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+
+  // Adjustments section
+  adjustmentsSection: {
+    marginBottom: 20,
+  },
+  adjustmentsTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 16,
+    color: '#FFFFFF',
+    marginBottom: 12,
+  },
+  adjustmentsLoading: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  adjustmentsLoadingText: {
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    color: '#8C8C8C',
+  },
+  adjustmentCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  adjustmentCardPressed: {
+    opacity: 0.8,
+  },
+  adjustmentContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+  adjustmentAction: {
+    fontFamily: fonts.semiBold,
+    fontSize: 15,
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  adjustmentImpact: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: '#8C8C8C',
+    marginBottom: 8,
+  },
+  adjustmentDescription: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: '#A0A0A0',
+    lineHeight: 18,
+  },
+  adjustmentCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  adjustmentCheckboxSelected: {
+    backgroundColor: '#34C759',
+    borderColor: '#34C759',
+  },
+
+  // Action buttons
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  fixResultsButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  fixResultsText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 15,
+    color: '#FFFFFF',
+  },
+  doneButton: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: '#333333',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  doneButtonDisabled: {
+    opacity: 0.5,
+  },
+  doneButtonText: {
+    fontFamily: fonts.bold,
+    fontSize: 15,
+    color: '#FFFFFF',
+  },
+  buttonPressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.98 }],
+  },
+
+  // Fix Results Sheet
+  fixResultsSheet: {
+    backgroundColor: '#1a1b1c',
+    maxHeight: SCREEN_HEIGHT * 0.85,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  sheetTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 18,
+    color: '#FFFFFF',
+  },
+  sheetScroll: {
+    paddingHorizontal: 20,
+  },
+  sheetSection: {
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  sheetSectionLabel: {
     fontFamily: fonts.medium,
     fontSize: 12,
     color: '#A7A7A7',
     textTransform: 'uppercase',
-    letterSpacing: 1.2,
+    letterSpacing: 1,
+    marginBottom: 10,
   },
-  photoCard: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  photoPreview: {
-    width: '100%',
-    height: 180,
-  },
-  nameCard: {
-    borderRadius: 16,
-    padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
-    marginBottom: 16,
-  },
-  nameInput: {
-    marginTop: 8,
+  sheetInput: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: '#FFFFFF',
-    backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontFamily: fonts.regular,
     fontSize: 15,
+    color: '#FFFFFF',
   },
-  descriptionCard: {
-    borderRadius: 16,
-    padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
-    marginBottom: 16,
-  },
-  descriptionText: {
-    marginTop: 8,
-    fontFamily: fonts.regular,
-    color: '#E6E6E6',
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  timeCard: {
-    borderRadius: 16,
-    padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
-    marginBottom: 16,
-  },
-  timeRow: {
-    marginTop: 10,
+  timeButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    gap: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  timeRowPressed: {
-    opacity: 0.8,
-  },
-  timeValue: {
-    fontFamily: fonts.semiBold,
+  timeButtonText: {
+    flex: 1,
+    fontFamily: fonts.medium,
     fontSize: 15,
-    color: Colors.textPrimary,
-  },
-  itemsCard: {
-    borderRadius: 18,
-    padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
-    marginBottom: 16,
+    color: '#FFFFFF',
   },
   itemsHeader: {
     flexDirection: 'row',
@@ -994,31 +1522,31 @@ const styles = StyleSheet.create({
   },
   addItemText: {
     fontFamily: fonts.medium,
-    fontSize: 12,
+    fontSize: 14,
     color: '#7ED3FF',
   },
   emptyText: {
     fontFamily: fonts.regular,
-    fontSize: 13,
+    fontSize: 14,
     color: '#8C8C8C',
+    textAlign: 'center',
+    paddingVertical: 20,
   },
-  itemRow: {
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+
+  // Item rows in Fix Results
+  fixItemRow: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
   },
-  itemRowNeedsReview: {
-    backgroundColor: 'rgba(244,67,54,0.08)',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    marginTop: 8,
-  },
-  itemHeader: {
+  fixItemHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginBottom: 12,
   },
-  itemName: {
+  fixItemName: {
     flex: 1,
     fontFamily: fonts.semiBold,
     fontSize: 15,
@@ -1028,180 +1556,108 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: 'rgba(244,67,54,0.16)',
+    backgroundColor: 'rgba(244, 67, 54, 0.16)',
   },
   needsReviewText: {
     fontFamily: fonts.medium,
     fontSize: 10,
     color: '#F4A7A7',
   },
-  replaceButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(126,211,255,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(126,211,255,0.3)',
-  },
-  replaceButtonText: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-    color: '#7ED3FF',
-  },
-  removeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(244,67,54,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionStack: {
-    gap: 18,
-  },
-  sectionBlock: {
-    gap: 10,
-  },
-  sectionHeader: {
+  fixItemControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-  },
-  sectionTitle: {
-    fontFamily: fonts.semiBold,
-    fontSize: 13,
-    color: '#EAEAEA',
-    textTransform: 'uppercase',
-    letterSpacing: 1.1,
-  },
-  sectionBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: 'rgba(244,67,54,0.2)',
-  },
-  sectionBadgeText: {
-    fontFamily: fonts.medium,
-    fontSize: 11,
-    color: '#F4A7A7',
-  },
-  sectionBadgeMuted: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  sectionBadgeMutedText: {
-    fontFamily: fonts.medium,
-    fontSize: 11,
-    color: '#B5B5B5',
-  },
-  sectionHelper: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    color: '#A2A2A2',
-  },
-  itemMetaRow: {
-    marginTop: 10,
-    gap: 10,
+    justifyContent: 'space-between',
+    marginBottom: 10,
   },
   qtyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   qtyButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#3F4243',
   },
   qtyInput: {
-    minWidth: 56,
+    minWidth: 50,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 10,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     color: '#E8E8E8',
     fontFamily: fonts.medium,
-    fontSize: 13,
+    fontSize: 14,
     textAlign: 'center',
+  },
+  fixItemActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  replaceButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(126, 211, 255, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(126, 211, 255, 0.3)',
+  },
+  replaceButtonText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: '#7ED3FF',
+  },
+  removeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(244, 67, 54, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   unitRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
+    marginBottom: 10,
   },
   unitChip: {
-    minHeight: 44,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
   },
   unitChipActive: {
-    borderColor: 'rgba(126,211,255,0.6)',
-    backgroundColor: 'rgba(126,211,255,0.16)',
+    borderColor: 'rgba(126, 211, 255, 0.6)',
+    backgroundColor: 'rgba(126, 211, 255, 0.16)',
   },
   unitText: {
     fontFamily: fonts.medium,
-    fontSize: 14,
+    fontSize: 12,
     color: '#9B9B9B',
   },
   unitTextActive: {
     color: '#CFEFFF',
   },
-  macroRow: {
+  itemMacros: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 12,
   },
-  macroText: {
+  itemMacroText: {
     fontFamily: fonts.regular,
-    color: '#9B9B9B',
     fontSize: 12,
+    color: '#8C8C8C',
   },
-  glucoseCard: {
-    borderRadius: 18,
-    padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
-    marginBottom: 16,
-  },
-  glucoseInputRow: {
-    marginTop: 10,
-  },
-  glucoseContextRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  glucoseContextChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
-  glucoseContextChipActive: {
-    backgroundColor: 'rgba(52,148,217,0.2)',
-  },
-  glucoseContextText: {
-    fontFamily: fonts.medium,
-    fontSize: 12,
-    color: '#8E8E8E',
-  },
-  glucoseContextTextActive: {
-    color: '#79C0E8',
-  },
+
+  // Time picker sheet
   timeSheet: {
     backgroundColor: '#3F4243',
     borderWidth: 0,
@@ -1252,162 +1708,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   wheelItemActive: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
   },
   wheelText: {
     fontFamily: fonts.medium,
     fontSize: 18,
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(255, 255, 255, 0.45)',
   },
   wheelTextActive: {
     color: '#FFFFFF',
     fontFamily: fonts.semiBold,
-  },
-  secondaryButton: {
-    minHeight: 52,
-    paddingVertical: 14,
-    borderRadius: 14,
-    alignItems: 'center',
-    backgroundColor: 'rgba(39,175,221,0.25)',
-    borderWidth: 1,
-    borderColor: 'rgba(39,175,221,0.4)',
-    marginBottom: 16,
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  secondaryButtonDisabled: {
-    opacity: 0.6,
-  },
-  secondaryButtonText: {
-    fontFamily: fonts.semiBold,
-    color: '#E5F8FF',
-    fontSize: 15,
-  },
-  saveButton: {
-    flex: 1,
-    minHeight: 56,
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.buttonPrimary,
-    shadowColor: Colors.buttonPrimary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  saveButtonDisabled: {
-    opacity: 0.5,
-    shadowOpacity: 0,
-  },
-  saveButtonPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.98 }],
-  },
-  saveButtonText: {
-    fontFamily: fonts.bold,
-    color: '#FFFFFF',
-    fontSize: 17,
-    letterSpacing: 0.5,
-  },
-  footerSafe: {
-    backgroundColor: '#111111',
-  },
-  footer: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
-    gap: 14,
-  },
-  footerButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  preMealButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(39,175,221,0.3)',
-    borderWidth: 1,
-    borderColor: 'rgba(39,175,221,0.5)',
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  footerTitle: {
-    fontFamily: fonts.semiBold,
-    color: '#FFFFFF',
-    fontSize: 18,
-  },
-  footerDivider: {
-    fontFamily: fonts.regular,
-    color: '#6B6B6B',
-    fontSize: 18,
-  },
-  footerCarbs: {
-    fontFamily: fonts.semiBold,
-    color: '#7ED3FF',
-    fontSize: 18,
-  },
-  macroBubble: {
-    position: 'absolute',
-    bottom: '100%',
-    left: 16,
-    right: 16,
-    marginBottom: 12,
-    backgroundColor: 'rgba(30, 35, 40, 0.98)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(126, 211, 255, 0.25)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 10,
-  },
-  macroBubbleContent: {
-    padding: 20,
-    gap: 14,
-  },
-  macroBubbleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  macroBubbleLabel: {
-    fontFamily: fonts.medium,
-    fontSize: 15,
-    color: '#B5B5B5',
-  },
-  macroBubbleValue: {
-    fontFamily: fonts.semiBold,
-    fontSize: 16,
-    color: '#FFFFFF',
-  },
-  summaryTouchable: {
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  tapToSeeMore: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    color: '#6B6B6B',
-    marginTop: 4,
-  },
-  bubbleOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
 });
