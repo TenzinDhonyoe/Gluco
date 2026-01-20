@@ -57,7 +57,11 @@ export default function NotificationsListScreen() {
     const handleMealPress = (meal: MealWithCheckin) => {
         router.push({
             pathname: '/meal-checkin',
-            params: { mealId: meal.id, mealName: meal.name },
+            params: {
+                mealId: meal.id,
+                mealName: meal.name,
+                ...(meal.photo_path && { photoPath: meal.photo_path }),
+            },
         });
     };
 

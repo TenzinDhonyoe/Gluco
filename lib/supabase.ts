@@ -277,6 +277,11 @@ export async function ensureSignedMealPhotoUrl(photoPath: string): Promise<strin
             .createSignedUrl(photoPath, 60 * 60); // 1 hour
 
         if (error) {
+            // If object is missing, just return null without loud error
+            if (error.message.includes('Object not found')) {
+                console.warn('Image not found in storage:', photoPath);
+                return null;
+            }
             console.error('Failed to create signed URL:', error.message);
             return null;
         }
@@ -1343,6 +1348,11 @@ export async function getDailyContextByRange(
         .order('date', { ascending: false });
 
     if (error) {
+        // specific handling for HTML/Cloudflare errors to avoid console spam
+        if (typeof error.message === 'string' && error.message.trim().startsWith('<')) {
+            console.warn('Supabase service returned a 500/HTML error for daily context. Service might be down or paused.');
+            return [];
+        }
         console.error('Error fetching daily context:', error);
         return [];
     }
@@ -2388,6 +2398,52 @@ export interface MetabolicScoreComponents {
     lab_pen: number;
 }
 
+export type MetabolicScoreConfidenceV2 = 'low' | 'medium' | 'high' | 'insufficient_data';
+
+export interface MetabolicScoreComponentsV2 {
+    rhrBad: number | null;
+    stepsBad: number | null;
+    sleepBad: number | null;
+    hrvBad: number | null;
+    contextNorm: number;
+    wearableStrain: number;
+    contextMultiplier: number;
+    strain: number;
+}
+
+export interface MetabolicScoreV2Result {
+    score7d: number | null;
+    score28d: number | null;
+    confidence: MetabolicScoreConfidenceV2;
+    atypicalActivityWeek: boolean;
+    mode: 'baseline_relative' | 'absolute_fallback';
+    reason?: 'insufficient_data';
+    components?: MetabolicScoreComponentsV2;
+    debug?: {
+        validDays: {
+            rhrDays: number;
+            stepsDays: number;
+            sleepDays: number;
+            hrvDays: number;
+            hasAge: boolean;
+            hasBmi: boolean;
+        };
+        usedBaseline: {
+            rhr: boolean;
+            steps: boolean;
+            sleep: boolean;
+            hrv: boolean;
+        };
+        usedFallbacks: {
+            rhr: boolean;
+            steps: boolean;
+            sleep: boolean;
+            hrv: boolean;
+        };
+        smoothingUnavailable: boolean;
+    };
+}
+
 export interface MetabolicScoreResult {
     status: 'ok' | 'insufficient';
     range: MetabolicScoreRangeKey;
@@ -2399,6 +2455,14 @@ export interface MetabolicScoreResult {
     lab_present: boolean;
     drivers: MetabolicScoreDriver[];
     components: MetabolicScoreComponents;
+    score7d?: number | null;
+    score28d?: number | null;
+    confidence_v2?: MetabolicScoreConfidenceV2;
+    atypicalActivityWeek?: boolean;
+    mode?: 'baseline_relative' | 'absolute_fallback';
+    components_v2?: MetabolicScoreComponentsV2;
+    debug_v2?: MetabolicScoreV2Result['debug'];
+    v2?: MetabolicScoreV2Result;
 }
 
 export async function invokeMetabolicScore(

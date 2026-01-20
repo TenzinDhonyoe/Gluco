@@ -12,9 +12,17 @@ Provide the Today dashboard and Insights views that summarize recent meals, gluc
   - Uses `useTodayScreenData` to batch-fetch glucose logs, activity logs, fibre summary, and recent meals with check-ins.
   - The hook fetches an extended glucose window to support comparisons and trend charts.
   - UI mixes trend cards, quick actions, check-in cards, and AI/insight components.
+  - **Sticky time range picker** with blur effect (requires `expo-blur` native build).
 - **Insights**
   - Displays longer-form summaries based on a selected date range.
   - Uses the same data sources plus insight generation.
+
+## Glucose Trend Indicator
+The home screen displays glucose trends using a mascot-based gauge indicator (`GlucoseTrendIndicator`):
+- **Horseshoe gauge** with color gradient (red → yellow → green → yellow → red)
+- **Animated tick** showing current position (uses `react-native-reanimated`)
+- **Mascot** displays inside gauge (crying for low/high/no_data, default for in-range)
+- **Status label** with dynamic subtitle text
 
 ## Insight Generation
 - `usePersonalInsights` provides a cached insight list with a 12-hour TTL.
@@ -30,7 +38,8 @@ Provide the Today dashboard and Insights views that summarize recent meals, gluc
 - `components/animations/animated-screen.tsx`
 - `components/carousels/PersonalInsightsCarousel.tsx`
 - `components/cards/MealCheckinCard.tsx`
-- `components/charts/glucose-trend-chart.tsx`
+- `components/charts/GlucoseTrendIndicator.tsx` - Mascot gauge for glucose trends
+- `components/charts/glucose-trend-chart.tsx` (legacy, replaced by indicator)
 
 ## Key Files
 - `app/(tabs)/index.tsx`
@@ -38,3 +47,4 @@ Provide the Today dashboard and Insights views that summarize recent meals, gluc
 - `hooks/useTodayScreenData.ts`
 - `hooks/usePersonalInsights.ts`
 - `lib/insights.ts`
+

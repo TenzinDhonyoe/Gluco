@@ -1,9 +1,9 @@
 import { AnimatedFAB, type AnimatedFABRef } from '@/components/animations/animated-fab';
-import { AnimatedInteger, AnimatedNumber } from '@/components/animations/animated-number';
+import { AnimatedInteger } from '@/components/animations/animated-number';
 import { AnimatedScreen } from '@/components/animations/animated-screen';
 import { MealCheckinCard } from '@/components/cards/MealCheckinCard';
 import { PersonalInsightsCarousel } from '@/components/carousels/PersonalInsightsCarousel';
-import { GlucoseTrendChart, type TrendPoint } from '@/components/charts/glucose-trend-chart';
+import { GlucoseTrendIndicator, type TrendStatus } from '@/components/charts/GlucoseTrendIndicator';
 import { SegmentedControl } from '@/components/controls/segmented-control';
 import { ActiveExperimentWidget } from '@/components/experiments/ActiveExperimentWidget';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
@@ -17,8 +17,8 @@ import { SleepData, useSleepData } from '@/hooks/useSleepData';
 import { useGlucoseTargetRange, useTodayScreenData } from '@/hooks/useTodayScreenData';
 import { InsightData, TrackingMode } from '@/lib/insights';
 import { GlucoseLog, MealWithCheckin } from '@/lib/supabase';
-import { getDateRange, getRangeDays, getRangeLabel, getRangeShortLabel, RangeKey } from '@/lib/utils/dateRanges';
-import { convertFromMmol, formatTargetRange, GlucoseUnit } from '@/lib/utils/glucoseUnits';
+import { getDateRange, getRangeDays, getRangeShortLabel, RangeKey } from '@/lib/utils/dateRanges';
+import { GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -46,95 +46,15 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const TARGET_MIN_MMOL = 3.9;
 const TARGET_MAX_MMOL = 10.0;
 
-function computeAverage(points: TrendPoint[]) {
-    if (points.length === 0) return 0;
-    const sum = points.reduce((acc, p) => acc + p.value, 0);
-    return sum / points.length;
+// Determine trend status based on average glucose
+function getTrendStatus(avg: number, hasData: boolean, min: number = TARGET_MIN_MMOL, max: number = TARGET_MAX_MMOL): TrendStatus {
+    if (!hasData) return 'no_data';
+    if (avg < min) return 'low';
+    if (avg > max) return 'high';
+    return 'in_range';
 }
 
-function getStatus(avg: number, min: number = TARGET_MIN_MMOL, max: number = TARGET_MAX_MMOL) {
-    const isGood = avg >= min && avg <= max;
-    return {
-        isGood,
-        label: isGood ? 'In target band' : 'Outside target band',
-        color: isGood ? Colors.glucoseGood : Colors.glucoseHigh,
-        bg: isGood ? 'rgba(76, 175, 80, 0.15)' : 'rgba(244, 67, 54, 0.15)',
-    };
-}
-
-// Chart data with both raw points and rolling average trend
-interface ChartData {
-    rawPoints: TrendPoint[];    // Daily averages (for dots)
-    trendPoints: TrendPoint[];  // Rolling averages (for dominant line)
-}
-
-// Transform glucose logs to chart data with raw readings and rolling average
-function transformLogsToChartData(logs: GlucoseLog[], range: RangeKey): ChartData {
-    const now = new Date();
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-    // Rolling average window size
-    const rollingWindow = range === '90d' ? 14 : 7;
-
-    // For 7d, 14d, 30d, 90d - group by day
-    const days = getRangeDays(range);
-    const dailyData: { [dateKey: string]: number[] } = {};
-
-    logs.forEach(log => {
-        const logDate = new Date(log.logged_at);
-        const dateKey = logDate.toISOString().split('T')[0]; // YYYY-MM-DD
-        if (!dailyData[dateKey]) dailyData[dateKey] = [];
-        dailyData[dateKey].push(log.glucose_level);
-    });
-
-    // Create raw data points for each day in the range
-    const rawPoints: TrendPoint[] = [];
-    const dailyValues: { date: Date; value: number; label: string }[] = [];
-
-    for (let i = days - 1; i >= 0; i--) {
-        const date = new Date(now);
-        date.setDate(now.getDate() - i);
-        const dateKey = date.toISOString().split('T')[0];
-        const values = dailyData[dateKey] || [];
-        const avgValue = values.length > 0
-            ? values.reduce((a, b) => a + b, 0) / values.length
-            : 0;
-
-        let label = '';
-        if (range === '7d') {
-            label = dayLabels[date.getDay()];
-        } else {
-            label = `${monthNames[date.getMonth()]} ${date.getDate()}`;
-        }
-
-        if (avgValue > 0) {
-            rawPoints.push({ value: avgValue, label });
-            dailyValues.push({ date, value: avgValue, label });
-        }
-    }
-
-    // Calculate rolling averages for trend line
-    const trendPoints: TrendPoint[] = [];
-
-    for (let i = 0; i < dailyValues.length; i++) {
-        // Get values for rolling window (look back)
-        const windowStart = Math.max(0, i - rollingWindow + 1);
-        const windowValues = dailyValues.slice(windowStart, i + 1).map(d => d.value);
-
-        if (windowValues.length > 0) {
-            const rollingAvg = windowValues.reduce((a, b) => a + b, 0) / windowValues.length;
-            trendPoints.push({
-                value: rollingAvg,
-                label: dailyValues[i].label,
-            });
-        }
-    }
-
-    return { rawPoints, trendPoints };
-}
-
-// Memoized Glucose Trends Card component
+// Memoized Glucose Trends Card component - now uses mascot-based indicator
 const GlucoseTrendsCard = React.memo(({ range, allLogs, isLoading, glucoseUnit }: {
     range: RangeKey;
     allLogs: GlucoseLog[];
@@ -143,118 +63,35 @@ const GlucoseTrendsCard = React.memo(({ range, allLogs, isLoading, glucoseUnit }
 }) => {
     const { targetMin, targetMax } = useGlucoseTargetRange();
 
-    // Keep track of the last valid average to show during loading
-    const lastAvgRef = React.useRef<number>(0);
-    const hasEverHadData = React.useRef<boolean>(false);
-
-    // Filter logs based on selected range and transform to chart data
-    const chartData = useMemo(() => {
+    // Filter logs based on selected range and calculate average
+    const { avg, hasData } = useMemo(() => {
         const { startDate, endDate } = getDateRange(range);
         const filteredLogs = allLogs.filter(log => {
             const logDate = new Date(log.logged_at);
             return logDate >= startDate && logDate <= endDate;
         });
-        return transformLogsToChartData(filteredLogs, range);
+
+        if (filteredLogs.length === 0) {
+            return { avg: 0, hasData: false };
+        }
+
+        const sum = filteredLogs.reduce((acc, log) => acc + log.glucose_level, 0);
+        return { avg: sum / filteredLogs.length, hasData: true };
     }, [allLogs, range]);
 
-    const { rawPoints, trendPoints } = chartData;
-
-    // Calculate current period average from raw points
-    const avg = useMemo(() => computeAverage(rawPoints), [rawPoints]);
-
-    // Update the last valid average when we have new data
-    const hasData = rawPoints.length > 0;
-    if (hasData && avg > 0) {
-        lastAvgRef.current = avg;
-        hasEverHadData.current = true;
-    }
-
-    // Use the current avg if we have data, otherwise use the last known value
-    const displayAvg = hasData ? avg : lastAvgRef.current;
-
-    // Calculate delta vs previous period
-    const delta = useMemo(() => {
-        const days = getRangeDays(range);
-        const now = new Date();
-
-        // Previous period: e.g., for 30d, this is 30-60 days ago
-        const prevEnd = new Date(now);
-        prevEnd.setDate(now.getDate() - days);
-        const prevStart = new Date(now);
-        prevStart.setDate(now.getDate() - (days * 2));
-
-        const prevLogs = allLogs.filter(log => {
-            const logDate = new Date(log.logged_at);
-            return logDate >= prevStart && logDate < prevEnd;
-        });
-
-        if (prevLogs.length === 0) return null;
-
-        const prevAvg = prevLogs.reduce((sum, log) => sum + log.glucose_level, 0) / prevLogs.length;
-        return avg - prevAvg;
-    }, [allLogs, range, avg]);
-
-    const status = useMemo(() => getStatus(avg, targetMin, targetMax), [avg, targetMin, targetMax]);
-
-    // Format the average for display - convert to user's unit
-    const displayAvgFormatted = convertFromMmol(displayAvg, glucoseUnit);
+    // Get the trend status for the indicator
+    const trendStatus = useMemo(() =>
+        getTrendStatus(avg, hasData, targetMin, targetMax),
+        [avg, hasData, targetMin, targetMax]
+    );
 
     return (
         <View style={styles.trendsCard}>
-            <View style={styles.trendsHeaderRow}>
-                <View style={styles.trendsHeaderLeft}>
-                    <View style={styles.avgRow}>
-                        {hasData ? (
-                            <>
-                                <AnimatedNumber
-                                    value={displayAvgFormatted}
-                                    duration={800}
-                                    style={styles.avgValue}
-                                    formatValue={(v) => glucoseUnit === 'mg/dL' ? Math.round(v).toString() : v.toFixed(1)}
-                                />
-                                <Text style={styles.avgUnit}>{glucoseUnit}</Text>
-                            </>
-                        ) : (
-                            <>
-                                <Text style={styles.avgValue}>--</Text>
-                                <Text style={styles.avgUnit}>{glucoseUnit}</Text>
-                            </>
-                        )}
-                    </View>
-                    <Text style={styles.avgSubtitle}>{getRangeLabel(range)}</Text>
-                </View>
-
-                {hasData && !isLoading && (
-                    <View style={[styles.statusPill, { backgroundColor: status.bg, borderColor: status.color }]}>
-                        <View style={[styles.statusDot, { backgroundColor: status.color }]} />
-                        <Text style={[styles.statusText, { color: status.color }]}>
-                            {status.label} ({formatTargetRange(targetMin, targetMax, glucoseUnit)})
-                        </Text>
-                    </View>
-                )}
-            </View>
-
-            <View style={styles.chartBlock}>
-                {hasData ? (
-                    <GlucoseTrendChart
-                        rawData={rawPoints}
-                        trendData={trendPoints}
-                        height={200}
-                        targetLow={targetMin}
-                        targetHigh={targetMax}
-                        glucoseUnit={glucoseUnit}
-                    />
-                ) : !isLoading ? (
-                    <View style={styles.chartEmpty}>
-                        <Ionicons name="analytics-outline" size={40} color="#878787" />
-                        <Text style={styles.chartEmptyText}>No glucose data for this period</Text>
-                        <Text style={styles.chartEmptySubtext}>Log your glucose levels to see trends</Text>
-                    </View>
-                ) : null}
-            </View>
+            <GlucoseTrendIndicator status={trendStatus} size={220} />
         </View>
     );
 }, (prev, next) => prev.range === next.range && prev.isLoading === next.isLoading && prev.allLogs.length === next.allLogs.length && prev.glucoseUnit === next.glucoseUnit);
+
 
 // Stat Card Component
 function StatCard({ icon, iconColor, title, value, unit, description }: {
@@ -1031,7 +868,11 @@ export default function TodayScreen() {
     const handleMealPress = (meal: MealWithCheckin) => {
         router.push({
             pathname: '/meal-checkin',
-            params: { mealId: meal.id, mealName: meal.name }
+            params: {
+                mealId: meal.id,
+                mealName: meal.name,
+                ...(meal.photo_path && { photoPath: meal.photo_path }),
+            }
         });
     };
 
@@ -1079,6 +920,8 @@ export default function TodayScreen() {
                         showsVerticalScrollIndicator={false}
                         stickyHeaderIndices={[0]}
                     >
+
+
                         {/* Sticky Range Picker - at top */}
                         <View style={styles.stickyPickerContainer}>
                             <SegmentedControl<RangeKey>
@@ -1360,7 +1203,9 @@ const styles = StyleSheet.create({
         borderRadius: 24,
         paddingHorizontal: 16,
         paddingTop: 20,
-        paddingBottom: 16,
+        paddingBottom: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.08)',
         shadowColor: '#000',

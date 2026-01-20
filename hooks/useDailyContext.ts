@@ -75,6 +75,9 @@ export function useDailyContext(
         return date.toISOString().split('T')[0];
     };
 
+    const startDateStr = formatDate(startDate);
+    const endDateStr = formatDate(endDate);
+
     // Sync HealthKit data to database
     const syncHealthKitData = useCallback(async () => {
         if (!userId || Platform.OS !== 'ios' || syncInProgress.current) {
@@ -82,7 +85,7 @@ export function useDailyContext(
         }
 
         // Prevent duplicate syncs for the same date range
-        const syncKey = `${userId}-${formatDate(startDate)}-${formatDate(endDate)}`;
+        const syncKey = `${userId}-${startDateStr}-${endDateStr}`;
         if (lastSyncRef.current === syncKey) {
             return;
         }
@@ -145,7 +148,7 @@ export function useDailyContext(
         } finally {
             syncInProgress.current = false;
         }
-    }, [userId, startDate, endDate]);
+    }, [userId, startDateStr, endDateStr]); // Dep on strings, not Date objects
 
     // Load from database (fast, non-blocking)
     const loadFromDatabase = useCallback(async () => {
@@ -154,8 +157,8 @@ export function useDailyContext(
         try {
             const data = await getDailyContextByRange(
                 userId,
-                formatDate(startDate),
-                formatDate(endDate)
+                startDateStr,
+                endDateStr
             );
 
             if (data.length > 0) {
@@ -192,7 +195,7 @@ export function useDailyContext(
             console.warn('Error loading daily context from database:', error);
             setStats(prev => ({ ...prev, isLoading: false }));
         }
-    }, [userId, startDate, endDate]);
+    }, [userId, startDateStr, endDateStr]); // Dep on strings, not Date objects
 
     // Check availability on mount
     useEffect(() => {

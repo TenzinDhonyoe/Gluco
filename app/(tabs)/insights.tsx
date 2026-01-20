@@ -704,11 +704,17 @@ export default function InsightsScreen() {
         </View>
     );
 
-    const renderWeeklyReport = () => (
-        <ScrollView
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
-        >
+    const renderWeeklyReport = () => {
+        const displayScore = metabolicScore?.score7d ?? metabolicScore?.metabolic_response_score ?? null;
+        const displayConfidence = metabolicScore?.confidence_v2 && metabolicScore.confidence_v2 !== 'insufficient_data'
+            ? metabolicScore.confidence_v2
+            : metabolicScore?.confidence;
+
+        return (
+            <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.scrollContent}
+            >
             <Text style={styles.sectionDescription}>
                 How your habits and patterns contributed to your wellness this week.
             </Text>
@@ -717,15 +723,15 @@ export default function InsightsScreen() {
             <View style={styles.card}>
                 <View style={styles.metabolicScoreHeader}>
                     <Text style={styles.metabolicScoreTitle}>Metabolic Response Score</Text>
-                    {metabolicScore && (
+                    {metabolicScore && displayConfidence && (
                         <View style={[
                             styles.confidenceBadge,
-                            metabolicScore.confidence === 'high' && styles.confidenceHigh,
-                            metabolicScore.confidence === 'medium' && styles.confidenceMedium,
-                            metabolicScore.confidence === 'low' && styles.confidenceLow,
+                            displayConfidence === 'high' && styles.confidenceHigh,
+                            displayConfidence === 'medium' && styles.confidenceMedium,
+                            displayConfidence === 'low' && styles.confidenceLow,
                         ]}>
                             <Text style={styles.confidenceText}>
-                                {metabolicScore.confidence}
+                                {displayConfidence}
                             </Text>
                         </View>
                     )}
@@ -751,7 +757,7 @@ export default function InsightsScreen() {
                                     metabolicScore.band === 'medium' && styles.scoreModerate,
                                     metabolicScore.band === 'high' && styles.scoreNeedsAttention,
                                 ]}>
-                                    {metabolicScore.metabolic_response_score}
+                                    {displayScore}
                                 </Text>
 
                             </View>
@@ -760,7 +766,7 @@ export default function InsightsScreen() {
                             <View style={{ height: 6, backgroundColor: '#2A2A2E', borderRadius: 3, marginVertical: 12, width: '100%', overflow: 'hidden' }}>
                                 <View
                                     style={{
-                                        width: `${metabolicScore.metabolic_response_score || 0}%`,
+                                        width: `${displayScore || 0}%`,
                                         height: '100%',
                                         backgroundColor: metabolicScore.band === 'low' ? '#4CAF50' : metabolicScore.band === 'medium' ? '#FF9800' : '#F44336',
                                         borderRadius: 3
@@ -1344,8 +1350,9 @@ export default function InsightsScreen() {
 
             {/* Bottom spacing for tab bar */}
             <View style={{ height: 160 }} />
-        </ScrollView>
-    );
+            </ScrollView>
+        );
+    };
 
     return (
         <AnimatedScreen>

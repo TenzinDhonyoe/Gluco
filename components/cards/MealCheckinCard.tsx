@@ -57,7 +57,12 @@ export const MealCheckinCard = React.memo(({ meal, onPress }: MealCheckinCardPro
                 <LinearGradient
                     colors={['#2A2D30', '#1A1B1C']}
                     style={styles.image}
-                />
+                >
+                    <View style={styles.noImageContainer}>
+                        <Ionicons name="image-outline" size={32} color="#4A4D50" />
+                        <Text style={styles.noImageText}>No Image</Text>
+                    </View>
+                </LinearGradient>
             )}
 
             {/* Overlay Gradient for readability */}
@@ -116,6 +121,17 @@ const styles = StyleSheet.create({
         width: '100%',
         height: '100%',
         backgroundColor: '#2A2D30',
+    },
+    noImageContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 8,
+    },
+    noImageText: {
+        fontFamily: fonts.medium,
+        fontSize: 12,
+        color: '#4A4D50',
     },
     gradient: {
         ...StyleSheet.absoluteFillObject,

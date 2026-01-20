@@ -57,7 +57,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/branding/gluco-logo.png",
+          "image": "./assets/images/mascots/gluco_app_mascott/gluco_splash.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#151718",

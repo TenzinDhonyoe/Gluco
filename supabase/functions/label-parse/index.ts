@@ -78,6 +78,107 @@ Return a JSON object with this EXACT structure:
 
 ONLY return valid JSON. No markdown, no explanations.`;
 
+const VERTEX_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
+const DEFAULT_VERTEX_MODEL = 'gemini-1.5-pro';
+
+interface ServiceAccountKey {
+    client_email: string;
+    private_key: string;
+    token_uri?: string;
+}
+
+function base64UrlEncode(input: Uint8Array): string {
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < input.length; i += chunkSize) {
+        binary += String.fromCharCode(...input.subarray(i, i + chunkSize));
+    }
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function pemToArrayBuffer(pem: string): ArrayBuffer {
+    const cleaned = pem
+        .replace('-----BEGIN PRIVATE KEY-----', '')
+        .replace('-----END PRIVATE KEY-----', '')
+        .replace(/\s+/g, '');
+    const binary = atob(cleaned);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+async function getAccessToken(): Promise<{ token: string; model: string; projectId: string; region: string }> {
+    const raw = Deno.env.get('VERTEX_AI_SERVICE_ACCOUNT_JSON');
+    const projectId = Deno.env.get('VERTEX_AI_PROJECT_ID');
+    const region = Deno.env.get('VERTEX_AI_REGION');
+    const model = Deno.env.get('VERTEX_AI_MODEL') || DEFAULT_VERTEX_MODEL;
+
+    if (!raw) throw new Error('VERTEX_AI_SERVICE_ACCOUNT_JSON not set');
+    if (!projectId) throw new Error('VERTEX_AI_PROJECT_ID not set');
+    if (!region) throw new Error('VERTEX_AI_REGION not set');
+
+    const key = JSON.parse(raw) as ServiceAccountKey;
+    const tokenUri = key.token_uri || 'https://oauth2.googleapis.com/token';
+    const now = Math.floor(Date.now() / 1000);
+
+    const header = { alg: 'RS256', typ: 'JWT' };
+    const claims = {
+        iss: key.client_email,
+        sub: key.client_email,
+        aud: tokenUri,
+        iat: now,
+        exp: now + 3600,
+        scope: VERTEX_SCOPE,
+    };
+
+    const headerBytes = new TextEncoder().encode(JSON.stringify(header));
+    const claimsBytes = new TextEncoder().encode(JSON.stringify(claims));
+    const headerEncoded = base64UrlEncode(headerBytes);
+    const claimsEncoded = base64UrlEncode(claimsBytes);
+    const toSign = `${headerEncoded}.${claimsEncoded}`;
+
+    const keyData = pemToArrayBuffer(key.private_key);
+    const cryptoKey = await crypto.subtle.importKey(
+        'pkcs8',
+        keyData,
+        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+        false,
+        ['sign']
+    );
+    const signature = await crypto.subtle.sign(
+        'RSASSA-PKCS1-v1_5',
+        cryptoKey,
+        new TextEncoder().encode(toSign)
+    );
+    const signatureEncoded = base64UrlEncode(new Uint8Array(signature));
+    const jwt = `${toSign}.${signatureEncoded}`;
+
+    const body = new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: jwt,
+    });
+
+    const res = await fetch(tokenUri, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+    });
+
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Failed to get access token: ${text}`);
+    }
+
+    const data = await res.json();
+    if (!data?.access_token) {
+        throw new Error('Access token missing from response');
+    }
+
+    return { token: data.access_token as string, model, projectId, region };
+}
+
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders });
@@ -102,69 +203,70 @@ Deno.serve(async (req) => {
 
         // Note: AI enabled check removed - label scanning is available to all users
 
-        const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+        const { token, model, projectId, region } = await getAccessToken();
 
-        if (!GEMINI_API_KEY) {
-            console.error('GEMINI_API_KEY not configured');
-            return new Response(
-                JSON.stringify({ error: 'OCR service not configured' }),
-                { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-        }
+        const dataUriMatch = image_base64.match(/^data:(image\/\w+);base64,(.+)$/);
+        const mimeType = dataUriMatch?.[1] || 'image/jpeg';
+        const cleanBase64 = dataUriMatch?.[2] || image_base64;
 
-        // Clean base64 if it has data URI prefix
-        const cleanBase64 = image_base64.replace(/^data:image\/\w+;base64,/, '');
+        const endpoint = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
 
-        // Call Gemini Vision API
-        const geminiResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [
-                            { text: GEMINI_PROMPT },
-                            {
-                                inline_data: {
-                                    mime_type: 'image/jpeg',
-                                    data: cleanBase64,
-                                },
+        const vertexResponse = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+                contents: [{
+                    role: 'user',
+                    parts: [
+                        { text: GEMINI_PROMPT },
+                        {
+                            inlineData: {
+                                mimeType,
+                                data: cleanBase64,
                             },
-                        ],
-                    }],
-                    generationConfig: {
-                        temperature: 0.1,
-                        topP: 0.8,
-                        topK: 10,
-                        maxOutputTokens: 1024,
-                        responseMimeType: 'application/json',
-                    },
-                    safetySettings: [
-                        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                        },
                     ],
-                }),
-            }
-        );
+                }],
+                generationConfig: {
+                    temperature: 0.1,
+                    topP: 0.8,
+                    topK: 10,
+                    maxOutputTokens: 1024,
+                    responseMimeType: 'application/json',
+                },
+                safetySettings: [
+                    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                ],
+            }),
+        });
 
-        if (!geminiResponse.ok) {
-            const errorText = await geminiResponse.text();
-            console.error('Gemini API error:', geminiResponse.status, errorText);
+        if (!vertexResponse.ok) {
+            const errorText = await vertexResponse.text();
+            console.error('Vertex AI error:', vertexResponse.status, errorText);
+
+            const details = vertexResponse.status === 429
+                ? 'Rate limited, please try again'
+                : vertexResponse.status === 404
+                    ? 'Model not found in this region'
+                    : 'Vision service unavailable';
 
             return new Response(
                 JSON.stringify({
                     error: 'Failed to analyze label',
-                    details: geminiResponse.status === 429 ? 'Rate limited, please try again' : 'Vision service unavailable',
+                    details,
                 }),
                 { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
         }
 
-        const geminiData = await geminiResponse.json();
-        const textContent = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+        const vertexData = await vertexResponse.json();
+        const textContent = vertexData?.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!textContent) {
             console.error('No text content in Gemini response');

@@ -1,13 +1,14 @@
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { CravingsLevel, EnergyLevel, FullnessLevel, MoodLevel, upsertMealCheckin } from '@/lib/supabase';
+import { CravingsLevel, EnergyLevel, ensureSignedMealPhotoUrl, FullnessLevel, MoodLevel, upsertMealCheckin } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-    ImageBackground,
+    Image,
     KeyboardAvoidingView,
     Platform,
     SafeAreaView,
@@ -39,7 +40,7 @@ const OptionButton: React.FC<OptionButtonProps> = ({ label, selected, onPress })
 
 export default function MealCheckinScreen() {
     const router = useRouter();
-    const { mealId, mealName } = useLocalSearchParams<{ mealId: string; mealName?: string }>();
+    const { mealId, mealName, photoPath } = useLocalSearchParams<{ mealId: string; mealName?: string; photoPath?: string }>();
     const { user } = useAuth();
 
     const [energy, setEnergy] = useState<EnergyLevel | null>(null);
@@ -49,6 +50,14 @@ export default function MealCheckinScreen() {
     const [movementAfter, setMovementAfter] = useState<boolean | null>(null);
     const [notes, setNotes] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const [signedPhotoUrl, setSignedPhotoUrl] = useState<string | null>(null);
+
+    // Resolve photo path to signed URL when available
+    useEffect(() => {
+        if (photoPath) {
+            ensureSignedMealPhotoUrl(photoPath).then(setSignedPhotoUrl);
+        }
+    }, [photoPath]);
 
     const handleSave = async () => {
         if (!user?.id || !mealId) return;
@@ -76,32 +85,40 @@ export default function MealCheckinScreen() {
     return (
         <View style={styles.container}>
             <StatusBar style="light" />
-            <ImageBackground
-                source={require('../assets/images/backgrounds/background.png')}
-                style={styles.backgroundImage}
-                resizeMode="cover"
-            >
-                <SafeAreaView style={styles.safeArea}>
-                    <KeyboardAvoidingView
-                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                        style={styles.keyboardView}
-                    >
-                        {/* Header */}
-                        <View style={styles.header}>
-                            <TouchableOpacity
-                                onPress={() => router.back()}
-                                style={styles.closeButton}
-                                activeOpacity={0.7}
-                            >
-                                <Ionicons name="close" size={20} color="#E7E8E9" />
-                            </TouchableOpacity>
-                            <Text style={styles.headerTitle}>After Meal Check In</Text>
-                            <View style={styles.headerSpacer} />
-                        </View>
 
-                        {mealName && (
-                            <Text style={styles.mealName}>{mealName}</Text>
-                        )}
+            {/* Meal Photo Header (if available) */}
+            {signedPhotoUrl && (
+                <View style={styles.photoHeader}>
+                    <Image source={{ uri: signedPhotoUrl }} style={styles.mealPhoto} />
+                    <LinearGradient
+                        colors={['rgba(0,0,0,0.3)', 'transparent', Colors.background]}
+                        locations={[0, 0.3, 1]}
+                        style={styles.photoGradient}
+                    />
+                </View>
+            )}
+
+            <SafeAreaView style={[styles.safeArea, !signedPhotoUrl && styles.safeAreaNoBg]}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={styles.keyboardView}
+                >
+                    {/* Header */}
+                    <View style={styles.header}>
+                        <TouchableOpacity
+                            onPress={() => router.back()}
+                            style={styles.closeButton}
+                            activeOpacity={0.7}
+                        >
+                            <Ionicons name="close" size={20} color="#E7E8E9" />
+                        </TouchableOpacity>
+                        <Text style={styles.headerTitle}>After Meal Check In</Text>
+                        <View style={styles.headerSpacer} />
+                    </View>
+
+                    {mealName && (
+                        <Text style={styles.mealName}>{mealName}</Text>
+                    )}
 
                         <ScrollView
                             style={styles.scrollView}
@@ -250,7 +267,6 @@ export default function MealCheckinScreen() {
                         </View>
                     </KeyboardAvoidingView>
                 </SafeAreaView>
-            </ImageBackground>
         </View>
     );
 }
@@ -260,11 +276,27 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: Colors.background,
     },
-    backgroundImage: {
-        flex: 1,
+    photoHeader: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 220,
+        zIndex: 0,
+    },
+    mealPhoto: {
+        width: '100%',
+        height: '100%',
+        resizeMode: 'cover',
+    },
+    photoGradient: {
+        ...StyleSheet.absoluteFillObject,
     },
     safeArea: {
         flex: 1,
+    },
+    safeAreaNoBg: {
+        backgroundColor: Colors.background,
     },
     keyboardView: {
         flex: 1,

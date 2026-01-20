@@ -3,12 +3,14 @@ import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { ActivityLog, getActivityLogs, getGlucoseLogs, getMeals, getPersonalizedTips, GlucoseLog, Meal } from '@/lib/supabase';
+import { usePersonalizedTips } from '@/hooks/usePersonalizedTips';
+import { ActivityLog, getActivityLogs, getGlucoseLogs, getMeals, GlucoseLog, Meal } from '@/lib/supabase';
 import { formatGlucoseWithUnit, GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useCallback, useState } from 'react';
+import { router } from 'expo-router';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Dimensions,
@@ -281,10 +283,35 @@ export default function LogScreen() {
     const glucoseUnit = useGlucoseUnit();
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [tipsData, setTipsData] = useState<TipCardData[]>(TIPS_DATA);
-    const [tipsLoading, setTipsLoading] = useState(true);
     const [filter, setFilter] = useState<FilterType>('all');
     const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+
+    // Use cached personalized tips hook (6-hour TTL, user-specific cache key)
+    const { tips: personalizedTipsResult } = usePersonalizedTips({
+        userId: user?.id,
+        aiEnabled: profile?.ai_enabled ?? false,
+    });
+
+    // Transform personalized tips to TipCardData format
+    const tipsData = useMemo<TipCardData[]>(() => {
+        if (!personalizedTipsResult || personalizedTipsResult.tips.length === 0) {
+            return TIPS_DATA; // Return default tips while loading or if no data
+        }
+
+        return personalizedTipsResult.tips.map(tip => ({
+            id: tip.id,
+            category: tip.category,
+            title: tip.title,
+            description: tip.description,
+            articleUrl: tip.articleUrl,
+            metric: tip.metric,
+            image: tip.category === 'glucose'
+                ? require('@/assets/images/tips/glucose-tip-bg.png')
+                : tip.category === 'meal'
+                    ? require('@/assets/images/tips/meal-tip-bg.png')
+                    : require('@/assets/images/tips/activity-tip-bg.png'),
+        }));
+    }, [personalizedTipsResult]);
 
     // Filter options for the dropdown
     const filterOptions: { value: FilterType; label: string }[] = [
@@ -302,7 +329,7 @@ export default function LogScreen() {
         ? logs
         : logs.filter(log => log.type === filter);
 
-    // Fetch logs and personalized tips when screen comes into focus
+    // Fetch logs when screen comes into focus (tips are cached via usePersonalizedTips hook)
     useFocusEffect(
         useCallback(() => {
             async function fetchLogs() {
@@ -338,49 +365,8 @@ export default function LogScreen() {
                 }
             }
 
-            async function fetchTips() {
-                if (!user) {
-                    setTipsLoading(false);
-                    return;
-                }
-
-                if (!profile?.ai_enabled) {
-                    setTipsData(TIPS_DATA);
-                    setTipsLoading(false);
-                    return;
-                }
-
-                setTipsLoading(true);
-                try {
-                    const result = await getPersonalizedTips(user.id);
-                    if (result && result.tips.length > 0) {
-                        // Map personalized tips to TipCardData format
-                        const personalizedTips: TipCardData[] = result.tips.map(tip => ({
-                            id: tip.id,
-                            category: tip.category,
-                            title: tip.title,
-                            description: tip.description,
-                            articleUrl: tip.articleUrl,
-                            metric: tip.metric,
-                            image: tip.category === 'glucose'
-                                ? require('@/assets/images/tips/glucose-tip-bg.png')
-                                : tip.category === 'meal'
-                                    ? require('@/assets/images/tips/meal-tip-bg.png')
-                                    : require('@/assets/images/tips/activity-tip-bg.png'),
-                        }));
-                        setTipsData(personalizedTips);
-                    }
-                } catch (error) {
-                    console.error('Error fetching personalized tips:', error);
-                    // Keep default tips on error
-                } finally {
-                    setTipsLoading(false);
-                }
-            }
-
             fetchLogs();
-            fetchTips();
-        }, [user, glucoseUnit, profile?.ai_enabled])
+        }, [user, glucoseUnit])
     );
 
     const handleTipPress = (tip: TipCardData) => {
@@ -425,6 +411,39 @@ export default function LogScreen() {
                                 <TipCard key={tip.id} data={tip} onPress={() => handleTipPress(tip)} />
                             ))}
                         </ScrollView>
+
+                        {/* Quick Action Buttons */}
+                        <View style={styles.quickActionsContainer}>
+                            <AnimatedPressable
+                                style={styles.quickActionButton}
+                                onPress={() => router.push('/meal-scanner')}
+                            >
+                                <View style={[styles.quickActionIcon, { backgroundColor: 'rgba(235, 169, 20, 0.15)' }]}>
+                                    <Ionicons name="restaurant" size={20} color="#EBA914" />
+                                </View>
+                                <Text style={styles.quickActionText}>Log Meal</Text>
+                            </AnimatedPressable>
+
+                            <AnimatedPressable
+                                style={styles.quickActionButton}
+                                onPress={() => router.push('/log-glucose')}
+                            >
+                                <View style={[styles.quickActionIcon, { backgroundColor: 'rgba(229, 93, 93, 0.15)' }]}>
+                                    <Ionicons name="water" size={20} color="#E55D5D" />
+                                </View>
+                                <Text style={styles.quickActionText}>Log Glucose</Text>
+                            </AnimatedPressable>
+
+                            <AnimatedPressable
+                                style={styles.quickActionButton}
+                                onPress={() => router.push('/log-activity')}
+                            >
+                                <View style={[styles.quickActionIcon, { backgroundColor: 'rgba(34, 239, 239, 0.15)' }]}>
+                                    <Ionicons name="walk" size={20} color="#22EFEF" />
+                                </View>
+                                <Text style={styles.quickActionText}>Log Activity</Text>
+                            </AnimatedPressable>
+                        </View>
 
                         {/* Recent Logs Section */}
                         <View style={styles.logsSection}>
@@ -641,6 +660,36 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: '#3494D9',
         marginTop: 8,
+    },
+    // Quick Action Buttons
+    quickActionsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        marginBottom: 24,
+        gap: 12,
+    },
+    quickActionButton: {
+        flex: 1,
+        backgroundColor: '#1a1b1c',
+        borderRadius: 16,
+        paddingVertical: 16,
+        alignItems: 'center',
+        gap: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+    },
+    quickActionIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    quickActionText: {
+        fontFamily: fonts.medium,
+        fontSize: 12,
+        color: Colors.textPrimary,
     },
     // Logs Section
     logsSection: {

@@ -1,7 +1,7 @@
 import { Colors } from '@/constants/Colors';
 import { TabTransitionProvider, useTabTransition } from '@/context/TabTransitionContext';
 import { fonts } from '@/hooks/useFonts';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { Tabs, usePathname } from 'expo-router';
 import React, { useEffect } from 'react';
 import { Dimensions, Platform, StyleSheet, View } from 'react-native';
@@ -21,12 +21,10 @@ const INDICATOR_WIDTH = 24;
 // Animated Tab Icon Component with bounce effect
 function AnimatedTabIcon({
     name,
-    outlineName,
     color,
     focused
 }: {
-    name: keyof typeof Ionicons.glyphMap;
-    outlineName: keyof typeof Ionicons.glyphMap;
+    name: keyof typeof Feather.glyphMap;
     color: string;
     focused: boolean;
 }) {
@@ -69,8 +67,8 @@ function AnimatedTabIcon({
     return (
         <View style={styles.tabIconContainer}>
             <Animated.View style={iconAnimatedStyle}>
-                <Ionicons
-                    name={focused ? name : outlineName}
+                <Feather
+                    name={name}
                     size={24}
                     color={color}
                 />
@@ -131,7 +129,6 @@ function TabLayoutInner() {
                     tabBarIcon: ({ color, focused }) => (
                         <AnimatedTabIcon
                             name="home"
-                            outlineName="home-outline"
                             color={color}
                             focused={focused}
                         />
@@ -144,8 +141,7 @@ function TabLayoutInner() {
                     title: 'Log',
                     tabBarIcon: ({ color, focused }) => (
                         <AnimatedTabIcon
-                            name="book"
-                            outlineName="book-outline"
+                            name="book-open"
                             color={color}
                             focused={focused}
                         />
@@ -158,8 +154,7 @@ function TabLayoutInner() {
                     title: 'Insights',
                     tabBarIcon: ({ color, focused }) => (
                         <AnimatedTabIcon
-                            name="stats-chart"
-                            outlineName="stats-chart-outline"
+                            name="bar-chart-2"
                             color={color}
                             focused={focused}
                         />
