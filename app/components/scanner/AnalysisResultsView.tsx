@@ -29,6 +29,9 @@ interface AnalysisResultsViewProps {
     onReview: () => void;
     onSave: () => void;
     onClose: () => void;
+    headerTitle?: string;
+    primaryActionLabel?: string;
+    reviewIcon?: keyof typeof Ionicons.glyphMap;
 }
 
 // Format serving size for display
@@ -69,6 +72,9 @@ export default function AnalysisResultsView({
     onReview,
     onSave,
     onClose,
+    headerTitle = 'MEAL REVIEW',
+    primaryActionLabel = 'Log this meal',
+    reviewIcon = 'create-outline',
 }: AnalysisResultsViewProps) {
     const insets = useSafeAreaInsets();
 
@@ -138,9 +144,9 @@ export default function AnalysisResultsView({
                 <TouchableOpacity style={styles.headerButton} onPress={onClose}>
                     <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>MEAL REVIEW</Text>
+                <Text style={styles.headerTitle}>{headerTitle}</Text>
                 <TouchableOpacity style={styles.headerButton} onPress={onReview}>
-                    <Ionicons name="create-outline" size={22} color="#FFFFFF" />
+                    <Ionicons name={reviewIcon} size={22} color="#FFFFFF" />
                 </TouchableOpacity>
             </View>
 
@@ -254,7 +260,7 @@ export default function AnalysisResultsView({
             {/* Bottom Button */}
             <View style={[styles.bottomContainer, { paddingBottom: insets.bottom + 16 }]}>
                 <TouchableOpacity style={styles.logButton} onPress={onSave}>
-                    <Text style={styles.logButtonText}>Log this meal</Text>
+                    <Text style={styles.logButtonText}>{primaryActionLabel}</Text>
                 </TouchableOpacity>
             </View>
         </View>

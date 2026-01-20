@@ -5,8 +5,6 @@
 
 import { fonts } from '@/hooks/useFonts';
 import {
-    formatServingDescription,
-    isValidParsedLabel,
     LabelScanResult,
     parseLabelFromImage
 } from '@/lib/labelScan';
@@ -18,13 +16,14 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import {
     ActivityIndicator,
-    ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AnalysisResultsView from './components/scanner/AnalysisResultsView';
+import { SelectedItem } from './components/scanner/FoodSearchResultsView';
 
 type ScanState = 'ready' | 'capturing' | 'analyzing' | 'results' | 'error';
 
@@ -36,6 +35,7 @@ export default function ScanLabelScreen() {
 
     const [scanState, setScanState] = useState<ScanState>('ready');
     const [scanResult, setScanResult] = useState<LabelScanResult | null>(null);
+    const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null);
     const [errorMessage, setErrorMessage] = useState<string>('');
     const [errorDetail, setErrorDetail] = useState<string>('');
 
@@ -128,6 +128,7 @@ export default function ScanLabelScreen() {
                 throw new Error('Failed to capture photo');
             }
 
+            setCapturedImageUri(photo.uri || null);
             setScanState('analyzing');
 
             const result = await parseLabelFromImage(photo.base64, { aiEnabled: profile?.ai_enabled ?? false });
@@ -150,6 +151,7 @@ export default function ScanLabelScreen() {
 
     const handleRetry = () => {
         setScanResult(null);
+        setCapturedImageUri(null);
         setErrorMessage('');
         setErrorDetail('');
         setScanState('ready');
@@ -251,88 +253,27 @@ export default function ScanLabelScreen() {
 
     // Render results
     const renderResults = () => {
-        if (!scanResult?.parsed) return null;
-        const { parsed } = scanResult;
-        const valid = isValidParsedLabel(parsed);
+        if (!scanResult?.parsed || !capturedImageUri || !scanResult.food) return null;
+
+        const items: SelectedItem[] = [
+            {
+                ...scanResult.food,
+                quantity: 1,
+                source: 'manual',
+            },
+        ];
 
         return (
-            <ScrollView style={styles.resultsContainer} contentContainerStyle={styles.resultsContent}>
-                {/* Header */}
-                <View style={styles.resultsHeader}>
-                    <Text style={styles.productName}>{parsed.display_name}</Text>
-                    {parsed.brand && (
-                        <Text style={styles.brandName}>{parsed.brand}</Text>
-                    )}
-                    <Text style={styles.servingInfo}>
-                        {formatServingDescription(parsed)}
-                    </Text>
-                </View>
-
-                {/* Confidence indicator */}
-                <View style={styles.confidenceRow}>
-                    <Text style={styles.confidenceLabel}>Confidence:</Text>
-                    <View style={[
-                        styles.confidenceBadge,
-                        parsed.confidence >= 80 ? styles.confidenceHigh :
-                            parsed.confidence >= 50 ? styles.confidenceMedium : styles.confidenceLow
-                    ]}>
-                        <Text style={styles.confidenceText}>{parsed.confidence}%</Text>
-                    </View>
-                </View>
-
-                {/* Nutrition values */}
-                <View style={styles.nutritionCard}>
-                    <Text style={styles.nutritionTitle}>Nutrition Facts</Text>
-
-                    <NutritionRow label="Calories" value={parsed.per_serving.calories} unit="kcal" />
-                    <NutritionRow label="Carbohydrates" value={parsed.per_serving.carbs_g} unit="g" />
-                    <NutritionRow label="Fiber" value={parsed.per_serving.fibre_g} unit="g" indent />
-                    <NutritionRow label="Sugars" value={parsed.per_serving.sugars_g} unit="g" indent />
-                    <NutritionRow label="Protein" value={parsed.per_serving.protein_g} unit="g" />
-                    <NutritionRow label="Total Fat" value={parsed.per_serving.fat_g} unit="g" />
-                    <NutritionRow label="Saturated Fat" value={parsed.per_serving.sat_fat_g} unit="g" indent />
-                    <NutritionRow label="Sodium" value={parsed.per_serving.sodium_mg} unit="mg" />
-                </View>
-
-                {/* Warnings */}
-                {parsed.warnings.length > 0 && (
-                    <View style={styles.warningsCard}>
-                        <Ionicons name="information-circle" size={20} color="#FF9800" />
-                        <View style={styles.warningsList}>
-                            {parsed.warnings.map((warning, i) => (
-                                <Text key={i} style={styles.warningText}>• {warning}</Text>
-                            ))}
-                        </View>
-                    </View>
-                )}
-
-                {/* Not enough data warning */}
-                {!valid && (
-                    <View style={styles.warningsCard}>
-                        <Ionicons name="alert-circle" size={20} color="#F44336" />
-                        <Text style={styles.warningText}>
-                            Couldn't extract enough nutrition data. You may need to enter values manually.
-                        </Text>
-                    </View>
-                )}
-
-                {/* Action buttons */}
-                <View style={styles.actionButtons}>
-                    <TouchableOpacity
-                        style={[styles.confirmButton, !valid && styles.confirmButtonDisabled]}
-                        onPress={handleConfirm}
-                        disabled={!valid}
-                    >
-                        <Ionicons name="checkmark" size={22} color="#FFFFFF" />
-                        <Text style={styles.confirmButtonText}>Add to Meal</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.retakeButton} onPress={handleRetry}>
-                        <Ionicons name="camera" size={20} color="#3494D9" />
-                        <Text style={styles.retakeButtonText}>Retake Photo</Text>
-                    </TouchableOpacity>
-                </View>
-            </ScrollView>
+            <AnalysisResultsView
+                imageUri={capturedImageUri}
+                items={items}
+                onReview={handleRetry}
+                onSave={handleConfirm}
+                onClose={handleCancel}
+                headerTitle="LABEL REVIEW"
+                primaryActionLabel="Add to meal"
+                reviewIcon="camera-outline"
+            />
         );
     };
 
@@ -355,35 +296,7 @@ export default function ScanLabelScreen() {
                     {renderError()}
                 </SafeAreaView>
             )}
-            {scanState === 'results' && (
-                <SafeAreaView style={styles.safeArea}>
-                    {renderResults()}
-                </SafeAreaView>
-            )}
-        </View>
-    );
-}
-
-// Nutrition row component
-function NutritionRow({
-    label,
-    value,
-    unit,
-    indent = false
-}: {
-    label: string;
-    value?: number | null;
-    unit: string;
-    indent?: boolean;
-}) {
-    return (
-        <View style={[styles.nutritionRow, indent && styles.nutritionRowIndent]}>
-            <Text style={[styles.nutritionLabel, indent && styles.nutritionLabelIndent]}>
-                {label}
-            </Text>
-            <Text style={styles.nutritionValue}>
-                {value !== null && value !== undefined ? `${value}${unit}` : '—'}
-            </Text>
+            {scanState === 'results' && renderResults()}
         </View>
     );
 }

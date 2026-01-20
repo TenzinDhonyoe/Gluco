@@ -42,6 +42,91 @@ interface ParsedLabel {
     raw_extracted: Record<string, string>;
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+    return Math.min(max, Math.max(min, value));
+}
+
+function parseNumber(value: unknown): number | null {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+        const match = value.replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+        if (!match) return null;
+        const parsed = Number(match[0]);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+}
+
+function extractCodeFence(text: string): string | null {
+    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    return fenceMatch ? fenceMatch[1] : null;
+}
+
+function findFirstJsonObject(text: string): string | null {
+    const start = text.indexOf('{');
+    if (start === -1) return null;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < text.length; i += 1) {
+        const char = text[i];
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+            } else if (char === '\\\\') {
+                escaped = true;
+            } else if (char === '"') {
+                inString = false;
+            }
+            continue;
+        }
+        if (char === '"') {
+            inString = true;
+            continue;
+        }
+        if (char === '{') depth += 1;
+        if (char === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                return text.slice(start, i + 1);
+            }
+        }
+    }
+    return null;
+}
+
+function parseJsonFromText(text: string): { parsed: Record<string, any> | null; warnings: string[] } {
+    const warnings: string[] = [];
+    const attempts: string[] = [];
+    const trimmed = text.trim();
+
+    if (trimmed) attempts.push(trimmed);
+
+    const fenced = extractCodeFence(trimmed);
+    if (fenced && fenced.trim() !== trimmed) attempts.push(fenced.trim());
+
+    const firstObject = findFirstJsonObject(trimmed);
+    if (firstObject && firstObject.trim() !== trimmed) attempts.push(firstObject.trim());
+
+    for (const attempt of attempts) {
+        const cleaned = attempt.replace(/^\uFEFF/, '').trim();
+        try {
+            return { parsed: JSON.parse(cleaned), warnings };
+        } catch {
+            const repaired = cleaned.replace(/,\s*([}\]])/g, '$1');
+            try {
+                warnings.push('Model response contained trailing commas; cleaned.');
+                return { parsed: JSON.parse(repaired), warnings };
+            } catch {
+                // Continue to next attempt
+            }
+        }
+    }
+
+    return { parsed: null, warnings };
+}
+
 const GEMINI_PROMPT = `You are a nutrition label parser. Analyze this food label image and extract the nutrition information.
 
 IMPORTANT RULES:
@@ -266,7 +351,11 @@ Deno.serve(async (req) => {
         }
 
         const vertexData = await vertexResponse.json();
-        const textContent = vertexData?.candidates?.[0]?.content?.parts?.[0]?.text;
+        const parts = vertexData?.candidates?.[0]?.content?.parts || [];
+        const textContent = parts
+            .map((part: { text?: string }) => part?.text)
+            .filter(Boolean)
+            .join('\n');
 
         if (!textContent) {
             console.error('No text content in Gemini response');
@@ -279,18 +368,19 @@ Deno.serve(async (req) => {
             );
         }
 
-        // Parse JSON from response
-        let parsed: ParsedLabel;
-        try {
-            parsed = JSON.parse(textContent);
-        } catch {
-            // Try to extract JSON from text
-            const jsonMatch = textContent.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                parsed = JSON.parse(jsonMatch[0]);
-            } else {
-                throw new Error('Could not parse JSON from response');
-            }
+        // Parse JSON from response with fallbacks
+        const { parsed, warnings: parseWarnings } = parseJsonFromText(textContent);
+        if (!parsed) {
+            console.error('Label parse error: Could not parse JSON from response', {
+                textExcerpt: textContent.slice(0, 400),
+            });
+            return new Response(
+                JSON.stringify({
+                    error: 'Could not parse the label',
+                    details: 'The model response was malformed. Try retaking the photo with better lighting.',
+                }),
+                { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
         }
 
         // Validate and sanitize response
@@ -298,23 +388,28 @@ Deno.serve(async (req) => {
             display_name: parsed.display_name || 'Unknown Product',
             brand: parsed.brand || undefined,
             serving: {
-                amount: parsed.serving?.amount ?? null,
+                amount: parseNumber(parsed.serving?.amount),
                 unit: parsed.serving?.unit || 'g',
                 description: parsed.serving?.description || undefined,
             },
             per_serving: {
-                calories: parsed.per_serving?.calories ?? null,
-                carbs_g: parsed.per_serving?.carbs_g ?? null,
-                fibre_g: parsed.per_serving?.fibre_g ?? null,
-                sugars_g: parsed.per_serving?.sugars_g ?? null,
-                protein_g: parsed.per_serving?.protein_g ?? null,
-                fat_g: parsed.per_serving?.fat_g ?? null,
-                sat_fat_g: parsed.per_serving?.sat_fat_g ?? null,
-                sodium_mg: parsed.per_serving?.sodium_mg ?? null,
+                calories: parseNumber(parsed.per_serving?.calories),
+                carbs_g: parseNumber(parsed.per_serving?.carbs_g),
+                fibre_g: parseNumber(parsed.per_serving?.fibre_g),
+                sugars_g: parseNumber(parsed.per_serving?.sugars_g),
+                protein_g: parseNumber(parsed.per_serving?.protein_g),
+                fat_g: parseNumber(parsed.per_serving?.fat_g),
+                sat_fat_g: parseNumber(parsed.per_serving?.sat_fat_g),
+                sodium_mg: parseNumber(parsed.per_serving?.sodium_mg),
             },
-            confidence: Math.min(100, Math.max(0, parsed.confidence || 50)),
-            warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
-            raw_extracted: parsed.raw_extracted || {},
+            confidence: clampNumber(parseNumber(parsed.confidence) ?? 50, 0, 100),
+            warnings: [
+                ...(Array.isArray(parsed.warnings) ? parsed.warnings : []),
+                ...parseWarnings,
+            ],
+            raw_extracted: parsed.raw_extracted && typeof parsed.raw_extracted === 'object'
+                ? parsed.raw_extracted
+                : {},
         };
 
         return new Response(
