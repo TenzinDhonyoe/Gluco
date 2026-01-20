@@ -1385,6 +1385,342 @@ export async function getDailyContextForDate(
 }
 
 // ==========================================
+// ACTION LOOPS (Insight -> Action -> Outcome)
+// ==========================================
+
+export type UserActionStatus = 'active' | 'completed' | 'expired' | 'cancelled';
+
+export interface UserAction {
+    id: string;
+    user_id: string;
+    source_insight_id: string | null;
+    title: string;
+    description: string;
+    action_type: string;
+    action_params: Record<string, any>;
+    window_start: string;
+    window_end: string;
+    status: UserActionStatus;
+    completed_at: string | null;
+    completion_source: string | null;
+    baseline_metric: Record<string, any> | null;
+    outcome_metric: Record<string, any> | null;
+    delta_value: number | null;
+    improved: boolean | null;
+    last_evaluated_at: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CreateUserActionInput {
+    source_insight_id?: string | null;
+    title: string;
+    description: string;
+    action_type: string;
+    action_params?: Record<string, any>;
+    window_start?: string;
+    window_end: string;
+    baseline_metric?: Record<string, any> | null;
+}
+
+export async function createUserAction(
+    userId: string,
+    input: CreateUserActionInput
+): Promise<UserAction | null> {
+    const { data, error } = await supabase
+        .from('user_actions')
+        .insert({
+            user_id: userId,
+            source_insight_id: input.source_insight_id ?? null,
+            title: input.title,
+            description: input.description,
+            action_type: input.action_type,
+            action_params: input.action_params ?? {},
+            window_start: input.window_start ?? new Date().toISOString(),
+            window_end: input.window_end,
+            baseline_metric: input.baseline_metric ?? null,
+        })
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error creating user action:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function updateUserAction(
+    actionId: string,
+    updates: Partial<UserAction>
+): Promise<UserAction | null> {
+    const { data, error } = await supabase
+        .from('user_actions')
+        .update({
+            ...updates,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', actionId)
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error updating user action:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function getUserActionsByStatus(
+    userId: string,
+    statuses: UserActionStatus[] = ['active']
+): Promise<UserAction[]> {
+    const { data, error } = await supabase
+        .from('user_actions')
+        .select('*')
+        .eq('user_id', userId)
+        .in('status', statuses)
+        .order('window_end', { ascending: true });
+
+    if (error) {
+        console.error('Error fetching user actions:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+// ==========================================
+// CARE PATHWAYS (Structured 7-day plans)
+// ==========================================
+
+export interface CarePathwayStep {
+    id: string;
+    day: number;
+    title: string;
+    description: string;
+    action_type: string;
+    action_params?: Record<string, any>;
+}
+
+export interface CarePathwayTemplate {
+    id: string;
+    slug: string;
+    title: string;
+    description: string | null;
+    duration_days: number;
+    steps: CarePathwayStep[];
+    eligibility_rules: Record<string, any>;
+    created_at: string;
+    updated_at: string;
+}
+
+export type CarePathwayStatus = 'active' | 'completed' | 'expired' | 'cancelled';
+
+export interface UserCarePathway {
+    id: string;
+    user_id: string;
+    template_id: string;
+    status: CarePathwayStatus;
+    start_at: string;
+    end_at: string;
+    baseline_metrics: Record<string, any> | null;
+    outcome_metrics: Record<string, any> | null;
+    delta: Record<string, any> | null;
+    progress: Record<string, any>;
+    created_at: string;
+    updated_at: string;
+    template?: CarePathwayTemplate;
+}
+
+export async function getCarePathwayTemplates(): Promise<CarePathwayTemplate[]> {
+    const { data, error } = await supabase
+        .from('care_pathway_templates')
+        .select('*')
+        .order('duration_days', { ascending: true });
+
+    if (error) {
+        console.error('Error fetching care pathway templates:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+export async function getActiveCarePathway(
+    userId: string
+): Promise<UserCarePathway | null> {
+    const { data, error } = await supabase
+        .from('user_care_pathways')
+        .select('*, template:care_pathway_templates(*)')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .order('start_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (error) {
+        console.error('Error fetching active care pathway:', error);
+        return null;
+    }
+
+    return data || null;
+}
+
+export async function startCarePathway(
+    userId: string,
+    templateId: string,
+    endAt: string,
+    baselineMetrics?: Record<string, any> | null
+): Promise<UserCarePathway | null> {
+    const { data, error } = await supabase
+        .from('user_care_pathways')
+        .insert({
+            user_id: userId,
+            template_id: templateId,
+            end_at: endAt,
+            baseline_metrics: baselineMetrics ?? null,
+        })
+        .select('*, template:care_pathway_templates(*)')
+        .single();
+
+    if (error) {
+        console.error('Error starting care pathway:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function updateCarePathway(
+    pathwayId: string,
+    updates: Partial<UserCarePathway>
+): Promise<UserCarePathway | null> {
+    const { data, error } = await supabase
+        .from('user_care_pathways')
+        .update({
+            ...updates,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', pathwayId)
+        .select('*, template:care_pathway_templates(*)')
+        .single();
+
+    if (error) {
+        console.error('Error updating care pathway:', error);
+        return null;
+    }
+
+    return data;
+}
+
+// ==========================================
+// METABOLIC DAILY FEATURE STORE
+// ==========================================
+
+export interface MetabolicDailyFeature {
+    user_id: string;
+    date: string;
+    feature_version: number;
+    glucose_avg: number | null;
+    glucose_cv: number | null;
+    glucose_logs_count: number;
+    time_in_range_pct: number | null;
+    meal_count: number;
+    meal_checkin_count: number;
+    fibre_g_avg: number | null;
+    steps: number | null;
+    active_minutes: number | null;
+    sleep_hours: number | null;
+    resting_hr: number | null;
+    hrv_ms: number | null;
+    interactions: Record<string, any>;
+    last_synced_at: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export async function upsertMetabolicDailyFeature(
+    userId: string,
+    input: Omit<MetabolicDailyFeature, 'user_id' | 'created_at' | 'updated_at' | 'last_synced_at'>
+): Promise<MetabolicDailyFeature | null> {
+    const { data, error } = await supabase
+        .from('metabolic_daily_features')
+        .upsert(
+            {
+                user_id: userId,
+                ...input,
+                last_synced_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id,date' }
+        )
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error upserting daily feature:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function getMetabolicDailyFeaturesByRange(
+    userId: string,
+    startDate: string,
+    endDate: string
+): Promise<MetabolicDailyFeature[]> {
+    const { data, error } = await supabase
+        .from('metabolic_daily_features')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: false });
+
+    if (error) {
+        console.error('Error fetching daily features:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+// ==========================================
+// METABOLIC WEEKLY SCORES
+// ==========================================
+
+export interface MetabolicWeeklyScore {
+    user_id: string;
+    week_start: string;
+    score7d: number | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export async function getMetabolicWeeklyScores(
+    userId: string,
+    limit: number = 26
+): Promise<MetabolicWeeklyScore[]> {
+    const { data, error } = await supabase
+        .from('user_metabolic_weekly_scores')
+        .select('*')
+        .eq('user_id', userId)
+        .order('week_start', { ascending: false })
+        .limit(limit);
+
+    if (error) {
+        console.error('Error fetching metabolic weekly scores:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+// ==========================================
 // EXERCISE ANALYSIS
 // ==========================================
 

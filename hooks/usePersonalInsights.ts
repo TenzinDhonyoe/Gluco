@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
-const CACHE_VERSION = 'v5'; // Bumped to invalidate after adding timeInZonePercent
+const CACHE_VERSION = 'v6'; // Bumped to invalidate after adding action metadata
 
 interface CacheEntry {
     ts: number;
@@ -74,7 +74,7 @@ export function usePersonalInsights({
 
                 if (age < CACHE_TTL_MS && cached.data.length > 0) {
                     // Verify cache has new schema (recommendation field exists)
-                    if (cached.data[0]?.recommendation) {
+                    if (cached.data[0]?.recommendation && cached.data[0]?.action) {
                         if (mountedRef.current) {
                             setInsights(cached.data);
                             setSource('cache');

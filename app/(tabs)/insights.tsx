@@ -1,33 +1,48 @@
 import { AnimatedScreen } from '@/components/animations/animated-screen';
 import { SegmentedControl } from '@/components/controls/segmented-control';
-import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Disclaimer } from '@/components/ui/Disclaimer';
 import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { usePersonalInsights } from '@/hooks/usePersonalInsights';
+import { InsightAction, InsightData, TrackingMode } from '@/lib/insights';
 import {
+    ActivityLog,
+    CarePathwayTemplate,
+    DailyContext,
+    GlucoseLog,
+    MealWithCheckin,
+    MetabolicWeeklyScore,
+    SuggestedExperiment,
+    UserAction,
+    UserCarePathway,
+    UserExperiment,
+    createUserAction,
+    getActiveCarePathway,
+    getActivityLogsByDateRange,
+    getCarePathwayTemplates,
+    getDailyContextByRange,
+    getFibreIntakeSummary,
     getGlucoseLogsByDateRange,
     getMealsWithCheckinsByDateRange,
+    getMetabolicWeeklyScores,
     getSuggestedExperiments,
+    getUserActionsByStatus,
     getUserExperiments,
-    GlucoseLog,
-    invokeMetabolicScore,
-    MealWithCheckin,
-    MetabolicScoreResult,
+    startCarePathway,
     startUserExperiment,
-    SuggestedExperiment,
-    UserExperiment
+    updateCarePathway,
+    updateUserAction,
+    upsertMetabolicDailyFeature,
 } from '@/lib/supabase';
 import { formatGlucoseWithUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Dimensions,
     Image,
     ScrollView,
     StyleSheet,
@@ -36,604 +51,291 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { G, Path } from 'react-native-svg';
 
-type TabKey = 'weekly' | 'trends' | 'experiments';
+type TabKey = 'actions' | 'progress' | 'experiments';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+type MetricKey =
+    | 'meal_count'
+    | 'checkin_count'
+    | 'time_in_range'
+    | 'glucose_avg'
+    | 'glucose_logs_count'
+    | 'steps'
+    | 'sleep_hours';
 
-// Time periods for Time of Day analysis
-const TIME_PERIODS = [
-    { key: 'morning', label: 'Morning', start: 5, end: 12, color: '#3494D9' },
-    { key: 'afternoon', label: 'Afternoon', start: 12, end: 17, color: '#3494D9' },
-    { key: 'evening', label: 'Evening', start: 17, end: 21, color: '#3494D9' },
-    { key: 'night', label: 'Night', start: 21, end: 5, color: '#3494D9' },
-];
+const ACTION_BASELINE_DAYS = 7;
+const DEFAULT_TARGET_MIN = 3.9;
+const DEFAULT_TARGET_MAX = 10.0;
 
-// Glucose response categories
-type GlucoseCategory = 'steady' | 'mild' | 'spike';
+const PROGRESS_RANGES = [30, 90, 180];
 
-function categorizeReading(value: number): GlucoseCategory {
-    if (value < 6.5) return 'steady';
-    if (value < 8.5) return 'mild';
-    return 'spike';
+function addHours(date: Date, hours: number): Date {
+    const result = new Date(date.getTime());
+    result.setHours(result.getHours() + hours);
+    return result;
 }
 
-function getCategoryColor(category: GlucoseCategory): string {
-    switch (category) {
-        case 'steady': return '#4CAF50';
-        case 'mild': return '#3494D9';
-        case 'spike': return '#F44336';
-    }
+function addDays(date: Date, days: number): Date {
+    const result = new Date(date.getTime());
+    result.setDate(result.getDate() + days);
+    return result;
 }
 
-// Get date range for the last 7 days
-// Get date range for analysis (last 30 days for robust patterns)
-function getInsightsDateRange(days: number = 30): { startDate: Date; endDate: Date } {
-    const now = new Date();
-    const endDate = new Date(now);
-    const startDate = new Date(now);
-    startDate.setDate(now.getDate() - days);
+function toDateKey(value: string | Date): string {
+    const date = typeof value === 'string' ? new Date(value) : value;
+    return date.toISOString().split('T')[0];
+}
+
+function getDateRange(days: number): { startDate: Date; endDate: Date } {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
     return { startDate, endDate };
 }
 
-// Helper function for creating SVG pie chart arc paths
-function polarToCartesian(centerX: number, centerY: number, radius: number, angleInDegrees: number) {
-    const angleInRadians = (angleInDegrees * Math.PI) / 180.0;
-    return {
-        x: centerX + radius * Math.cos(angleInRadians),
-        y: centerY + radius * Math.sin(angleInRadians),
-    };
+function getRangeKey(days: number): '7d' | '14d' | '30d' | '90d' {
+    if (days <= 7) return '7d';
+    if (days <= 14) return '14d';
+    if (days <= 30) return '30d';
+    return '90d';
 }
 
-function describeArc(x: number, y: number, radius: number, startAngle: number, endAngle: number) {
-    const start = polarToCartesian(x, y, radius, endAngle);
-    const end = polarToCartesian(x, y, radius, startAngle);
-    const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
-    return [
-        'M', x, y,
-        'L', start.x, start.y,
-        'A', radius, radius, 0, largeArcFlag, 0, end.x, end.y,
-        'Z',
-    ].join(' ');
+function isWithinWindow(dateValue: string, start: Date, end: Date): boolean {
+    const ts = new Date(dateValue).getTime();
+    return ts >= start.getTime() && ts <= end.getTime();
 }
 
-// Dynamic Pie Chart Component
-function PieChart({ data, size = 120 }: {
-    data: { value: number; color: string; label: string }[];
-    size?: number;
-}) {
-    const total = data.reduce((sum, item) => sum + item.value, 0);
-    if (total === 0) return null;
-
-    const radius = (size / 2) - 8;
-    let currentAngle = -90; // Start from top
-
-    const segments = data.map((item, index) => {
-        const percentage = item.value / total;
-        const angle = percentage * 360;
-        const startAngle = currentAngle;
-        const endAngle = currentAngle + angle;
-        currentAngle = endAngle;
-
-        if (item.value === 0) return null;
-
-        return (
-            <Path
-                key={index}
-                d={describeArc(0, 0, radius, startAngle, endAngle)}
-                fill={item.color}
-            />
-        );
-    });
-
-    return (
-        <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-            <G transform={`translate(${size / 2}, ${size / 2})`}>
-                {segments}
-            </G>
-        </Svg>
-    );
-}
-
-// Time of Day Bar Chart Component - matches Figma design exactly
-function TimeOfDayChart({ data }: { data: { period: string; avgValue: number }[] }) {
-    const chartHeight = 168;
-    const barWidth = 56;
-
-    // Glucose zones - each zone is 56px height (168 / 3)
-    const zoneHeight = 56;
-
-    // Time labels matching the design
-    const timeLabels = ['07:00 AM', '12:00 PM', '04:00 PM', '07:00 PM', '10:00 PM'];
-
-    // Calculate bar heights from average values (zones: 0-6.5 steady, 6.5-8.5 mild, 8.5-12 spike)
-    const getBarHeight = (value: number) => {
-        // Map glucose value to chart height (3-12 mmol/L range)
-        const ZONE_MIN = 3;
-        const ZONE_MAX = 12;
-        const clampedValue = Math.min(Math.max(value, ZONE_MIN), ZONE_MAX);
-        return ((clampedValue - ZONE_MIN) / (ZONE_MAX - ZONE_MIN)) * chartHeight;
-    };
-
-    // Map 4 data points to 4 bars (morning, noon, afternoon, evening)
-    const chartData = [
-        data[0] || { period: 'morning', avgValue: 5 },
-        data[1] || { period: 'noon', avgValue: 9 },
-        data[2] || { period: 'afternoon', avgValue: 7 },
-        data[3] || { period: 'evening', avgValue: 6.5 },
-    ];
-
-    return (
-        <View style={styles.chartWrapper}>
-            <View style={styles.chartContainer}>
-                {/* Y-axis labels - rotated text */}
-                <View style={[styles.chartYAxis, { height: chartHeight }]}>
-                    <View style={styles.chartYLabelRow}>
-                        <Text style={styles.chartYLabel}>Elevated</Text>
-                    </View>
-                    <View style={styles.chartYLabelRow}>
-                        <Text style={styles.chartYLabel}>Mild</Text>
-                        <Text style={styles.chartYLabel}>Elevation</Text>
-                    </View>
-                    <View style={styles.chartYLabelRow}>
-                        <Text style={styles.chartYLabel}>Steady</Text>
-                    </View>
-                </View>
-
-                {/* Chart area with zone bands and bars */}
-                <View style={[styles.chartArea, { height: chartHeight }]}>
-                    {/* Zone background bands - stacked from top to bottom */}
-                    <View style={styles.zoneBandsContainer}>
-                        <View style={[styles.zoneBand, { height: zoneHeight, backgroundColor: 'rgba(188, 47, 48, 0.15)', borderColor: 'rgba(204, 204, 204, 0.1)', borderWidth: 1 }]} />
-                        <View style={[styles.zoneBand, { height: zoneHeight, backgroundColor: 'rgba(255, 119, 35, 0.15)', borderColor: 'rgba(204, 204, 204, 0.1)', borderWidth: 1 }]} />
-                        <View style={[styles.zoneBand, { height: zoneHeight, backgroundColor: 'rgba(74, 155, 22, 0.15)', borderColor: 'rgba(204, 204, 204, 0.1)', borderWidth: 1 }]} />
-                    </View>
-
-                    {/* Bars overlay - positioned at the bottom, growing upward */}
-                    <View style={styles.barsContainer}>
-                        {chartData.map((d, i) => {
-                            const barHeight = getBarHeight(d.avgValue);
-                            return (
-                                <View key={i} style={styles.barColumn}>
-                                    <View style={{ flex: 1 }} />
-                                    <View
-                                        style={[
-                                            styles.bar,
-                                            {
-                                                height: barHeight,
-                                                width: barWidth,
-                                                backgroundColor: '#0E9CFF',
-                                                borderTopLeftRadius: 8,
-                                                borderTopRightRadius: 8,
-                                                borderWidth: 0.5,
-                                                borderColor: '#111111',
-                                            },
-                                        ]}
-                                    />
-                                </View>
-                            );
-                        })}
-                    </View>
-                </View>
-            </View>
-
-            {/* X-axis labels - below the chart */}
-            <View style={styles.chartXLabels}>
-                {timeLabels.map((label, i) => (
-                    <Text key={i} style={styles.chartXLabelCombined}>{label}</Text>
-                ))}
-            </View>
-        </View>
-    );
-}
-
-
-// Weekday vs Weekend Comparison - Progressive meter layout
-function WeekdayWeekendComparison({ weekdayData, weekendData }: {
-    weekdayData: { steady: number; mild: number; spike: number };
-    weekendData: { steady: number; mild: number; spike: number };
-}) {
-    // Determine the dominant response level (which zone has most readings)
-    const getDominantLevel = (data: { steady: number; mild: number; spike: number }): 'steady' | 'mild' | 'spike' => {
-        const { steady, mild, spike } = data;
-        const total = steady + mild + spike;
-
-        if (total === 0) return 'steady';
-
-        // Calculate weighted average: steady=1, mild=2, spike=3
-        const weightedAvg = (steady * 1 + mild * 2 + spike * 3) / total;
-
-        if (weightedAvg < 1.5) return 'steady';
-        if (weightedAvg < 2.5) return 'mild';
-        return 'spike';
-    };
-
-    const renderRow = (data: { steady: number; mild: number; spike: number }, label: string) => {
-        const level = getDominantLevel(data);
-
-        // Fill boxes progressively based on level
-        const fillSteady = true; // Always fill at least the first box
-        const fillMild = level === 'mild' || level === 'spike';
-        const fillSpike = level === 'spike';
-
-        return (
-            <View style={styles.comparisonGridRow}>
-                <Text style={styles.comparisonRowLabel}>{label}</Text>
-                <View style={styles.comparisonCell}>
-                    <View style={styles.comparisonCellBg}>
-                        {fillSteady && <View style={[styles.comparisonCellFill, { width: '100%' }]} />}
-                    </View>
-                </View>
-                <View style={styles.comparisonCell}>
-                    <View style={styles.comparisonCellBg}>
-                        {fillMild && <View style={[styles.comparisonCellFill, { width: '100%' }]} />}
-                    </View>
-                </View>
-                <View style={styles.comparisonCell}>
-                    <View style={styles.comparisonCellBg}>
-                        {fillSpike && <View style={[styles.comparisonCellFill, { width: '100%' }]} />}
-                    </View>
-                </View>
-            </View>
-        );
-    };
-
-    return (
-        <View style={styles.comparisonContainer}>
-            {/* Column headers */}
-            <View style={styles.comparisonGridHeader}>
-                <View style={styles.comparisonRowLabelSpacer} />
-                <Text style={styles.comparisonColumnHeader}>Steady</Text>
-                <View style={styles.comparisonColumnHeaderMulti}>
-                    <Text style={styles.comparisonColumnHeader}>Mild</Text>
-                    <Text style={styles.comparisonColumnHeader}>Elevation</Text>
-                </View>
-                <Text style={styles.comparisonColumnHeader}>Elevated</Text>
-            </View>
-
-            {/* Data rows */}
-            {renderRow(weekdayData, 'Weekdays')}
-            {renderRow(weekendData, 'Weekend')}
-        </View>
-    );
-}
-
-
-// Behavioral Impact Item
-function BehavioralImpactItem({ title, percentage, color }: { title: string; percentage: number; color: string }) {
-    return (
-        <View style={styles.impactItem}>
-            <Text style={styles.impactTitle}>{title}</Text>
-            <Text style={styles.impactPercentage}>{percentage}% steady meal responses</Text>
-            <View style={styles.impactBarBg}>
-                <View style={[styles.impactBar, { width: `${percentage}%`, backgroundColor: color }]} />
-            </View>
-        </View>
-    );
-}
-
-// Empty state for Meal Comparison section
-function MealComparisonEmpty() {
-    return (
-        <View style={styles.mealComparisonEmpty}>
-            <Image source={Images.mascots.cook} style={{ width: 80, height: 80, resizeMode: 'contain', marginBottom: 12 }} />
-            <Text style={styles.mealComparisonEmptyTitle}>No Meal Data Yet</Text>
-            <Text style={styles.mealComparisonEmptyText}>
-                Log meals and check in regularly to see patterns here.
-            </Text>
-        </View>
-    );
-}
-
-// Helper to calculate score (High is good, Low is bad)
-function calculateMealScore(meal: MealWithCheckin, logs: GlucoseLog[]): number {
-    const checkin = meal.meal_checkins?.[0];
-    if (!checkin) return 0;
-
-    let score = 0;
-
-    // Energy (1-5 scale mapped from levels)
-    const energyMap: Record<string, number> = { 'low': 1, 'steady': 3, 'high': 5 };
-    if (checkin.energy) score += energyMap[checkin.energy] || 0;
-
-    // Mood (1-5 scale mapped from levels)
-    const moodMap: Record<string, number> = { 'low': 1, 'okay': 3, 'good': 5 };
-    if (checkin.mood) score += moodMap[checkin.mood] || 0;
-
-    // Glucose Spike Impact (penalty for high spikes)
-    // Find logs within 2 hours of meal
-    const mealTime = new Date(meal.logged_at).getTime();
-    const twoHoursLater = mealTime + (2 * 60 * 60 * 1000);
-
-    // Simple baseline: log closest to meal time (within 30 mins before/after)
-    // Simple max: max log in 2h window
-    const nearbyLogs = logs.filter(l => {
-        const t = new Date(l.logged_at).getTime();
-        return t >= mealTime && t <= twoHoursLater;
-    });
-
-    if (nearbyLogs.length > 0) {
-        const levels = nearbyLogs.map(l => l.glucose_level);
-        const max = Math.max(...levels);
-        const min = Math.min(...levels); // approximate baseline
-        const spike = max - min;
-
-        // Spike penalty (Spike > 2.0 starts penalizing)
-        if (spike > 4.0) score -= 3;
-        else if (spike > 2.0) score -= 1;
-        else score += 1; // Steady bonus
+function computeGlucoseStats(
+    logs: GlucoseLog[],
+    targetMin: number,
+    targetMax: number
+): { average: number | null; timeInRange: number | null; cv: number | null; count: number } {
+    if (!logs.length) {
+        return { average: null, timeInRange: null, cv: null, count: 0 };
     }
 
-    return score;
+    const total = logs.reduce((sum, log) => sum + log.glucose_level, 0);
+    const average = total / logs.length;
+    const variance = logs.reduce((sum, log) => sum + Math.pow(log.glucose_level - average, 2), 0) / logs.length;
+    const stdDev = Math.sqrt(variance);
+    const cv = average > 0 ? (stdDev / average) * 100 : null;
+    const inZoneCount = logs.filter(log => log.glucose_level >= targetMin && log.glucose_level <= targetMax).length;
+    const timeInRange = (inZoneCount / logs.length) * 100;
+
+    return {
+        average,
+        timeInRange,
+        cv,
+        count: logs.length,
+    };
+}
+
+function formatMetricValue(metricKey: MetricKey, value: number | null, glucoseUnit: string): string {
+    if (value === null || value === undefined || Number.isNaN(value)) return 'N/A';
+
+    switch (metricKey) {
+        case 'glucose_avg':
+            return formatGlucoseWithUnit(value, glucoseUnit as any);
+        case 'time_in_range':
+            return `${Math.round(value)}%`;
+        case 'steps':
+        case 'meal_count':
+        case 'checkin_count':
+        case 'glucose_logs_count':
+            return `${Math.round(value)}`;
+        case 'sleep_hours':
+            return `${value.toFixed(1)}h`;
+        default:
+            return `${value}`;
+    }
+}
+
+function getMetricDirection(metricKey: MetricKey): 'up' | 'down' {
+    if (metricKey === 'glucose_avg') return 'down';
+    return 'up';
+}
+
+function isImproved(metricKey: MetricKey, delta: number): boolean {
+    const direction = getMetricDirection(metricKey);
+    return direction === 'down' ? delta < 0 : delta > 0;
+}
+
+function computeVelocity(scores: MetabolicWeeklyScore[], rangeDays: number): {
+    latest: number | null;
+    delta: number | null;
+    perWeek: number | null;
+    points: number;
+} {
+    const weeks = Math.max(2, Math.round(rangeDays / 7));
+    const filtered = scores
+        .filter(score => score.score7d !== null)
+        .slice(0, weeks)
+        .reverse();
+
+    if (filtered.length < 2) {
+        return { latest: filtered[0]?.score7d ?? null, delta: null, perWeek: null, points: filtered.length };
+    }
+
+    const first = filtered[0].score7d as number;
+    const last = filtered[filtered.length - 1].score7d as number;
+    const delta = last - first;
+    const perWeek = delta / (filtered.length - 1);
+
+    return {
+        latest: last,
+        delta,
+        perWeek,
+        points: filtered.length,
+    };
 }
 
 export default function InsightsScreen() {
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const glucoseUnit = useGlucoseUnit();
     const params = useLocalSearchParams();
 
-    // Initialize tab from params or default to weekly
-    const [activeTab, setActiveTab] = useState<TabKey>(
-        (params.tab as TabKey) || 'weekly'
-    );
+    const [activeTab, setActiveTab] = useState<TabKey>('actions');
+    const insightsRangeDays = 30;
+    const [progressRangeDays, setProgressRangeDays] = useState(90);
 
-    // Update tab if params change
-    useFocusEffect(
-        useCallback(() => {
-            if (params.tab && ['weekly', 'trends', 'experiments'].includes(params.tab as string)) {
-                setActiveTab(params.tab as TabKey);
-            }
-        }, [params.tab])
-    );
-    const [isLoading, setIsLoading] = useState(true);
-    const [mealTab, setMealTab] = useState<'highest' | 'lowest'>('highest');
+    const [glucoseLogs, setGlucoseLogs] = useState<GlucoseLog[]>([]);
+    const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+    const [meals, setMeals] = useState<MealWithCheckin[]>([]);
+    const [dailyContext, setDailyContext] = useState<DailyContext[]>([]);
+    const [actions, setActions] = useState<UserAction[]>([]);
+    const [avgFibrePerDay, setAvgFibrePerDay] = useState<number | undefined>(undefined);
 
-    // Computed data states
-    const [timeOfDayData, setTimeOfDayData] = useState<{ period: string; avgValue: number }[]>([]);
-    const [weekdayData, setWeekdayData] = useState({ steady: 0, mild: 0, spike: 0 });
-    const [weekendData, setWeekendData] = useState({ steady: 0, mild: 0, spike: 0 });
-    const [behavioralStats, setBehavioralStats] = useState({
-        sleep: 14,
-        postMealWalks: 58,
-        consistentMealTimes: 28,
-    });
+    const [carePathway, setCarePathway] = useState<UserCarePathway | null>(null);
+    const [pathwayTemplates, setPathwayTemplates] = useState<CarePathwayTemplate[]>([]);
+    const [weeklyScores, setWeeklyScores] = useState<MetabolicWeeklyScore[]>([]);
 
-    // Best & Worst Meals
-    const [bestMeal, setBestMeal] = useState<MealWithCheckin | null>(null);
-    const [worstMeal, setWorstMeal] = useState<MealWithCheckin | null>(null);
+    const [insightsLoading, setInsightsLoading] = useState(true);
+    const [actionsLoading, setActionsLoading] = useState(false);
+    const [pathwayLoading, setPathwayLoading] = useState(false);
 
-    // Experiments states
+    // Experiments state
     const [suggestedExperiments, setSuggestedExperiments] = useState<SuggestedExperiment[]>([]);
     const [activeExperiments, setActiveExperiments] = useState<UserExperiment[]>([]);
     const [experimentsLoading, setExperimentsLoading] = useState(false);
     const [startingExperiment, setStartingExperiment] = useState<string | null>(null);
-    const [successExperiment, setSuccessExperiment] = useState<string | null>(null);
 
-    // Insights text
-    const [timeOfDayInsight, setTimeOfDayInsight] = useState('');
-    const [weekdayInsight, setWeekdayInsight] = useState('');
-    const [hasSufficientData, setHasSufficientData] = useState(false);
-    const [trendStats, setTrendStats] = useState({ steady: 0, mild: 0, spike: 0 });
-    const [glucoseStats, setGlucoseStats] = useState({ tir: 0, average: 0, totalReadings: 0, variability: 0 });
-    const [insightsRangeDays, setInsightsRangeDays] = useState(30);
+    const syncingActionsRef = useRef(false);
+    const syncingFeaturesRef = useRef(false);
 
-    // Metabolic Score state
-    const [metabolicScore, setMetabolicScore] = useState<MetabolicScoreResult | null>(null);
-    const [metabolicScoreLoading, setMetabolicScoreLoading] = useState(false);
+    const targetMin = profile?.target_min ?? DEFAULT_TARGET_MIN;
+    const targetMax = profile?.target_max ?? DEFAULT_TARGET_MAX;
+    const trackingMode = (profile?.tracking_mode || 'meals_wearables') as TrackingMode;
 
-    const fetchWeeklyData = useCallback(async () => {
+    const { startDate, endDate } = useMemo(() => getDateRange(insightsRangeDays), [insightsRangeDays]);
+    const startDateKey = useMemo(() => toDateKey(startDate), [startDate]);
+    const endDateKey = useMemo(() => toDateKey(endDate), [endDate]);
+
+    const fallbackData = useMemo((): InsightData => {
+        const glucoseStats = computeGlucoseStats(glucoseLogs, targetMin, targetMax);
+        const mealsWithCheckins = meals.filter(meal => (meal.meal_checkins || []).length > 0);
+        const mealsWithWalkAfter = meals.filter(meal =>
+            meal.meal_checkins?.some(checkin => checkin.movement_after)
+        );
+        const dailyWithSteps = dailyContext.filter(day => day.steps !== null);
+        const dailyWithActive = dailyContext.filter(day => day.active_minutes !== null);
+        const dailyWithSleep = dailyContext.filter(day => day.sleep_hours !== null);
+        const avgSteps = dailyWithSteps.length
+            ? Math.round(dailyWithSteps.reduce((sum, day) => sum + (day.steps || 0), 0) / dailyWithSteps.length)
+            : undefined;
+        const avgActiveMinutes = dailyWithActive.length
+            ? Math.round(dailyWithActive.reduce((sum, day) => sum + (day.active_minutes || 0), 0) / dailyWithActive.length)
+            : undefined;
+        const avgSleep = dailyWithSleep.length
+            ? Math.round((dailyWithSleep.reduce((sum, day) => sum + (day.sleep_hours || 0), 0) / dailyWithSleep.length) * 10) / 10
+            : undefined;
+
+        return {
+            glucoseLogs,
+            glucoseLogsCount: glucoseStats.count,
+            timeInZonePercent: glucoseStats.timeInRange ?? undefined,
+            userTargetMin: targetMin,
+            userTargetMax: targetMax,
+            meals,
+            avgSleepHours: avgSleep,
+            avgSteps,
+            avgActiveMinutes,
+            avgFibrePerDay,
+            mealsWithWalkAfter: mealsWithWalkAfter.length,
+            totalMealsThisWeek: meals.length,
+            checkinsThisWeek: mealsWithCheckins.length,
+        };
+    }, [glucoseLogs, meals, dailyContext, targetMin, targetMax, avgFibrePerDay]);
+
+    const { insights: personalInsights, loading: personalInsightsLoading } = usePersonalInsights({
+        userId: user?.id,
+        trackingMode,
+        rangeKey: getRangeKey(insightsRangeDays),
+        enabled: !!user?.id,
+        fallbackData,
+    });
+
+    const fetchCoreData = useCallback(async () => {
         if (!user) {
-            setIsLoading(false);
+            setInsightsLoading(false);
             return;
         }
 
-        setIsLoading(true);
+        setInsightsLoading(true);
         try {
-            const { startDate, endDate } = getInsightsDateRange(insightsRangeDays);
-            const logs = await getGlucoseLogsByDateRange(user.id, startDate, endDate);
-
-            // Check for data sufficiency (at least 3 days of data for partial insights, 7 ideally)
-            // User requested 7 days message
-            const uniqueDays = new Set(logs.map(l => new Date(l.logged_at).toISOString().split('T')[0])).size;
-            const sufficient = uniqueDays >= Math.min(3, insightsRangeDays); // Relax check for short ranges
-            setHasSufficientData(sufficient);
-
-            if (!sufficient) {
-                // Don't process questionable data
-                setIsLoading(false);
-                return;
-            }
-
-            // Process time of day data - track values for averaging
-            const timeValues: { [key: string]: number[] } = {
-                'morning': [],
-                'afternoon': [],
-                'evening': [],
-                'night': [],
-            };
-
-            // Process time of day data - track categories for weekday/weekend
-            const timeData: { [key: string]: { steady: number; mild: number; spike: number } } = {
-                'morning': { steady: 0, mild: 0, spike: 0 },
-                'afternoon': { steady: 0, mild: 0, spike: 0 },
-                'evening': { steady: 0, mild: 0, spike: 0 },
-                'night': { steady: 0, mild: 0, spike: 0 },
-            };
-
-            // Process weekday vs weekend
-            const weekday = { steady: 0, mild: 0, spike: 0 };
-            const weekend = { steady: 0, mild: 0, spike: 0 };
-
-            logs.forEach(log => {
-                const logDate = new Date(log.logged_at);
-                const hour = logDate.getHours();
-                const dayOfWeek = logDate.getDay();
-                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                const category = categorizeReading(log.glucose_level);
-
-                // Determine time period
-                let period = 'night';
-                if (hour >= 5 && hour < 12) period = 'morning';
-                else if (hour >= 12 && hour < 17) period = 'afternoon';
-                else if (hour >= 17 && hour < 21) period = 'evening';
-
-                timeValues[period].push(log.glucose_level);
-                timeData[period][category]++;
-
-                if (isWeekend) {
-                    weekend[category]++;
-                } else {
-                    weekday[category]++;
-                }
-            });
-
-            // Calculate averages per time period
-            const calcAvg = (values: number[]) => values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-
-            setTimeOfDayData([
-                { period: 'morning', avgValue: calcAvg(timeValues.morning) },
-                { period: 'afternoon', avgValue: calcAvg(timeValues.afternoon) },
-                { period: 'evening', avgValue: calcAvg(timeValues.evening) },
-                { period: 'night', avgValue: calcAvg(timeValues.night) },
+            const [logs, activities, mealsData, dailyData, fibreSummary, pathway, templates, weekly] = await Promise.all([
+                getGlucoseLogsByDateRange(user.id, startDate, endDate),
+                getActivityLogsByDateRange(user.id, startDate, endDate),
+                getMealsWithCheckinsByDateRange(user.id, startDate, endDate),
+                getDailyContextByRange(user.id, startDateKey, endDateKey),
+                getFibreIntakeSummary(user.id, 'month'),
+                getActiveCarePathway(user.id),
+                getCarePathwayTemplates(),
+                getMetabolicWeeklyScores(user.id, 26),
             ]);
 
-            setWeekdayData(weekday);
-            setWeekendData(weekend);
-
-
-            // Calculate aggregated trend stats for Pie Chart
-            const totalSteady = timeData.morning.steady + timeData.afternoon.steady + timeData.evening.steady + timeData.night.steady;
-            const totalMild = timeData.morning.mild + timeData.afternoon.mild + timeData.evening.mild + timeData.night.mild;
-            const totalSpike = timeData.morning.spike + timeData.afternoon.spike + timeData.evening.spike + timeData.night.spike;
-            setTrendStats({
-                steady: totalSteady,
-                mild: totalMild,
-                spike: totalSpike
-            });
-
-            // Calculate Glucose Statistics (TIR and Average)
-            if (logs.length > 0) {
-                // Time in Range (3.9 - 10.0 mmol/L) -> (70 - 180 mg/dL)
-                // Assuming logs are mmol/L (if they are stored as such)
-                // Wait, DB logs are usually mmol/L. Let's assume standard range 3.9-10.
-                const tirCount = logs.filter(l => l.glucose_level >= 3.9 && l.glucose_level <= 10.0).length;
-                const tir = (tirCount / logs.length) * 100;
-
-                const sumGlucose = logs.reduce((sum, l) => sum + l.glucose_level, 0);
-                const average = sumGlucose / logs.length;
-
-                // Variability (Standard Deviation / Mean * 100)
-                const variance = logs.reduce((sum, l) => sum + Math.pow(l.glucose_level - average, 2), 0) / logs.length;
-                const stdDev = Math.sqrt(variance);
-                const cv = average > 0 ? (stdDev / average) * 100 : 0;
-
-                setGlucoseStats({
-                    tir,
-                    average,
-                    totalReadings: logs.length,
-                    variability: cv
-                });
-            } else {
-                setGlucoseStats({ tir: 0, average: 0, totalReadings: 0, variability: 0 });
-            }
-
-            // Generate insights based on data
-            const periods = ['morning', 'afternoon', 'evening', 'night'];
-            const steadiestPeriod = periods.reduce((best, period) => {
-                const current = timeData[period];
-                const bestData = timeData[best];
-                const currentRatio = current.steady / (current.steady + current.mild + current.spike || 1);
-                const bestRatio = bestData.steady / (bestData.steady + bestData.mild + bestData.spike || 1);
-                return currentRatio > bestRatio ? period : best;
-            }, 'morning');
-
-            const spikiestPeriod = periods.reduce((worst, period) => {
-                const current = timeData[period];
-                const worstData = timeData[worst];
-                const currentRatio = current.spike / (current.steady + current.mild + current.spike || 1);
-                const worstRatio = worstData.spike / (worstData.steady + worstData.mild + worstData.spike || 1);
-                return currentRatio > worstRatio ? period : worst;
-            }, 'morning');
-
-            setTimeOfDayInsight(
-                `${steadiestPeriod.charAt(0).toUpperCase() + steadiestPeriod.slice(1)}s had the steadiest responses. ${spikiestPeriod.charAt(0).toUpperCase() + spikiestPeriod.slice(1)}s showed the highest rises.`
+            setGlucoseLogs(logs);
+            setActivityLogs(activities);
+            setMeals(mealsData);
+            setDailyContext(dailyData);
+            setCarePathway(pathway);
+            setPathwayTemplates(templates);
+            setWeeklyScores(weekly);
+            setAvgFibrePerDay(
+                fibreSummary?.avgPerDay !== null && fibreSummary?.avgPerDay !== undefined
+                    ? fibreSummary.avgPerDay
+                    : undefined
             );
-
-            // Meal Comparison using Check-ins
-            const meals = await getMealsWithCheckinsByDateRange(user.id, startDate, endDate);
-
-            // Score meals that have check-ins
-            const rankedMeals = meals
-                .filter(m => m.meal_checkins && m.meal_checkins.length > 0)
-                .map(m => ({ meal: m, score: calculateMealScore(m, logs) }))
-                .sort((a, b) => b.score - a.score);
-
-            if (rankedMeals.length > 0) {
-                setBestMeal(rankedMeals[0].meal);
-                // Only show worst if different from best
-                if (rankedMeals.length > 1) {
-                    setWorstMeal(rankedMeals[rankedMeals.length - 1].meal);
-                } else {
-                    setWorstMeal(null);
-                }
-            } else {
-                setWorstMeal(null);
-            }
-
         } catch (error) {
-            console.error('Error fetching weekly data:', error);
+            console.error('Error fetching insights data:', error);
         } finally {
-            setIsLoading(false);
+            setInsightsLoading(false);
         }
-    }, [user, insightsRangeDays]);
+    }, [user, startDate, endDate, startDateKey, endDateKey]);
 
-    useFocusEffect(
-        useCallback(() => {
-            fetchWeeklyData();
-        }, [fetchWeeklyData])
-    );
-
-    // Fetch metabolic score
-    const fetchMetabolicScore = useCallback(async () => {
+    const fetchActions = useCallback(async () => {
         if (!user) return;
-
-        setMetabolicScoreLoading(true);
+        setActionsLoading(true);
         try {
-            const result = await invokeMetabolicScore(user.id);
-            setMetabolicScore(result);
+            const results = await getUserActionsByStatus(user.id, ['active', 'completed', 'expired']);
+            setActions(results);
         } catch (error) {
-            console.error('Error fetching metabolic score:', error);
+            console.error('Error fetching actions:', error);
         } finally {
-            setMetabolicScoreLoading(false);
+            setActionsLoading(false);
         }
     }, [user]);
 
-    // Fetch metabolic score when weekly tab is active
-    useFocusEffect(
-        useCallback(() => {
-            if (activeTab === 'weekly') {
-                fetchMetabolicScore();
-            }
-        }, [activeTab, fetchMetabolicScore])
-    );
-
-    // Fetch experiments data
     const fetchExperimentsData = useCallback(async () => {
         if (!user) return;
-
         setExperimentsLoading(true);
         try {
-            // Fetch user's active experiments
-            const active = await getUserExperiments(user.id, ['draft', 'active']);
+            const [active, suggestions] = await Promise.all([
+                getUserExperiments(user.id, ['draft', 'active']),
+                getSuggestedExperiments(user.id, 6),
+            ]);
             setActiveExperiments(active);
-
-            // Fetch suggested experiments
-            const suggestions = await getSuggestedExperiments(user.id, 6);
-            if (suggestions?.suggestions) {
-                setSuggestedExperiments(suggestions.suggestions);
-            }
+            if (suggestions?.suggestions) setSuggestedExperiments(suggestions.suggestions);
         } catch (error) {
             console.error('Error fetching experiments:', error);
         } finally {
@@ -641,19 +343,366 @@ export default function InsightsScreen() {
         }
     }, [user]);
 
-    // Fetch experiments when tab changes to experiments
     useFocusEffect(
         useCallback(() => {
-            if (activeTab === 'experiments') {
-                fetchExperimentsData();
-            }
-        }, [activeTab, fetchExperimentsData])
+            fetchCoreData();
+            fetchActions();
+            fetchExperimentsData();
+        }, [fetchCoreData, fetchActions, fetchExperimentsData])
     );
 
-    // Handle starting an experiment
+    useFocusEffect(
+        useCallback(() => {
+            if (params.tab && ['actions', 'progress', 'experiments'].includes(params.tab as string)) {
+                setActiveTab(params.tab as TabKey);
+            }
+        }, [params.tab])
+    );
+
+    const computeMetricValue = useCallback((
+        metricKey: MetricKey,
+        windowStart: Date,
+        windowEnd: Date
+    ): number | null => {
+        switch (metricKey) {
+            case 'meal_count':
+                return meals.filter(meal => isWithinWindow(meal.logged_at, windowStart, windowEnd)).length;
+            case 'checkin_count':
+                return meals.reduce((count, meal) => {
+                    const matches = (meal.meal_checkins || []).filter(checkin =>
+                        isWithinWindow(checkin.created_at, windowStart, windowEnd)
+                    ).length;
+                    return count + matches;
+                }, 0);
+            case 'glucose_logs_count':
+                return glucoseLogs.filter(log => isWithinWindow(log.logged_at, windowStart, windowEnd)).length;
+            case 'glucose_avg': {
+                const windowLogs = glucoseLogs.filter(log => isWithinWindow(log.logged_at, windowStart, windowEnd));
+                const stats = computeGlucoseStats(windowLogs, targetMin, targetMax);
+                return stats.average;
+            }
+            case 'time_in_range': {
+                const windowLogs = glucoseLogs.filter(log => isWithinWindow(log.logged_at, windowStart, windowEnd));
+                const stats = computeGlucoseStats(windowLogs, targetMin, targetMax);
+                return stats.timeInRange;
+            }
+            case 'steps': {
+                const startKey = toDateKey(windowStart);
+                const endKey = toDateKey(windowEnd);
+                const values = dailyContext
+                    .filter(day => day.steps !== null && day.date >= startKey && day.date <= endKey)
+                    .map(day => day.steps || 0);
+                if (!values.length) return null;
+                return values.reduce((sum, value) => sum + value, 0) / values.length;
+            }
+            case 'sleep_hours': {
+                const startKey = toDateKey(windowStart);
+                const endKey = toDateKey(windowEnd);
+                const values = dailyContext
+                    .filter(day => day.sleep_hours !== null && day.date >= startKey && day.date <= endKey)
+                    .map(day => day.sleep_hours || 0);
+                if (!values.length) return null;
+                return values.reduce((sum, value) => sum + value, 0) / values.length;
+            }
+            default:
+                return null;
+        }
+    }, [meals, glucoseLogs, dailyContext, targetMin, targetMax]);
+
+    const detectActionCompletion = useCallback((action: UserAction): boolean => {
+        const windowStart = new Date(action.window_start);
+        const windowEnd = new Date(action.window_end);
+
+        switch (action.action_type) {
+            case 'log_meal':
+            case 'meal_pairing':
+            case 'fiber_boost':
+            case 'meal_timing':
+                return meals.some(meal => isWithinWindow(meal.logged_at, windowStart, windowEnd));
+            case 'meal_checkin':
+                return meals.some(meal =>
+                    meal.meal_checkins?.some(checkin => isWithinWindow(checkin.created_at, windowStart, windowEnd))
+                );
+            case 'log_activity':
+            case 'post_meal_walk':
+            case 'steps_boost':
+            case 'light_activity':
+                return activityLogs.some(log => isWithinWindow(log.logged_at, windowStart, windowEnd));
+            case 'log_glucose':
+                return glucoseLogs.some(log => isWithinWindow(log.logged_at, windowStart, windowEnd));
+            case 'sleep_logging':
+            case 'sleep_window':
+            case 'sleep_consistency': {
+                const startKey = toDateKey(windowStart);
+                const endKey = toDateKey(windowEnd);
+                return dailyContext.some(day => day.sleep_hours !== null && day.date >= startKey && day.date <= endKey);
+            }
+            default:
+                return false;
+        }
+    }, [meals, activityLogs, glucoseLogs, dailyContext]);
+
+    const syncActionOutcomes = useCallback(async () => {
+        if (!user || syncingActionsRef.current || actionsLoading) return;
+        syncingActionsRef.current = true;
+
+        try {
+            const updates: Promise<UserAction | null>[] = [];
+            const now = new Date();
+
+            actions.forEach(action => {
+                let patch: Partial<UserAction> | null = null;
+                const windowStart = new Date(action.window_start);
+                const windowEnd = new Date(action.window_end);
+                const metricKey = (action.action_params?.metricKey || action.action_params?.metric_key || action.action_params?.metric || action.action_params?.metricType) as MetricKey | undefined;
+
+                if (action.status === 'active') {
+                    const autoCompleted = detectActionCompletion(action);
+                    if (autoCompleted) {
+                        patch = {
+                            status: 'completed',
+                            completed_at: new Date().toISOString(),
+                            completion_source: 'auto',
+                        };
+                    } else if (now > windowEnd) {
+                        patch = { status: 'expired' };
+                    }
+                }
+
+                if (metricKey && (action.status === 'completed' || patch?.status === 'completed' || (now > windowEnd))) {
+                    const baselineStart = addDays(windowStart, -ACTION_BASELINE_DAYS);
+                    const baselineValue = computeMetricValue(metricKey, baselineStart, windowStart);
+                    const outcomeValue = computeMetricValue(metricKey, windowStart, windowEnd);
+
+                    if (baselineValue !== null && outcomeValue !== null) {
+                        const delta = outcomeValue - baselineValue;
+                        const improved = isImproved(metricKey, delta);
+                        patch = {
+                            ...patch,
+                            baseline_metric: {
+                                metricKey,
+                                value: baselineValue,
+                                window_start: baselineStart.toISOString(),
+                                window_end: windowStart.toISOString(),
+                            },
+                            outcome_metric: {
+                                metricKey,
+                                value: outcomeValue,
+                                window_start: windowStart.toISOString(),
+                                window_end: windowEnd.toISOString(),
+                            },
+                            delta_value: delta,
+                            improved,
+                            last_evaluated_at: new Date().toISOString(),
+                        } as Partial<UserAction>;
+                    }
+                }
+
+                if (patch) {
+                    updates.push(updateUserAction(action.id, patch));
+                }
+            });
+
+            if (updates.length) {
+                await Promise.all(updates);
+                await fetchActions();
+            }
+        } catch (error) {
+            console.error('Error syncing action outcomes:', error);
+        } finally {
+            syncingActionsRef.current = false;
+        }
+    }, [user, actions, actionsLoading, computeMetricValue, detectActionCompletion, fetchActions]);
+
+    const syncDailyFeatures = useCallback(async () => {
+        if (!user || syncingFeaturesRef.current) return;
+        if (!glucoseLogs.length && !meals.length && !dailyContext.length) return;
+
+        syncingFeaturesRef.current = true;
+
+        try {
+            const dateKeys = new Set<string>();
+            glucoseLogs.forEach(log => dateKeys.add(toDateKey(log.logged_at)));
+            meals.forEach(meal => dateKeys.add(toDateKey(meal.logged_at)));
+            dailyContext.forEach(day => dateKeys.add(day.date));
+
+            const sortedKeys = Array.from(dateKeys).sort();
+            for (const key of sortedKeys) {
+                const dayStart = new Date(`${key}T00:00:00.000Z`);
+                const dayEnd = new Date(`${key}T23:59:59.999Z`);
+
+                const dayLogs = glucoseLogs.filter(log => isWithinWindow(log.logged_at, dayStart, dayEnd));
+                const dayMeals = meals.filter(meal => isWithinWindow(meal.logged_at, dayStart, dayEnd));
+                const dayCheckins = dayMeals.reduce((count, meal) => count + ((meal.meal_checkins || []).length), 0);
+                const dayContext = dailyContext.find(day => day.date === key);
+
+                const glucoseStats = computeGlucoseStats(dayLogs, targetMin, targetMax);
+                const mealCount = dayMeals.length;
+                const fibreAvg = null;
+                const interactions = {
+                    sleep_to_glucose: dayContext?.sleep_hours && glucoseStats.average
+                        ? Number((dayContext.sleep_hours / glucoseStats.average).toFixed(3))
+                        : null,
+                    steps_to_glucose: dayContext?.steps && glucoseStats.average
+                        ? Math.round(dayContext.steps / glucoseStats.average)
+                        : null,
+                    meals_to_glucose: mealCount > 0 && glucoseStats.average
+                        ? Number((glucoseStats.average / mealCount).toFixed(2))
+                        : null,
+                };
+
+                await upsertMetabolicDailyFeature(user.id, {
+                    date: key,
+                    feature_version: 1,
+                    glucose_avg: glucoseStats.average,
+                    glucose_cv: glucoseStats.cv,
+                    glucose_logs_count: glucoseStats.count,
+                    time_in_range_pct: glucoseStats.timeInRange,
+                    meal_count: mealCount,
+                    meal_checkin_count: dayCheckins,
+                    fibre_g_avg: fibreAvg,
+                    steps: dayContext?.steps ?? null,
+                    active_minutes: dayContext?.active_minutes ?? null,
+                    sleep_hours: dayContext?.sleep_hours ?? null,
+                    resting_hr: dayContext?.resting_hr ?? null,
+                    hrv_ms: dayContext?.hrv_ms ?? null,
+                    interactions,
+                });
+            }
+        } catch (error) {
+            console.error('Error syncing daily features:', error);
+        } finally {
+            syncingFeaturesRef.current = false;
+        }
+    }, [user, glucoseLogs, meals, dailyContext, targetMin, targetMax]);
+
+    useFocusEffect(
+        useCallback(() => {
+            syncActionOutcomes();
+        }, [syncActionOutcomes])
+    );
+
+    useFocusEffect(
+        useCallback(() => {
+            syncDailyFeatures();
+        }, [syncDailyFeatures])
+    );
+
+    const syncCarePathwayOutcome = useCallback(async () => {
+        if (!carePathway || carePathway.status !== 'active') return;
+        const endAt = new Date(carePathway.end_at);
+        if (Date.now() < endAt.getTime()) return;
+
+        const startAt = new Date(carePathway.start_at);
+        const outcomeMetrics = {
+            time_in_range: computeMetricValue('time_in_range', startAt, endAt),
+            glucose_avg: computeMetricValue('glucose_avg', startAt, endAt),
+        };
+
+        const baselineMetrics = carePathway.baseline_metrics || {};
+        const delta = {
+            time_in_range: outcomeMetrics.time_in_range !== null && baselineMetrics.time_in_range !== undefined
+                ? outcomeMetrics.time_in_range - baselineMetrics.time_in_range
+                : null,
+            glucose_avg: outcomeMetrics.glucose_avg !== null && baselineMetrics.glucose_avg !== undefined
+                ? outcomeMetrics.glucose_avg - baselineMetrics.glucose_avg
+                : null,
+        };
+
+        const updated = await updateCarePathway(carePathway.id, {
+            status: 'completed',
+            outcome_metrics: outcomeMetrics,
+            delta,
+        });
+
+        if (updated) setCarePathway(updated);
+    }, [carePathway, computeMetricValue, updateCarePathway]);
+
+    useFocusEffect(
+        useCallback(() => {
+            syncCarePathwayOutcome();
+        }, [syncCarePathwayOutcome])
+    );
+
+    const handleStartAction = async (insightId: string, action: InsightAction) => {
+        if (!user) return;
+        const windowStart = new Date();
+        const windowEnd = addHours(windowStart, action.windowHours || 48);
+        const metricKey = action.metricKey as MetricKey;
+        const baselineStart = addDays(windowStart, -ACTION_BASELINE_DAYS);
+        const baselineValue = computeMetricValue(metricKey, baselineStart, windowStart);
+
+        const created = await createUserAction(user.id, {
+            source_insight_id: insightId,
+            title: action.title,
+            description: action.description,
+            action_type: action.actionType,
+            action_params: {
+                metricKey: action.metricKey,
+                windowHours: action.windowHours,
+            },
+            window_end: windowEnd.toISOString(),
+            baseline_metric: baselineValue !== null ? {
+                metricKey,
+                value: baselineValue,
+                window_start: baselineStart.toISOString(),
+                window_end: windowStart.toISOString(),
+            } : null,
+        });
+
+        if (created) {
+            await fetchActions();
+        }
+    };
+
+    const handleMarkActionDone = async (action: UserAction) => {
+        await updateUserAction(action.id, {
+            status: 'completed',
+            completed_at: new Date().toISOString(),
+            completion_source: 'manual',
+        });
+        await fetchActions();
+    };
+
+    const handleStartPathway = async (template: CarePathwayTemplate) => {
+        if (!user) return;
+        setPathwayLoading(true);
+        try {
+            const now = new Date();
+            const endAt = addDays(now, template.duration_days);
+            const baselineStart = addDays(now, -ACTION_BASELINE_DAYS);
+            const baselineMetrics = {
+                time_in_range: computeMetricValue('time_in_range', baselineStart, now),
+                glucose_avg: computeMetricValue('glucose_avg', baselineStart, now),
+            };
+
+            const created = await startCarePathway(user.id, template.id, endAt.toISOString(), baselineMetrics);
+            setCarePathway(created);
+        } catch (error) {
+            console.error('Error starting care pathway:', error);
+            Alert.alert('Error', 'Unable to start the pathway right now.');
+        } finally {
+            setPathwayLoading(false);
+        }
+    };
+
+    const handleTogglePathwayStep = async (stepId: string) => {
+        if (!carePathway) return;
+        const completed = Array.isArray(carePathway.progress?.completed_step_ids)
+            ? carePathway.progress.completed_step_ids
+            : [];
+        const updated = completed.includes(stepId)
+            ? completed.filter((id: string) => id !== stepId)
+            : [...completed, stepId];
+
+        const next = await updateCarePathway(carePathway.id, {
+            progress: { ...carePathway.progress, completed_step_ids: updated },
+        });
+        if (next) setCarePathway(next);
+    };
+
     const handleStartExperiment = async (suggestion: SuggestedExperiment) => {
         if (!user || startingExperiment) return;
-
         setStartingExperiment(suggestion.template.id);
         try {
             const experiment = await startUserExperiment(
@@ -668,1795 +717,777 @@ export default function InsightsScreen() {
 
             if (experiment) {
                 setStartingExperiment(null);
-                setSuccessExperiment(suggestion.template.id);
                 fetchExperimentsData();
-
-                // Show checkmark then navigate
-                setTimeout(() => {
-                    setSuccessExperiment(null);
-                    router.push('/(tabs)/' as any);
-                }, 1500);
+                router.push('/experiments-list' as any);
             } else {
                 setStartingExperiment(null);
-                Alert.alert('Error', 'Failed to start experiment. Please try again.');
+                Alert.alert('Error', 'Failed to start experiment.');
             }
         } catch (error) {
             console.error('Error starting experiment:', error);
             setStartingExperiment(null);
-            Alert.alert('Error', 'Something went wrong. Please try again.');
+            Alert.alert('Error', 'Something went wrong.');
         }
     };
 
+    const actionCandidates = useMemo(() => {
+        const activeActionTypes = new Set(actions.filter(a => a.status === 'active').map(a => a.action_type));
+        return personalInsights.filter(insight => !activeActionTypes.has(insight.action.actionType)).slice(0, 4);
+    }, [personalInsights, actions]);
 
+    const activeActions = useMemo(() => actions.filter(action => action.status === 'active'), [actions]);
+    const recentActions = useMemo(() => actions.filter(action => action.status !== 'active').slice(0, 3), [actions]);
 
-    // Reusable empty state for reports
-    const renderInsufficientData = () => (
-        <View style={styles.card}>
-            <View style={{ alignItems: 'center', padding: 24, gap: 12 }}>
-                <Image source={Images.mascots.thinking} style={{ width: 80, height: 80, resizeMode: 'contain' }} />
-                <Text style={{ fontFamily: fonts.semiBold, fontSize: 18, color: '#FFFFFF', textAlign: 'center' }}>
-                    Not Enough Data Yet
-                </Text>
-                <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: '#878787', textAlign: 'center', lineHeight: 20 }}>
-                    We need at least 7 days of glucose data to generate meaningful insights and trends. Keep logging!
-                </Text>
-            </View>
-        </View>
-    );
+    const glucoseStats = useMemo(() => computeGlucoseStats(glucoseLogs, targetMin, targetMax), [glucoseLogs, targetMin, targetMax]);
 
-    const renderWeeklyReport = () => {
-        const displayScore = metabolicScore?.score7d ?? metabolicScore?.metabolic_response_score ?? null;
-        const displayConfidence = metabolicScore?.confidence_v2 && metabolicScore.confidence_v2 !== 'insufficient_data'
-            ? metabolicScore.confidence_v2
-            : metabolicScore?.confidence;
+    const shouldRecommendPathway = useMemo(() => {
+        if (glucoseStats.timeInRange === null || glucoseStats.timeInRange === undefined || glucoseStats.count < 7) {
+            return false;
+        }
+        return glucoseStats.timeInRange < 60;
+    }, [glucoseStats]);
 
-        return (
-            <ScrollView
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.scrollContent}
-            >
-            <Text style={styles.sectionDescription}>
-                How your habits and patterns contributed to your wellness this week.
-            </Text>
+    const activePathwayTemplate = useMemo(() => {
+        if (carePathway?.template) return carePathway.template;
+        return pathwayTemplates.find(template => template.slug === 'high-glucose-7d-reset') || null;
+    }, [carePathway, pathwayTemplates]);
 
-            {/* Metabolic Response Score Card */}
-            <View style={styles.card}>
-                <View style={styles.metabolicScoreHeader}>
-                    <Text style={styles.metabolicScoreTitle}>Metabolic Response Score</Text>
-                    {metabolicScore && displayConfidence && (
-                        <View style={[
-                            styles.confidenceBadge,
-                            displayConfidence === 'high' && styles.confidenceHigh,
-                            displayConfidence === 'medium' && styles.confidenceMedium,
-                            displayConfidence === 'low' && styles.confidenceLow,
-                        ]}>
-                            <Text style={styles.confidenceText}>
-                                {displayConfidence}
-                            </Text>
-                        </View>
-                    )}
+    const velocity = useMemo(() => computeVelocity(weeklyScores, progressRangeDays), [weeklyScores, progressRangeDays]);
+
+    const habitsSummary = useMemo(() => {
+        const uniqueMealDays = new Set(meals.map(meal => toDateKey(meal.logged_at)));
+        const checkinCount = meals.reduce((count, meal) => count + ((meal.meal_checkins || []).length), 0);
+        const postMealWalks = meals.reduce((count, meal) => {
+            const hasWalk = meal.meal_checkins?.some(checkin => checkin.movement_after);
+            return count + (hasWalk ? 1 : 0);
+        }, 0);
+
+        return {
+            mealDays: uniqueMealDays.size,
+            checkinCount,
+            postMealWalks,
+        };
+    }, [meals]);
+
+    const dataCoverage = useMemo(() => {
+        const sleepDays = dailyContext.filter(day => day.sleep_hours !== null).length;
+        const stepsDays = dailyContext.filter(day => day.steps !== null).length;
+        const glucoseDays = new Set(glucoseLogs.map(log => toDateKey(log.logged_at))).size;
+        const mealDays = new Set(meals.map(meal => toDateKey(meal.logged_at))).size;
+
+        return { sleepDays, stepsDays, glucoseDays, mealDays };
+    }, [dailyContext, glucoseLogs, meals]);
+
+    const renderActionCard = (action: UserAction) => {
+        const windowEnd = new Date(action.window_end);
+        const timeLeft = Math.max(0, Math.ceil((windowEnd.getTime() - Date.now()) / (1000 * 60 * 60)));
+        const metricKey = (action.action_params?.metricKey || 'time_in_range') as MetricKey;
+        const outcomeValue = action.outcome_metric?.value ?? null;
+        const baselineValue = action.baseline_metric?.value ?? null;
+        const deltaValue = action.delta_value ?? null;
+        const improvementLabel = deltaValue !== null
+            ? `${deltaValue > 0 ? '+' : ''}${formatMetricValue(metricKey, deltaValue, glucoseUnit)}`
+            : 'Pending';
+
+        const deltaStyle = action.improved === null || action.improved === undefined\n+            ? styles.deltaNeutral\n+            : action.improved\n+                ? styles.deltaPositive\n+                : styles.deltaNegative;\n+\n+        return (\n             <View key={action.id} style={styles.actionCard}>
+            <View key={action.id} style={styles.actionCard}>
+                <View style={styles.actionHeaderRow}>
+                    <Text style={styles.actionTitle}>{action.title}</Text>
+                    <View style={[styles.statusPill, action.status === 'active' ? styles.statusActive : styles.statusInactive]}>
+                        <Text style={styles.statusPillText}>{action.status}</Text>
+                    </View>
                 </View>
+                <Text style={styles.actionDescription}>{action.description}</Text>
+                <Text style={styles.actionMeta}>Window ends in {timeLeft}h</Text>
 
-                {metabolicScoreLoading ? (
-                    <ActivityIndicator size="large" color="#3494D9" style={{ marginVertical: 40 }} />
-                ) : metabolicScore?.status === 'insufficient' ? (
-                    <View style={styles.notEnoughDataContainer}>
-                        <Ionicons name="analytics-outline" size={32} color="#878787" />
-                        <Text style={styles.notEnoughDataText}>
-                            Not enough data to compute a score. Connect your Apple Watch and sync for at least 5 days.
+                <View style={styles.actionOutcomeRow}>
+                    <View>
+                        <Text style={styles.actionOutcomeLabel}>Baseline</Text>
+                        <Text style={styles.actionOutcomeValue}>{formatMetricValue(metricKey, baselineValue, glucoseUnit)}</Text>
+                    </View>
+                    <View>
+                        <Text style={styles.actionOutcomeLabel}>Outcome</Text>
+                        <Text style={styles.actionOutcomeValue}>{formatMetricValue(metricKey, outcomeValue, glucoseUnit)}</Text>
+                    </View>
+                    <View>
+                        <Text style={styles.actionOutcomeLabel}>Delta</Text>
+                        <Text style={[styles.actionOutcomeValue, deltaStyle]}>
+                            {improvementLabel}
                         </Text>
                     </View>
-                ) : metabolicScore ? (
-                    <View>
-                        {/* Improved Score UI */}
-                        <View style={styles.scoreContainer}>
-                            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', gap: 8, marginBottom: 4 }}>
-                                <Text style={[
-                                    styles.scoreNumber,
-                                    metabolicScore.band === 'low' && styles.scoreGreat,
-                                    metabolicScore.band === 'medium' && styles.scoreModerate,
-                                    metabolicScore.band === 'high' && styles.scoreNeedsAttention,
-                                ]}>
-                                    {displayScore}
-                                </Text>
+                </View>
 
-                            </View>
+                {action.status === 'active' && (
+                    <View style={styles.actionButtons}>
+                        <TouchableOpacity
+                            style={styles.primaryButton}
+                            onPress={() => handleMarkActionDone(action)}
+                        >
+                            <Text style={styles.primaryButtonText}>Mark done</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+            </View>
+        );
+    };
 
-                            {/* Progress Bar (Strain Meter) */}
-                            <View style={{ height: 6, backgroundColor: '#2A2A2E', borderRadius: 3, marginVertical: 12, width: '100%', overflow: 'hidden' }}>
-                                <View
-                                    style={{
-                                        width: `${displayScore || 0}%`,
-                                        height: '100%',
-                                        backgroundColor: metabolicScore.band === 'low' ? '#4CAF50' : metabolicScore.band === 'medium' ? '#FF9800' : '#F44336',
-                                        borderRadius: 3
-                                    }}
-                                />
-                            </View>
+    const renderActionCandidates = () => {
+        if (personalInsightsLoading) {
+            return <ActivityIndicator color="#878787" style={{ marginVertical: 12 }} />;
+        }
 
+        if (actionCandidates.length === 0) {
+            return (
+                <View style={styles.emptyStateCard}>
+                    <Image source={Images.mascots.thinking} style={styles.emptyStateImage} />
+                    <Text style={styles.emptyStateTitle}>No new actions right now</Text>
+                    <Text style={styles.emptyStateText}>Keep logging to unlock the next step.</Text>
+                </View>
+            );
+        }
+
+        return actionCandidates.map(insight => (
+            <View key={insight.id} style={styles.actionCard}>
+                <View style={styles.actionHeaderRow}>
+                    <Text style={styles.actionTitle}>{insight.action.title}</Text>
+                    <View style={styles.statusPill}>
+                        <Text style={styles.statusPillText}>{insight.action.windowHours}h</Text>
+                    </View>
+                </View>
+                <Text style={styles.actionDescription}>{insight.action.description}</Text>
+                <Text style={styles.actionMeta}>Because {insight.because}</Text>
+
+                <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                        style={styles.primaryButton}
+                        onPress={() => handleStartAction(insight.id, insight.action)}
+                    >
+                        <Text style={styles.primaryButtonText}>Start action</Text>
+                    </TouchableOpacity>
+                    {insight.action.cta && (
+                        <TouchableOpacity
+                            style={styles.secondaryButton}
+                            onPress={() => router.push(insight.action.cta.route as any)}
+                        >
+                            <Text style={styles.secondaryButtonText}>{insight.action.cta.label}</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            </View>
+        ));
+    };
+
+    const renderCarePathway = () => {
+        const template = activePathwayTemplate;
+        if (!template) return null;
+
+        if (carePathway) {
+            const startAt = new Date(carePathway.start_at);
+            const endAt = new Date(carePathway.end_at);
+            const totalDays = template.duration_days;
+            const dayIndex = Math.min(totalDays, Math.max(1, Math.ceil((Date.now() - startAt.getTime()) / (1000 * 60 * 60 * 24))));
+            const completedSteps = Array.isArray(carePathway.progress?.completed_step_ids)
+                ? carePathway.progress.completed_step_ids
+                : [];
+            const steps = template.steps || [];
+
+            return (
+                <View style={styles.pathwayCard}>
+                    <View style={styles.pathwayHeader}>
+                        <View>
+                            <Text style={styles.pathwayTitle}>{template.title}</Text>
+                            <Text style={styles.pathwayMeta}>Day {dayIndex} of {totalDays} · ends {toDateKey(endAt)}</Text>
                         </View>
+                        <View style={styles.statusPill}>
+                            <Text style={styles.statusPillText}>{carePathway.status}</Text>
+                        </View>
+                    </View>
+                    <Text style={styles.pathwayDescription}>{template.description}</Text>
 
-                        {/* Simplified Drivers - Max 2 items, truncated */}
-                        <Text style={[styles.driversTitle, { marginTop: 16, marginBottom: 8 }]}>Leading Factors</Text>
-                        <View style={{ gap: 8, marginBottom: 16 }}>
-                            {metabolicScore.drivers.slice(0, 2).map((driver, index) => (
-                                <View key={index} style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                    <View style={styles.pathwaySteps}>
+                        {steps.map(step => {
+                            const isDone = completedSteps.includes(step.id);
+                            return (
+                                <TouchableOpacity
+                                    key={step.id}
+                                    style={[styles.pathwayStepRow, isDone && styles.pathwayStepRowDone]}
+                                    onPress={() => handleTogglePathwayStep(step.id)}
+                                >
                                     <Ionicons
-                                        name={metabolicScore.band === 'low' ? "checkmark-circle" : "information-circle"}
+                                        name={isDone ? 'checkmark-circle' : 'ellipse-outline'}
                                         size={18}
-                                        color={metabolicScore.band === 'low' ? "#4CAF50" : "#878787"}
+                                        color={isDone ? '#4CAF50' : '#878787'}
                                     />
                                     <View style={{ flex: 1 }}>
-                                        <Text numberOfLines={1} style={{ fontFamily: fonts.regular, fontSize: 13, color: '#E1E1E1' }}>
-                                            {driver.text}
-                                        </Text>
+                                        <Text style={styles.pathwayStepTitle}>{step.title}</Text>
+                                        <Text style={styles.pathwayStepDescription}>{step.description}</Text>
                                     </View>
-                                </View>
-                            ))}
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+
+                    {carePathway.delta && (
+                        <View style={styles.pathwayOutcomeRow}>
+                            <View>
+                                <Text style={styles.pathwayOutcomeLabel}>Delta (time-in-zone)</Text>
+                                <Text style={styles.pathwayOutcomeValue}>
+                                    {formatMetricValue('time_in_range', carePathway.delta.time_in_range ?? null, glucoseUnit)}
+                                </Text>
+                            </View>
+                            <View>
+                                <Text style={styles.pathwayOutcomeLabel}>Delta (avg glucose)</Text>
+                                <Text style={styles.pathwayOutcomeValue}>
+                                    {formatMetricValue('glucose_avg', carePathway.delta.glucose_avg ?? null, glucoseUnit)}
+                                </Text>
+                            </View>
                         </View>
+                    )}
 
-                        <View style={styles.dataSourcesRow}>
-                            <Text style={styles.dataSourcesLabel}>Data sources:</Text>
-                            <Text style={styles.dataSourcesValue}>
-                                {metabolicScore.wearables_days} wearable days
-                            </Text>
-                        </View>
-
-                        <Disclaimer variant="short" style={styles.metabolicDisclaimer} />
-                    </View>
-                ) : (
-                    <Text style={styles.noDataText}>Unable to load score</Text>
-                )}
-            </View>
-
-            {/* Data Sufficiency Check */}
-            {!hasSufficientData ? renderInsufficientData() : (
-                <>
-                    {/* Time of Day Comparison */}
-                    <View style={styles.card}>
-                        <Text style={styles.cardTitle}>Time of Day Comparison</Text>
-                        <TimeOfDayChart data={timeOfDayData} />
-                        <Text style={styles.insightText}>{timeOfDayInsight}</Text>
-                    </View>
-
-                    {/* Weekday vs Weekend */}
-                    <View style={styles.card}>
-                        <Text style={styles.cardTitle}>Weekday vs Weekend Comparison</Text>
-                        <WeekdayWeekendComparison
-                            weekdayData={weekdayData}
-                            weekendData={weekendData}
-                        />
-                        <Text style={styles.insightText}>{weekdayInsight}</Text>
-                    </View>
-
-
-                    {/* Behavioral Impacts - HIDDEN (Logic not implemented) */}
-
-                    {/* Best & Worst Meal Comparison - Feature deprecated during regulatory cleanup */}
-                    {/* Best & Worst Meal Comparison */}
-                    <View style={styles.mealComparisonSection}>
-                        <Text style={styles.mealComparisonTitle}>Best & Worst Meal Comparison</Text>
-                        <View style={styles.mealComparisonCard}>
-                            {!bestMeal && !worstMeal ? (
-                                <MealComparisonEmpty />
-                            ) : (
-                                <>
-                                    <View style={styles.mealTabs}>
-                                        <TouchableOpacity
-                                            onPress={() => setMealTab('highest')}
-                                            style={[styles.mealTabItem, mealTab === 'highest' && styles.mealTabItemActive]}
-                                        >
-                                            <Text style={[styles.mealTabText, mealTab === 'highest' && styles.mealTabTextActive]}>
-                                                Best Meal
-                                            </Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            onPress={() => setMealTab('lowest')}
-                                            style={[styles.mealTabItem, mealTab === 'lowest' && styles.mealTabItemActive]}
-                                        >
-                                            <Text style={[styles.mealTabText, mealTab === 'lowest' && styles.mealTabTextActive]}>
-                                                Worst Meal
-                                            </Text>
-                                        </TouchableOpacity>
-                                    </View>
-
-                                    {mealTab === 'highest' && bestMeal && (
-                                        <View style={styles.mealCardContent}>
-                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                <View>
-                                                    <Text style={{ fontFamily: fonts.semiBold, fontSize: 16, color: '#FFFFFF', marginBottom: 4 }}>
-                                                        {bestMeal.name}
-                                                    </Text>
-                                                    <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: '#878787' }}>
-                                                        {new Date(bestMeal.logged_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                    </Text>
-                                                </View>
-                                                <View style={{ backgroundColor: 'rgba(76, 175, 80, 0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
-                                                    <Text style={{ fontFamily: fonts.medium, fontSize: 12, color: '#4CAF50' }}>Top Rated</Text>
-                                                </View>
-                                            </View>
-
-                                            {bestMeal.meal_checkins?.[0] && (
-                                                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                                                    {bestMeal.meal_checkins[0].energy && (
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#22282C', padding: 6, borderRadius: 6 }}>
-                                                            <Ionicons name="flash" size={12} color="#FFD700" />
-                                                            <Text style={{ color: '#DDD', fontSize: 12, fontFamily: fonts.medium }}>
-                                                                {bestMeal.meal_checkins[0].energy.charAt(0).toUpperCase() + bestMeal.meal_checkins[0].energy.slice(1)} Energy
-                                                            </Text>
-                                                        </View>
-                                                    )}
-                                                    {bestMeal.meal_checkins[0].mood && (
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#22282C', padding: 6, borderRadius: 6 }}>
-                                                            <Ionicons name="happy" size={12} color="#0E9CFF" />
-                                                            <Text style={{ color: '#DDD', fontSize: 12, fontFamily: fonts.medium }}>
-                                                                {bestMeal.meal_checkins[0].mood.charAt(0).toUpperCase() + bestMeal.meal_checkins[0].mood.slice(1)} Mood
-                                                            </Text>
-                                                        </View>
-                                                    )}
-                                                </View>
-                                            )}
-                                        </View>
-                                    )}
-
-                                    {mealTab === 'lowest' && (
-                                        worstMeal ? (
-                                            <View style={styles.mealCardContent}>
-                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                    <View>
-                                                        <Text style={{ fontFamily: fonts.semiBold, fontSize: 16, color: '#FFFFFF', marginBottom: 4 }}>
-                                                            {worstMeal.name}
-                                                        </Text>
-                                                        <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: '#878787' }}>
-                                                            {new Date(worstMeal.logged_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                        </Text>
-                                                    </View>
-                                                    <View style={{ backgroundColor: 'rgba(244, 67, 54, 0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
-                                                        <Text style={{ fontFamily: fonts.medium, fontSize: 12, color: '#F44336' }}>Review</Text>
-                                                    </View>
-                                                </View>
-
-                                                {worstMeal.meal_checkins?.[0] && (
-                                                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                                                        {worstMeal.meal_checkins[0].energy && (
-                                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#22282C', padding: 6, borderRadius: 6 }}>
-                                                                <Ionicons name="flash-outline" size={12} color="#FFD700" />
-                                                                <Text style={{ color: '#DDD', fontSize: 12, fontFamily: fonts.medium }}>
-                                                                    {worstMeal.meal_checkins[0].energy.charAt(0).toUpperCase() + worstMeal.meal_checkins[0].energy.slice(1)} Energy
-                                                                </Text>
-                                                            </View>
-                                                        )}
-                                                        {worstMeal.meal_checkins[0].mood && (
-                                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#22282C', padding: 6, borderRadius: 6 }}>
-                                                                <Ionicons name="sad-outline" size={12} color="#F44336" />
-                                                                <Text style={{ color: '#DDD', fontSize: 12, fontFamily: fonts.medium }}>
-                                                                    {worstMeal.meal_checkins[0].mood.charAt(0).toUpperCase() + worstMeal.meal_checkins[0].mood.slice(1)} Mood
-                                                                </Text>
-                                                            </View>
-                                                        )}
-                                                    </View>
-                                                )}
-                                            </View>
-                                        ) : (
-                                            <View style={{ padding: 20, alignItems: 'center' }}>
-                                                <Text style={{ color: '#878787', fontFamily: fonts.regular }}>
-                                                    Great job! No poorly rated meals found this week.
-                                                </Text>
-                                            </View>
-                                        )
-                                    )}
-                                </>
-                            )}
-                        </View>
-                    </View>
-                </>
-            )
-            }
-
-            {/* Bottom spacing for tab bar */}
-            <View style={{ height: 160 }} />
-        </ScrollView >
-    );
-
-    const renderTrends = () => {
-        // Calculate percentages and dynamic text
-
-
-        const handleRangePress = () => {
-            Alert.alert(
-                'Select Time Range',
-                'Choose the period for data analysis',
-                [
-                    { text: 'Last 7 Days', onPress: () => setInsightsRangeDays(7) },
-                    { text: 'Last 14 Days', onPress: () => setInsightsRangeDays(14) },
-                    { text: 'Last 30 Days', onPress: () => setInsightsRangeDays(30) },
-                    { text: 'Last 90 Days', onPress: () => setInsightsRangeDays(90) },
-                    { text: 'Cancel', style: 'cancel' }
-                ]
+                    <Disclaimer variant="short" style={styles.pathwayDisclaimer} />
+                </View>
             );
-        };
+        }
+
+        if (shouldRecommendPathway) {
+            return (
+                <View style={styles.pathwayCard}>
+                    <Text style={styles.pathwayTitle}>{template.title}</Text>
+                    <Text style={styles.pathwayDescription}>A structured 7-day plan to steady your recent trend.</Text>
+                    <Text style={styles.pathwayMeta}>Triggered by {Math.round(glucoseStats.timeInRange || 0)}% time-in-zone.</Text>
+                    <TouchableOpacity
+                        style={styles.primaryButton}
+                        onPress={() => handleStartPathway(template)}
+                        disabled={pathwayLoading}
+                    >
+                        <Text style={styles.primaryButtonText}>Start 7-day pathway</Text>
+                    </TouchableOpacity>
+                </View>
+            );
+        }
 
         return (
-            <ScrollView
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.scrollContent}
-            >
-                {/* Date filter row */}
-                <AnimatedPressable
-                    style={styles.trendsDateRow}
-                    onPress={handleRangePress}
-                >
-                    <Text style={styles.trendsDateText}>Last {insightsRangeDays} Days</Text>
-                    <Ionicons name="options-outline" size={20} color="#E7E8E9" />
-                </AnimatedPressable>
-
-                {/* Daily Patterns Card (New) */}
-                <View style={styles.trendsCard}>
-                    <View style={styles.trendsCardHeader}>
-                        <Text style={styles.trendsCardTitle}>Daily Patterns</Text>
-                        <Text style={styles.trendsCardDescription}>
-                            Average glucose levels across different times of the day.
-                        </Text>
-                    </View>
-
-                    {!hasSufficientData ? (
-                        <View style={{ alignItems: 'center', padding: 24, gap: 12 }}>
-                            <Image source={Images.mascots.thinking} style={{ width: 80, height: 80, resizeMode: 'contain' }} />
-                            <Text style={{ fontFamily: fonts.semiBold, fontSize: 18, color: '#FFFFFF', textAlign: 'center' }}>
-                                Not Enough Data Yet
-                            </Text>
-                            <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: '#878787', textAlign: 'center', lineHeight: 20 }}>
-                                We need at least 7 days of glucose data to generate meaningful insights and trends. Keep logging!
-                            </Text>
-                        </View>
-                    ) : (
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: 120, paddingHorizontal: 10, marginBottom: 10 }}>
-                            {timeOfDayData.map((item, index) => {
-                                const maxVal = Math.max(...timeOfDayData.map(d => d.avgValue)) || 1;
-                                const height = (item.avgValue / maxVal) * 100;
-                                return (
-                                    <View key={index} style={{ alignItems: 'center', width: '20%' }}>
-                                        <Text style={{ fontSize: 11, fontFamily: fonts.semiBold, color: '#FFFFFF', marginBottom: 4 }}>
-                                            {formatGlucoseWithUnit(item.avgValue, glucoseUnit).split(' ')[0]}
-                                        </Text>
-                                        <View style={{ width: '100%', height: 80, justifyContent: 'flex-end', backgroundColor: '#2A2A2E', borderRadius: 6, overflow: 'hidden' }}>
-                                            <View style={{
-                                                width: '100%',
-                                                height: `${height}%`,
-                                                backgroundColor: '#3494D9',
-                                                borderRadius: 6
-                                            }} />
-                                        </View>
-                                        <Text style={{ fontSize: 10, color: '#878787', marginTop: 8, textTransform: 'capitalize' }}>
-                                            {item.period.slice(0, 3)}
-                                        </Text>
-                                    </View>
-                                );
-                            })}
-                        </View>
-                    )}
-                </View>
-
-                {/* Meal Impacts Card */}
-                {!hasSufficientData ? null : (
-                    <>
-                        <View style={styles.trendsCard}>
-                            <View style={styles.trendsCardHeader}>
-                                <Text style={styles.trendsCardTitle}>Meal Impacts</Text>
-                                <Text style={styles.trendsCardDescription}>
-                                    Shows the percentage of meals that aligned with steady patterns versus meals that were followed by mild or strong elevations.
-                                </Text>
-                            </View>
-
-                            <View style={styles.mealImpactsContent}>
-                                {/* Legend */}
-                                <View style={styles.mealImpactsLegend}>
-                                    <View style={styles.legendItem}>
-                                        <View style={[styles.legendDotLarge, { backgroundColor: '#4CAF50' }]} />
-                                        <Text style={styles.legendLabel}>Steady Levels</Text>
-                                    </View>
-                                    <View style={styles.legendItem}>
-                                        <View style={[styles.legendDotLarge, { backgroundColor: '#FF9800' }]} />
-                                        <Text style={styles.legendLabel}>Mild Elevations</Text>
-                                    </View>
-                                    <View style={styles.legendItem}>
-                                        <View style={[styles.legendDotLarge, { backgroundColor: '#F44336' }]} />
-                                        <Text style={styles.legendLabel}>Spikes</Text>
-                                    </View>
-                                </View>
-
-                                {/* Dynamic Pie Chart */}
-                                <View style={styles.pieChartContainer}>
-                                    <PieChart
-                                        size={130}
-                                        data={[
-                                            { value: trendStats.steady, color: '#4CAF50', label: 'Steady' },
-                                            { value: trendStats.mild, color: '#FF9800', label: 'Mild' },
-                                            { value: trendStats.spike, color: '#F44336', label: 'Spikes' },
-                                        ]}
-                                    />
-                                </View>
-                            </View>
-                        </View>
-
-                        {/* Glucose Health Card (New Stats) */}
-                        <View style={styles.trendsCard}>
-                            <View style={styles.trendsCardHeader}>
-                                <Text style={styles.trendsCardTitle}>Glucose Health</Text>
-                                <Text style={styles.trendsCardDescription}>
-                                    Key metrics showing your overall stability and average levels.
-                                </Text>
-                            </View>
-
-                            <View style={styles.peakComparisonContent}>
-                                {/* Time in Target */}
-                                <View style={styles.trendBarRow}>
-                                    <Text style={styles.trendBarLabel}>Time in Target</Text>
-                                    <View style={styles.trendBarContainer}>
-                                        <View style={[styles.trendBar, { width: `${glucoseStats.tir}%`, backgroundColor: '#4CAF50' }]} />
-                                    </View>
-                                    <Text style={styles.trendBarValue}>{glucoseStats.tir.toFixed(0)}%</Text>
-                                </View>
-
-                                {/* Average Glucose */}
-                                <View style={styles.trendBarRow}>
-                                    <Text style={styles.trendBarLabel}>Average Glucose</Text>
-                                    <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                                        <Text style={styles.trendBarValue}>
-                                            {formatGlucoseWithUnit(glucoseStats.average, glucoseUnit)}
-                                        </Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            <Text style={styles.trendsInsightText}>
-                                You spent {glucoseStats.tir.toFixed(0)}% of the time in the healthy range (70-180 mg/dL).
-                                {glucoseStats.tir > 70 ? ' Great job!' : ' Aim for over 70%.'}
-                            </Text>
-                        </View>
-
-                        {/* Glucose Variability Card (New Trend) */}
-                        <View style={styles.trendsCard}>
-                            <View style={styles.trendsCardHeader}>
-                                <Text style={styles.trendsCardTitle}>Glucose Variability</Text>
-                                <Text style={styles.trendsCardDescription}>
-                                    Measures how much your levels swing. Lower is more stable.
-                                </Text>
-                            </View>
-
-                            <View style={styles.peakComparisonContent}>
-                                <View style={{ alignItems: 'center', marginBottom: 10 }}>
-                                    <Text style={{ fontSize: 32, fontFamily: fonts.bold, color: '#FFFFFF' }}>
-                                        {glucoseStats.variability.toFixed(1)}%
-                                    </Text>
-                                    <Text style={{ fontSize: 13, color: '#878787', marginTop: 4 }}>
-                                        Coefficient of Variation (CV)
-                                    </Text>
-                                </View>
-
-                                {/* Visual Bar for CV */}
-                                <View style={{ width: '100%', height: 6, backgroundColor: '#2A2A2E', borderRadius: 3, marginBottom: 8, overflow: 'hidden' }}>
-                                    {/* 3 Zones: <20 (Good), 20-33 (Moderate), >33 (Unstable) */}
-                                    <View style={{ width: '33%', height: '100%', backgroundColor: '#4CAF50', position: 'absolute', left: 0, opacity: 0.3 }} />
-                                    <View style={{ width: '22%', height: '100%', backgroundColor: '#FF9800', position: 'absolute', left: '33%', opacity: 0.3 }} />
-                                    <View style={{ width: '45%', height: '100%', backgroundColor: '#F44336', position: 'absolute', left: '55%', opacity: 0.3 }} />
-
-                                    {/* Indicator */}
-                                    <View style={{
-                                        position: 'absolute',
-                                        left: `${Math.min(glucoseStats.variability * 1.66, 100)}%`, // Scale roughly 0-60% range to 0-100 bar width 
-                                        width: 8,
-                                        height: 8,
-                                        top: -1,
-                                        borderRadius: 4,
-                                        backgroundColor: '#FFFFFF',
-                                        marginLeft: -4
-                                    }} />
-                                </View>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                                    <Text style={{ fontSize: 10, color: '#4CAF50' }}>Stable (&lt;20%)</Text>
-                                    <Text style={{ fontSize: 10, color: '#F44336' }}>Variable (&gt;33%)</Text>
-                                </View>
-                            </View>
-
-                            <Text style={styles.trendsInsightText}>
-                                {glucoseStats.variability < 20
-                                    ? "Your stability is excellent! Very few swings."
-                                    : glucoseStats.variability < 33
-                                        ? "You have moderate fluctuations. Try pairing carbs with protein."
-                                        : "Your levels are swinging significantly. Focus on flattening the spikes."}
-                            </Text>
-                        </View>
-
-                    </>
-                )}
-
-                {/* Bottom spacing for tab bar */}
-                <View style={{ height: 160 }} />
-            </ScrollView>
+            <View style={styles.pathwayCard}>
+                <Text style={styles.pathwayTitle}>{template.title}</Text>
+                <Text style={styles.pathwayDescription}>A structured plan becomes available once a trend needs intervention.</Text>
+            </View>
         );
     };
 
-    const renderExperiments = () => (
-        <ScrollView
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
-        >
-            {/* Header Section */}
-            <View style={styles.experimentsHeader}>
-                <View style={styles.experimentsTitleRow}>
-                    <Text style={styles.experimentsSparkle}>✨</Text>
-                    <Text style={styles.experimentsTitle}>Find What Works For You</Text>
-                </View>
-                <View style={styles.experimentsDescriptionContainer}>
-                    <Text style={styles.experimentsDescription}>
-                        Small tests you can try for a few meals. We'll compare them and show your pattern. No rules, just real learning.
-                    </Text>
-                </View>
-            </View>
+    const renderActionsTab = () => (
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <Text style={styles.sectionTitle}>Action Loop</Text>
+            <Text style={styles.sectionDescription}>Every signal maps to a 24-72 hour next step.</Text>
 
-            {/* My Experiments Link */}
-            <TouchableOpacity
-                style={styles.myExperimentsCard}
-                onPress={() => router.push('/experiments-list' as any)}
-                activeOpacity={0.8}
-            >
-                <LinearGradient
-                    colors={['#313135', '#2A2A2E']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.myExperimentsGradient}
-                >
-                    <View style={styles.myExperimentsContent}>
-                        <View style={styles.myExperimentsIconContainer}>
-                            <Image source={Images.mascots.thinking} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
-                        </View>
-                        <View style={styles.myExperimentsTextContainer}>
-                            <Text style={styles.myExperimentsTitle}>My Experiments</Text>
-                            <Text style={styles.myExperimentsSubtitle}>View active & completed</Text>
-                        </View>
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color="#666" />
-                </LinearGradient>
-            </TouchableOpacity>
-
-            {/* Active Experiments Section */}
-            {activeExperiments.length > 0 && (
+            {actionsLoading ? (
+                <ActivityIndicator color="#878787" style={{ marginVertical: 16 }} />
+            ) : (
                 <>
-                    <Text style={styles.experimentsSectionTitle}>Your Active Experiments</Text>
-                    <View style={styles.experimentsCardList}>
-                        {activeExperiments.map((exp) => (
-                            <TouchableOpacity
-                                key={exp.id}
-                                style={styles.experimentCard}
-                                onPress={() => router.push(`/experiment-detail?id=${exp.id}` as any)}
-                                activeOpacity={0.7}
-                            >
-                                <View style={styles.experimentCardContent}>
-                                    <View style={styles.experimentCardHeader}>
-                                        <Text style={styles.experimentCardIcon}>
-                                            {exp.experiment_templates?.icon || '🧪'}
-                                        </Text>
-                                        <View style={styles.experimentCardBadge}>
-                                            <Text style={styles.experimentCardBadgeText}>
-                                                {exp.status === 'active' ? 'IN PROGRESS' : 'DRAFT'}
-                                            </Text>
-                                        </View>
-                                    </View>
-                                    <Text style={styles.experimentCardTitle}>
-                                        {exp.experiment_templates?.title || 'Experiment'}
-                                    </Text>
-                                    <Text style={styles.experimentCardDescription}>
-                                        {exp.exposures_logged} / {(exp.experiment_templates?.protocol?.exposures_per_variant || 5) * 2} exposures logged
-                                    </Text>
-                                    <View style={styles.experimentProgressBar}>
-                                        <View
-                                            style={[
-                                                styles.experimentProgressFill,
-                                                {
-                                                    width: `${Math.min(100, (exp.exposures_logged / ((exp.experiment_templates?.protocol?.exposures_per_variant || 5) * 2)) * 100)}%`,
-                                                },
-                                            ]}
-                                        />
-                                    </View>
-                                </View>
-                                <View style={styles.experimentButtonSecondary}>
-                                    <Text style={styles.experimentButtonSecondaryText}>View Progress</Text>
-                                    <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
-                                </View>
-                            </TouchableOpacity>
-                        ))}
+                    {activeActions.length > 0 && (
+                        <View style={styles.sectionBlock}>
+                            <Text style={styles.sectionSubtitle}>Active actions</Text>
+                            {activeActions.map(renderActionCard)}
+                        </View>
+                    )}
+
+                    <View style={styles.sectionBlock}>
+                        <Text style={styles.sectionSubtitle}>Recommended next steps</Text>
+                        {renderActionCandidates()}
                     </View>
 
+                    {recentActions.length > 0 && (
+                        <View style={styles.sectionBlock}>
+                            <Text style={styles.sectionSubtitle}>Recent outcomes</Text>
+                            {recentActions.map(renderActionCard)}
+                        </View>
+                    )}
                 </>
             )}
-            {/* Suggested For You Section */}
-            <Text style={styles.experimentsSectionTitle}>Suggested For You</Text>
 
-            {experimentsLoading ? (
-                <ActivityIndicator size="large" color="#3494D9" style={{ marginVertical: 40 }} />
-            ) : suggestedExperiments.length > 0 ? (
-                <View style={styles.experimentsCardList}>
-                    {suggestedExperiments.map((suggestion) => (
-                        <View key={suggestion.template.id} style={styles.experimentCard}>
-                            <View style={styles.experimentCardContent}>
-                                <View style={styles.experimentCardHeader}>
-                                    <Text style={styles.experimentCardIcon}>
-                                        {suggestion.template.icon || '🧪'}
-                                    </Text>
-                                    {suggestion.predicted_impact === 'high' && (
-                                        <View style={[styles.experimentCardBadge, styles.experimentCardBadgeHigh]}>
-                                            <Text style={styles.experimentCardBadgeText}>HIGH IMPACT</Text>
-                                        </View>
-                                    )}
-                                </View>
-                                <Text style={styles.experimentCardTitle}>
-                                    {suggestion.template.title}
-                                </Text>
-                                <Text style={styles.experimentCardSubtitle}>
-                                    {suggestion.template.subtitle}
-                                </Text>
-                                <Text style={styles.experimentCardDescription}>
-                                    {suggestion.template.description}
-                                </Text>
-                                {suggestion.reasons.length > 0 && (
-                                    <View style={styles.experimentReasons}>
-                                        <Text style={styles.experimentReasonsTitle}>Why this for you:</Text>
-                                        {suggestion.reasons.slice(0, 2).map((reason, idx) => (
-                                            <View key={idx} style={styles.experimentReasonRow}>
-                                                <View style={styles.experimentReasonDot} />
-                                                <Text style={styles.experimentReasonText}>{reason}</Text>
-                                            </View>
-                                        ))}
-                                    </View>
-                                )}
-                            </View>
-                            <TouchableOpacity
-                                style={[
-                                    styles.experimentButton,
-                                    (startingExperiment === suggestion.template.id || successExperiment === suggestion.template.id) && styles.experimentButtonDisabled,
-                                ]}
-                                onPress={() => handleStartExperiment(suggestion)}
-                                disabled={startingExperiment === suggestion.template.id || successExperiment === suggestion.template.id}
-                                activeOpacity={0.7}
-                            >
-                                {startingExperiment === suggestion.template.id ? (
-                                    <ActivityIndicator size="small" color="#FFFFFF" />
-                                ) : successExperiment === suggestion.template.id ? (
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                        <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
-                                        <Text style={styles.experimentButtonText}>Started</Text>
-                                    </View>
-                                ) : (
-                                    <Text style={styles.experimentButtonText}>Start Experiment</Text>
-                                )}
-                            </TouchableOpacity>
-                        </View>
-                    ))}
-                </View>
-            ) : (
-                <View style={styles.experimentCard}>
-                    <View style={styles.experimentCardContent}>
-                        <Text style={styles.experimentCardTitle}>No suggestions yet</Text>
-                        <Text style={styles.experimentCardDescription}>
-                            Log more meals and glucose readings to get personalized experiment suggestions.
+            <Text style={styles.sectionTitle}>Care Pathway</Text>
+            <Text style={styles.sectionDescription}>Structured 7-day plans close the loop from signal to outcome.</Text>
+            {renderCarePathway()}
+        </ScrollView>
+    );
+
+    const renderProgressTab = () => (
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <Text style={styles.sectionTitle}>Trend Velocity</Text>
+            <Text style={styles.sectionDescription}>Track direction and speed across 30, 90, and 180 days.</Text>
+
+            <View style={styles.rangeToggleRow}>
+                {PROGRESS_RANGES.map(range => (
+                    <TouchableOpacity
+                        key={range}
+                        style={[styles.rangeToggle, progressRangeDays === range && styles.rangeToggleActive]}
+                        onPress={() => setProgressRangeDays(range)}
+                    >
+                        <Text style={[styles.rangeToggleText, progressRangeDays === range && styles.rangeToggleTextActive]}>
+                            {range}d
                         </Text>
-                    </View>
+                    </TouchableOpacity>
+                ))}
+            </View>
+
+            <View style={styles.progressCard}>
+                <Text style={styles.progressLabel}>Latest score</Text>
+                <Text style={styles.progressValue}>{velocity.latest ?? '--'}</Text>
+                <Text style={styles.progressMeta}>
+                    {velocity.perWeek === null
+                        ? 'Not enough weekly data yet.'
+                        : `${velocity.perWeek > 0 ? '+' : ''}${velocity.perWeek.toFixed(1)} pts/week over ${progressRangeDays}d`}
+                </Text>
+            </View>
+
+            <Text style={styles.sectionTitle}>Compounding Habits</Text>
+            <Text style={styles.sectionDescription}>Habits that build momentum over 30+ days.</Text>
+
+            <View style={styles.habitRow}>
+                <View style={styles.habitCard}>
+                    <Text style={styles.habitValue}>{habitsSummary.mealDays}</Text>
+                    <Text style={styles.habitLabel}>Days logged meals</Text>
                 </View>
+                <View style={styles.habitCard}>
+                    <Text style={styles.habitValue}>{habitsSummary.checkinCount}</Text>
+                    <Text style={styles.habitLabel}>Meal check-ins</Text>
+                </View>
+                <View style={styles.habitCard}>
+                    <Text style={styles.habitValue}>{habitsSummary.postMealWalks}</Text>
+                    <Text style={styles.habitLabel}>Post-meal walks</Text>
+                </View>
+            </View>
+
+            <Text style={styles.sectionTitle}>Data Coverage</Text>
+            <Text style={styles.sectionDescription}>Standardized signals powering your longitudinal dataset.</Text>
+
+            <View style={styles.progressCard}>
+                <Text style={styles.dataCoverageText}>Sleep days: {dataCoverage.sleepDays}</Text>
+                <Text style={styles.dataCoverageText}>Steps days: {dataCoverage.stepsDays}</Text>
+                <Text style={styles.dataCoverageText}>Glucose days: {dataCoverage.glucoseDays}</Text>
+                <Text style={styles.dataCoverageText}>Meal days: {dataCoverage.mealDays}</Text>
+            </View>
+        </ScrollView>
+    );
+
+    const renderExperimentsTab = () => (
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <View style={styles.experimentsHeader}>
+                <Text style={styles.sectionTitle}>Find What Works For You</Text>
+                <Text style={styles.sectionDescription}>Structured experiments refine what actually moves your numbers.</Text>
+                <TouchableOpacity
+                    style={styles.primaryButton}
+                    onPress={() => router.push('/experiments-list' as any)}
+                >
+                    <Text style={styles.primaryButtonText}>Browse experiments</Text>
+                </TouchableOpacity>
+            </View>
+
+            <Text style={styles.sectionSubtitle}>Active experiments</Text>
+            {activeExperiments.length === 0 ? (
+                <Text style={styles.emptyStateText}>No active experiments yet.</Text>
+            ) : (
+                activeExperiments.map(experiment => (
+                    <View key={experiment.id} style={styles.actionCard}>
+                        <Text style={styles.actionTitle}>{experiment.experiment_templates?.title || 'Experiment'}</Text>
+                        <Text style={styles.actionMeta}>Status: {experiment.status}</Text>
+                    </View>
+                ))
             )}
 
-            {/* View All Experiments Link */}
-
-
-            {/* Bottom spacing for tab bar */}
-            <View style={{ height: 160 }} />
-            </ScrollView>
-        );
-    };
+            <Text style={styles.sectionSubtitle}>Suggested next tests</Text>
+            {experimentsLoading ? (
+                <ActivityIndicator color="#878787" style={{ marginVertical: 16 }} />
+            ) : (
+                suggestedExperiments.map(suggestion => (
+                    <View key={suggestion.template.id} style={styles.actionCard}>
+                        <Text style={styles.actionTitle}>{suggestion.template.title}</Text>
+                        <Text style={styles.actionDescription}>{suggestion.template.subtitle}</Text>
+                        <TouchableOpacity
+                            style={styles.primaryButton}
+                            onPress={() => handleStartExperiment(suggestion)}
+                        >
+                            <Text style={styles.primaryButtonText}>
+                                {startingExperiment === suggestion.template.id ? 'Starting...' : 'Start experiment'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                ))
+            )}
+        </ScrollView>
+    );
 
     return (
-        <AnimatedScreen>
-            <View style={styles.container}>
-                {/* Background gradient */}
-                <LinearGradient
-                    colors={['#1a1f24', '#181c20', '#111111']}
-                    locations={[0, 0.3, 1]}
-                    style={styles.backgroundGradient}
+        <SafeAreaView style={styles.container} edges={['top']}>
+            <AnimatedScreen>
+                <View style={styles.header}>
+                    <Text style={styles.title}>Insights</Text>
+                    <Text style={styles.subtitle}>Turn signals into action and track the outcome.</Text>
+                </View>
+
+                <SegmentedControl
+                    options={[
+                        { label: 'ACTIONS', value: 'actions' },
+                        { label: 'PROGRESS', value: 'progress' },
+                        { label: 'EXPERIMENTS', value: 'experiments' },
+                    ]}
+                    value={activeTab}
+                    onChange={setActiveTab}
                 />
 
-                <SafeAreaView edges={['top']} style={styles.safeArea}>
-                    {/* Header */}
-                    <View style={styles.header}>
-                        <Text style={styles.headerTitle}>INSIGHTS</Text>
+                {insightsLoading ? (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator color="#878787" />
+                        <Text style={styles.loadingText}>Loading insights...</Text>
                     </View>
-
-                    {/* Tab navigation */}
-                    <View style={styles.tabContainer}>
-                        <SegmentedControl<TabKey>
-                            value={activeTab}
-                            onChange={setActiveTab}
-                            options={[
-                                { label: 'WEEKLY REPORT', value: 'weekly' },
-                                { label: 'TRENDS', value: 'trends' },
-                                { label: 'EXPERIMENTS', value: 'experiments' },
-                            ]}
-                        />
-                    </View>
-
-                    {/* Tab content */}
-                    {activeTab === 'weekly' && renderWeeklyReport()}
-                    {activeTab === 'trends' && renderTrends()}
-                    {activeTab === 'experiments' && renderExperiments()}
-
-                    {/* Success Overlay */}
-                    {activeTab === 'experiments' && successExperiment && (
-                        <View style={styles.successOverlay}>
-                            <View style={styles.successCard}>
-                                <Ionicons name="checkmark-circle" size={80} color="#4CAF50" />
-                                <Text style={styles.successTitle}>Experiment Started!</Text>
-                                <Text style={styles.successSubtitle}>Good luck!</Text>
-                            </View>
-                        </View>
-                    )}
-                </SafeAreaView>
-            </View>
-        </AnimatedScreen >
+                ) : (
+                    <>
+                        {activeTab === 'actions' && renderActionsTab()}
+                        {activeTab === 'progress' && renderProgressTab()}
+                        {activeTab === 'experiments' && renderExperimentsTab()}
+                    </>
+                )}
+            </AnimatedScreen>
+        </SafeAreaView>
     );
 }
-
-
-
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
-    },
-    safeArea: {
-        flex: 1,
+        backgroundColor: '#0F0F10',
     },
     header: {
-        paddingHorizontal: 16,
-        paddingVertical: 20,
+        paddingHorizontal: 20,
+        paddingTop: 8,
+        paddingBottom: 12,
+        gap: 6,
     },
-    headerTitle: {
+    title: {
         fontFamily: fonts.bold,
-        fontSize: 18,
+        fontSize: 26,
         color: '#FFFFFF',
-        letterSpacing: 1,
     },
-    tabContainer: {
-        paddingHorizontal: 16,
-        marginBottom: 16,
+    subtitle: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#B8B8B8',
     },
     scrollContent: {
-        paddingHorizontal: 16,
-        flexGrow: 1,
+        paddingHorizontal: 20,
+        paddingBottom: 40,
+        paddingTop: 16,
+        gap: 16,
+    },
+    loadingContainer: {
+        paddingTop: 40,
+        alignItems: 'center',
+        gap: 8,
+    },
+    loadingText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: '#878787',
+    },
+    sectionTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 18,
+        color: '#FFFFFF',
+    },
+    sectionSubtitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 15,
+        color: '#E0E0E0',
+        marginBottom: 8,
     },
     sectionDescription: {
         fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#FFFFFF',
-        lineHeight: 16.8,
-        marginBottom: 20,
+        fontSize: 13,
+        color: '#A0A0A0',
     },
-    card: {
-        backgroundColor: '#313135',
+    sectionBlock: {
+        gap: 12,
+    },
+    actionCard: {
+        backgroundColor: '#1A1A1E',
         borderRadius: 16,
         padding: 16,
-        marginBottom: 16,
-        overflow: 'hidden',
+        gap: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.06)',
     },
-    cardTitle: {
-        fontFamily: fonts.medium,
+    actionHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+    },
+    actionTitle: {
+        fontFamily: fonts.semiBold,
         fontSize: 16,
         color: '#FFFFFF',
-        marginBottom: 24,
-        lineHeight: 19.2,
+        flex: 1,
     },
-    // Time of Day Chart
-    chartWrapper: {
-        marginBottom: 12,
+    actionDescription: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: '#D0D0D0',
     },
-    chartContainer: {
-        flexDirection: 'row',
-    },
-    chartYAxis: {
-        width: 70,
-        justifyContent: 'space-between',
-        paddingVertical: 0,
-        paddingRight: 8,
-    },
-    chartYLabel: {
-        fontFamily: fonts.medium,
+    actionMeta: {
+        fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#E7E8E9',
-        textAlign: 'center',
+        color: '#8C8C8C',
     },
-    chartYLabelRow: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
+    statusPill: {
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 999,
+        backgroundColor: 'rgba(255,255,255,0.08)',
     },
-    chartYLabelMulti: {
-        alignItems: 'flex-end',
+    statusPillText: {
+        fontFamily: fonts.medium,
+        fontSize: 11,
+        color: '#E4E4E4',
+        textTransform: 'uppercase',
     },
-    chartArea: {
-        flex: 1,
-        height: 160,
-        position: 'relative',
+    statusActive: {
+        backgroundColor: 'rgba(53, 150, 80, 0.2)',
     },
-    chartXLabels: {
+    statusInactive: {
+        backgroundColor: 'rgba(255,255,255,0.08)',
+    },
+    actionOutcomeRow: {
         flexDirection: 'row',
-        justifyContent: 'space-around',
-        marginTop: 12,
-        marginLeft: 50, // account for Y-axis width
+        justifyContent: 'space-between',
+        paddingTop: 8,
     },
-    chartXLabelContainer: {
-        alignItems: 'center',
-    },
-    chartXLabel: {
+    actionOutcomeLabel: {
         fontFamily: fonts.regular,
-        fontSize: 10,
+        fontSize: 11,
         color: '#878787',
     },
-    chartXLabelPeriod: {
-        fontFamily: fonts.regular,
-        fontSize: 10,
-        color: '#878787',
-    },
-    insightText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
+    actionOutcomeValue: {
+        fontFamily: fonts.semiBold,
+        fontSize: 13,
         color: '#FFFFFF',
-        lineHeight: 20,
+        marginTop: 2,
+    },
+    deltaPositive: {
+        color: '#4CAF50',
+    },
+    deltaNegative: {
+        color: '#F44336',
+    },
+    deltaNeutral: {
+        color: '#B0B0B0',
+    },
+    actionButtons: {
+        flexDirection: 'row',
+        gap: 12,
         marginTop: 8,
     },
-    // Zone bands for chart
-    zoneBandsContainer: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        borderRadius: 4,
-        overflow: 'hidden',
-    },
-    zoneBand: {
-        width: '100%',
-    },
-    barsContainer: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        alignItems: 'flex-end',
-        paddingHorizontal: 8,
-    },
-    barColumn: {
-        flex: 1,
+    primaryButton: {
+        backgroundColor: '#285E2A',
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        borderRadius: 12,
         alignItems: 'center',
-        justifyContent: 'flex-end',
-        height: '100%',
-    },
-    barWrapper: {
-        justifyContent: 'flex-end',
-        alignItems: 'center',
-    },
-    barSpaceAbove: {
+        justifyContent: 'center',
         flex: 1,
     },
-    bar: {
-        borderRadius: 2,
-        backgroundColor: '#0E9CFF',
-    },
-    chartXLabelCombined: {
-        fontFamily: fonts.medium,
-        fontSize: 12,
-        color: '#E7E8E9',
-        textAlign: 'center',
-    },
-    // Weekday vs Weekend Comparison - Grid layout
-    comparisonContainer: {
-        marginBottom: 12,
-    },
-    comparisonGridHeader: {
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        marginBottom: 16,
-    },
-    comparisonRowLabelSpacer: {
-        width: 75,
-    },
-    comparisonColumnHeader: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
+    primaryButtonText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 13,
         color: '#FFFFFF',
-        textAlign: 'center',
+    },
+    secondaryButton: {
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.2)',
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
         flex: 1,
     },
-    comparisonColumnHeaderMulti: {
-        flex: 1,
-        alignItems: 'center',
-    },
-    comparisonGridRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-    comparisonRowLabel: {
+    secondaryButtonText: {
         fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-        width: 75,
+        fontSize: 13,
+        color: '#E0E0E0',
     },
-    comparisonCell: {
-        flex: 1,
-        paddingHorizontal: 4,
-    },
-    comparisonCellBg: {
-        height: 16,
-        backgroundColor: '#22282C',
-        borderRadius: 4,
-        overflow: 'hidden',
-    },
-    comparisonCellFill: {
-        height: '100%',
-        backgroundColor: '#0E9CFF',
-        borderRadius: 4,
-    },
-    // Keep old styles for backwards compatibility
-    comparisonHeader: {
-        flexDirection: 'row',
-        justifyContent: 'flex-end',
-        marginBottom: 12,
-        gap: 16,
-    },
-    comparisonLegend: {
+    emptyStateCard: {
+        backgroundColor: '#1A1A1E',
+        borderRadius: 16,
+        padding: 20,
         alignItems: 'center',
+        gap: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.06)',
     },
-    legendDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        marginBottom: 4,
+    emptyStateImage: {
+        width: 72,
+        height: 72,
+        resizeMode: 'contain',
     },
-    legendText: {
-        fontFamily: fonts.regular,
-        fontSize: 10,
-        color: '#878787',
-        textAlign: 'center',
-    },
-    comparisonRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    comparisonLabel: {
-        fontFamily: fonts.medium,
-        fontSize: 12,
+    emptyStateTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 15,
         color: '#FFFFFF',
-        width: 70,
     },
-    comparisonBarContainer: {
-        flex: 1,
-        height: 12,
-        backgroundColor: '#2A2D30',
-        borderRadius: 6,
-        flexDirection: 'row',
-        overflow: 'hidden',
-    },
-    comparisonBarSegment: {
-        height: '100%',
-    },
-    // Behavioral Impacts
-    impactItem: {
-        marginBottom: 16,
-    },
-    impactTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-        marginBottom: 4,
-    },
-    impactPercentage: {
+    emptyStateText: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
-        marginBottom: 8,
+        color: '#A0A0A0',
+        textAlign: 'center',
     },
-    impactBarBg: {
-        height: 16,
-        backgroundColor: '#22282C',
-        borderRadius: 4,
-        overflow: 'hidden',
-    },
-    impactBar: {
-        height: '100%',
-        borderRadius: 4,
-    },
-    // Meal Comparison - Matching Figma design
-    mealComparisonSection: {
-        gap: 0,
-    },
-    mealComparisonTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
-        color: '#FFFFFF',
-        marginBottom: 12,
-        lineHeight: 19.2,
-    },
-    mealComparisonCard: {
-        backgroundColor: '#313135',
+    pathwayCard: {
+        backgroundColor: '#1A1A1E',
         borderRadius: 16,
         padding: 16,
-        overflow: 'hidden',
+        gap: 10,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.06)',
     },
-    mealTabs: {
+    pathwayHeader: {
         flexDirection: 'row',
-        marginBottom: 8,
-        gap: 0,
-    },
-    mealTabItem: {
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        borderRadius: 6,
-    },
-    mealTabItemActive: {
-        backgroundColor: '#1B1B1C',
-    },
-    mealTabText: {
-        fontFamily: fonts.semiBold,
-        fontSize: 12,
-        color: '#878787',
-        letterSpacing: 0.5,
-    },
-    mealTabTextActive: {
-        color: '#FFFFFF',
-    },
-    mealCardContent: {
-        gap: 12,
-    },
-    mealInfoSection: {
-        gap: 4,
-    },
-    mealName: {
-        fontFamily: fonts.medium,
-        fontSize: 18,
-        color: '#FFFFFF',
-    },
-    mealDateTimeRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
+        justifyContent: 'space-between',
         gap: 8,
     },
-    mealDateTime: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#FFFFFF',
-    },
-    mealDateTimeDot: {
-        width: 5,
-        height: 5,
-        borderRadius: 2.5,
-        backgroundColor: '#878787',
-    },
-    mealChartSection: {
-        gap: 12,
-    },
-    mealStatusSection: {
-        gap: 6,
-    },
-    mealElevationBadge: {
-        alignSelf: 'flex-start',
-        paddingHorizontal: 12,
-        paddingVertical: 4,
-        borderRadius: 28,
-        borderWidth: 0.25,
-    },
-    mealElevationText: {
-        fontFamily: fonts.bold,
-        fontSize: 12,
-        textAlign: 'center',
-    },
-    mealPeakText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#FFFFFF',
-        lineHeight: 16.8,
-    },
-    mealTopDrivers: {
-        gap: 6,
-    },
-    mealTopDriversTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-        lineHeight: 16.8,
-    },
-    mealDriversList: {
-        gap: 6,
-    },
-    mealDriverItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    mealDriverBullet: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: '#FFFFFF',
-    },
-    mealDriverText: {
-        flex: 1,
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#FFFFFF',
-        lineHeight: 16.8,
-    },
-    mealComparisonEmpty: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 32,
-        paddingHorizontal: 16,
-    },
-    mealComparisonEmptyTitle: {
+    pathwayTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
         color: '#FFFFFF',
-        marginTop: 12,
-        marginBottom: 8,
     },
-    mealComparisonEmptyText: {
+    pathwayDescription: {
         fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#878787',
-        textAlign: 'center',
-        lineHeight: 20,
+        fontSize: 13,
+        color: '#CFCFCF',
     },
-    // Placeholder content
-    placeholderContent: {
-        flex: 1,
-        justifyContent: 'center',
+    pathwayMeta: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#8A8A8A',
+    },
+    pathwaySteps: {
+        gap: 8,
+        marginTop: 8,
+    },
+    pathwayStepRow: {
+        flexDirection: 'row',
+        gap: 10,
         alignItems: 'center',
+        padding: 10,
+        borderRadius: 12,
+        backgroundColor: 'rgba(255,255,255,0.04)',
     },
-    placeholderText: {
+    pathwayStepRowDone: {
+        backgroundColor: 'rgba(76, 175, 80, 0.12)',
+    },
+    pathwayStepTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: '#FFFFFF',
+    },
+    pathwayStepDescription: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#B0B0B0',
+    },
+    pathwayOutcomeRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingVertical: 8,
+        gap: 12,
+    },
+    pathwayOutcomeLabel: {
+        fontFamily: fonts.regular,
+        fontSize: 11,
+        color: '#8A8A8A',
+    },
+    pathwayOutcomeValue: {
         fontFamily: fonts.semiBold,
+        fontSize: 13,
+        color: '#FFFFFF',
+        marginTop: 2,
+    },
+    pathwayDisclaimer: {
+        marginTop: 6,
+    },
+    rangeToggleRow: {
+        flexDirection: 'row',
+        gap: 10,
+        marginTop: 8,
+    },
+    rangeToggle: {
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.2)',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+    },
+    rangeToggleActive: {
+        backgroundColor: 'rgba(255,255,255,0.1)',
+    },
+    rangeToggleText: {
+        fontFamily: fonts.medium,
+        fontSize: 12,
+        color: '#B0B0B0',
+    },
+    rangeToggleTextActive: {
+        color: '#FFFFFF',
+    },
+    progressCard: {
+        backgroundColor: '#1A1A1E',
+        borderRadius: 16,
+        padding: 16,
+        gap: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.06)',
+    },
+    progressLabel: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#8A8A8A',
+    },
+    progressValue: {
+        fontFamily: fonts.bold,
+        fontSize: 28,
+        color: '#FFFFFF',
+    },
+    progressMeta: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#A0A0A0',
+    },
+    habitRow: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    habitCard: {
+        flex: 1,
+        backgroundColor: '#1A1A1E',
+        borderRadius: 14,
+        padding: 14,
+        gap: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.06)',
+    },
+    habitValue: {
+        fontFamily: fonts.bold,
         fontSize: 20,
         color: '#FFFFFF',
-        marginTop: 16,
     },
-    placeholderSubtext: {
+    habitLabel: {
         fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#878787',
-        marginTop: 4,
+        fontSize: 12,
+        color: '#A0A0A0',
     },
-    // Trends section styles
-    trendsDateRow: {
-        flexDirection: 'row',
-        justifyContent: 'flex-end',
-        alignItems: 'center',
-        gap: 8,
-        marginBottom: 16,
-    },
-    trendsDateText: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-    },
-    trendsCard: {
-        backgroundColor: '#313135',
-        borderRadius: 16,
-        padding: 16,
-        marginBottom: 16,
-        gap: 24,
-    },
-    trendsCardHeader: {
-        gap: 8,
-    },
-    trendsCardTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
-        color: '#FFFFFF',
-        lineHeight: 19.2,
-    },
-    trendsCardDescription: {
+    dataCoverageText: {
         fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#FFFFFF',
-        lineHeight: 16.8,
+        fontSize: 13,
+        color: '#B0B0B0',
     },
-    cardDescription: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#AAAAAA',
-        lineHeight: 20,
-        marginBottom: 16,
-    },
-    // Meal Impacts
-    mealImpactsContent: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    mealImpactsLegend: {
-        flex: 1,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        gap: 4,
-    },
-    legendItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    legendDotLarge: {
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-    },
-    legendLabel: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#E7E8E9',
-    },
-    pieChartContainer: {
-        flex: 1,
-        height: 130,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    // Trend bar rows (Peak Comparison, Suggestion Impact)
-    peakComparisonContent: {
-        gap: 16,
-    },
-    suggestionImpactContent: {
-        gap: 32,
-    },
-    suggestionGroup: {
-        gap: 16,
-    },
-    trendBarRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-    },
-    trendBarLabel: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-        width: 110,
-    },
-    trendBarContainer: {
-        flex: 1,
-        height: 16,
-        borderRadius: 4,
-        overflow: 'hidden',
-        justifyContent: 'center',
-    },
-    trendBar: {
-        height: 16,
-        backgroundColor: '#0E9CFF',
-        borderRadius: 4,
-    },
-    trendBarValue: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-        width: 90,
-        textAlign: 'right',
-    },
-    trendsInsightText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#FFFFFF',
-        lineHeight: 16.8,
-    },
-    pieChart: {
-        width: 90,
-        height: 90,
-        borderRadius: 45,
-        overflow: 'hidden',
-        position: 'relative',
-    },
-    pieSegment: {
-        position: 'absolute',
-        width: '100%',
-        height: '100%',
-        borderRadius: 45,
-    },
-    pieSegmentSteady: {
-        backgroundColor: '#4CAF50',
-    },
-    pieSegmentOverlay: {
-        position: 'absolute',
-        width: '100%',
-        height: '50%',
-        bottom: 0,
-        left: 0,
-    },
-    pieSegmentMild: {
-        backgroundColor: '#FF9800',
-    },
-    pieSegmentOverlay2: {
-        position: 'absolute',
-        width: '35%',
-        height: '35%',
-        bottom: 0,
-        right: 0,
-    },
-    pieSegmentSpike: {
-        backgroundColor: '#F44336',
-    },
-    seeMoreRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 8,
-    },
-    seeMoreText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#FFFFFF',
-        marginRight: 8,
-    },
-    // Experiments section styles
     experimentsHeader: {
         gap: 8,
-        marginBottom: 16,
-    },
-    experimentsTitleRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-    },
-    experimentsSparkle: {
-        fontSize: 28,
-    },
-    experimentsTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
-        color: '#FFFFFF',
-        lineHeight: 19.2,
-    },
-    experimentsDescriptionContainer: {
-        width: '100%',
-    },
-    experimentsDescription: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#AAAAAA',
-        lineHeight: 20,
-    },
-    experimentsSectionTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
-        color: '#FFFFFF',
-        lineHeight: 19.2,
-        marginTop: 24,
         marginBottom: 12,
-    },
-    experimentsCardList: {
-        gap: 24,
-    },
-    experimentCard: {
-        backgroundColor: '#22282C',
-        borderRadius: 16,
-        padding: 16,
-        gap: 24,
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 2,
-    },
-    experimentCardContent: {
-        gap: 16,
-    },
-    experimentCardTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
-        color: '#FFFFFF',
-        lineHeight: 15.2,
-    },
-    experimentCardDescription: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#FFFFFF',
-        lineHeight: 16.8,
-    },
-    experimentButton: {
-        backgroundColor: '#3F4243',
-        borderRadius: 8,
-        paddingVertical: 16,
-        paddingHorizontal: 100,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    experimentButtonText: {
-        fontFamily: fonts.medium,
-        fontSize: 15,
-        color: '#F2F2F2',
-        lineHeight: 14.25,
-    },
-    experimentButtonDisabled: {
-        opacity: 0.6,
-    },
-    experimentCardHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        marginBottom: 8,
-    },
-    experimentCardIcon: {
-        fontSize: 20,
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: '#2A2D30',
-        textAlign: 'center',
-        lineHeight: 40,
-        overflow: 'hidden',
-    },
-    experimentCardBadge: {
-        backgroundColor: '#3494D9',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 4,
-    },
-    experimentCardBadgeHigh: {
-        backgroundColor: '#4CAF50',
-    },
-    experimentCardBadgeText: {
-        fontFamily: fonts.semiBold,
-        fontSize: 10,
-        color: '#FFFFFF',
-        letterSpacing: 0.5,
-    },
-    experimentCardSubtitle: {
-        fontFamily: fonts.medium,
-        fontSize: 13,
-        color: '#878787',
-        marginBottom: 4,
-    },
-    experimentReasons: {
-        marginTop: 12,
-        gap: 6,
-    },
-    experimentReasonsTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 12,
-        color: '#878787',
-        marginBottom: 4,
-    },
-    experimentReasonRow: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: 8,
-    },
-    experimentReasonDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: '#3494D9',
-        marginTop: 5,
-    },
-    experimentReasonText: {
-        fontFamily: fonts.regular,
-        fontSize: 13,
-        color: '#AAAAAA',
-        flex: 1,
-        lineHeight: 18,
-    },
-    experimentProgressBar: {
-        height: 6,
-        backgroundColor: '#3F4243',
-        borderRadius: 3,
-        marginTop: 12,
-        overflow: 'hidden',
-    },
-    experimentProgressFill: {
-        height: '100%',
-        backgroundColor: '#3494D9',
-        borderRadius: 3,
-    },
-    experimentButtonSecondary: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 4,
-        paddingVertical: 12,
-        paddingHorizontal: 16,
-        backgroundColor: 'transparent',
-        borderTopWidth: 1,
-        borderTopColor: '#3F4243',
-    },
-    experimentButtonSecondaryText: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-    },
-    viewAllExperimentsButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 4,
-        paddingVertical: 16,
-        marginTop: 8,
-    },
-    viewAllExperimentsText: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#3494D9',
-    },
-
-    // Insufficient Data
-    insufficientDataContainer: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 32,
-        gap: 12,
-        minHeight: 200,
-    },
-    insufficientDataTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 18,
-        color: '#FFFFFF',
-        textAlign: 'center',
-    },
-    insufficientDataText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#8E8E93',
-        textAlign: 'center',
-        lineHeight: 20,
-    },
-
-    // Success Overlay
-    successOverlay: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.85)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-    },
-    successCard: {
-        backgroundColor: '#1C1C1E',
-        borderRadius: 24,
-        padding: 32,
-        alignItems: 'center',
-        width: '80%',
-        gap: 16,
-        borderWidth: 1,
-        borderColor: '#3494D9',
-    },
-    successTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 24,
-        color: '#FFFFFF',
-        marginTop: 8,
-    },
-    successSubtitle: {
-        fontFamily: fonts.regular,
-        fontSize: 16,
-        color: '#E7E8E9',
-    },
-
-    // My Experiments Card (Premium)
-    myExperimentsCard: {
-        marginBottom: 24, // Matches gap or spacing
-        borderRadius: 16,
-        overflow: 'hidden',
-    },
-    myExperimentsBackground: {
-        padding: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    myExperimentsTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 18,
-        color: '#FFFFFF',
-    },
-    myExperimentsSubtitle: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: 'rgba(255,255,255,0.8)',
-        marginTop: 4,
-    },
-
-
-    // Metabolic Score
-    metabolicScoreHeader: {
-        marginBottom: 16,
-    },
-    metabolicScoreTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 20,
-        color: '#FFFFFF',
-    },
-    metabolicDisclaimer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        marginTop: 4,
-    },
-
-    // Confidence Badge
-    confidenceBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 8,
-        backgroundColor: '#1E1E1E',
-        alignSelf: 'flex-start',
-        marginTop: 8,
-        gap: 6,
-    },
-    confidenceHigh: {
-        backgroundColor: 'rgba(76, 175, 80, 0.2)',
-    },
-    confidenceMedium: {
-        backgroundColor: 'rgba(255, 152, 0, 0.2)',
-    },
-    confidenceLow: {
-        backgroundColor: 'rgba(244, 67, 54, 0.2)',
-    },
-    confidenceText: {
-        fontFamily: fonts.medium,
-        fontSize: 12,
-        color: '#FFFFFF',
-    },
-
-    // Not Enough Data
-    notEnoughDataContainer: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-        backgroundColor: '#1C1C1E',
-        borderRadius: 16,
-        gap: 12,
-    },
-    notEnoughDataText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#8E8E93',
-        textAlign: 'center',
-        lineHeight: 20,
-    },
-    noDataText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#8E8E93',
-        marginTop: 8,
-    },
-
-    // Add Labs Button
-    addLabsButton: {
-        backgroundColor: '#3494D9',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
-        marginTop: 12,
-    },
-    addLabsButtonText: {
-        fontFamily: fonts.bold,
-        fontSize: 14,
-        color: '#FFFFFF',
-    },
-    addLabsButtonSecondary: {
-        marginTop: 12,
-        padding: 8,
-    },
-    addLabsButtonSecondaryText: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#3494D9',
-    },
-
-    // Score Display
-    scoreContainer: {
-        alignItems: 'center',
-        marginVertical: 24,
-    },
-    scoreNumber: {
-        fontFamily: fonts.bold,
-        fontSize: 48,
-        color: '#FFFFFF',
-    },
-    scoreBand: {
-        fontFamily: fonts.bold,
-        fontSize: 18,
-        marginTop: 4,
-    },
-    scoreGreat: { color: '#4CAF50' },
-    scoreModerate: { color: '#FF9800' },
-    scoreNeedsAttention: { color: '#F44336' },
-
-    // Drivers
-    driversTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
-        marginBottom: 12,
-    },
-    driverItem: {
-        flexDirection: 'row',
-        marginBottom: 12,
-        gap: 12,
-    },
-    driverBullet: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: '#3494D9',
-        marginTop: 8,
-    },
-    driverContent: {
-        flex: 1,
-        gap: 2,
-    },
-    driverDetail: {
-        fontFamily: fonts.regular,
-        fontSize: 13,
-        color: '#8E8E93',
-    },
-
-    // Data Sources
-    dataSourcesRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingVertical: 8,
-        borderBottomWidth: 1,
-        borderBottomColor: '#2A2A2E',
-    },
-    dataSourcesLabel: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#8E8E93',
-    },
-    dataSourcesValue: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-    },
-
-    // My Experiments Extra
-    myExperimentsGradient: {
-        borderRadius: 16,
-        padding: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    myExperimentsContent: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    myExperimentsIconContainer: {
-        width: 56,
-        height: 56,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    myExperimentsTextContainer: {
-        flex: 1,
     },
 });

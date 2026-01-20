@@ -14,6 +14,20 @@ import { GlucoseLog, MealWithCheckin } from './supabase';
 export type InsightCategory = 'meals' | 'activity' | 'sleep' | 'glucose';
 export type ConfidenceLevel = 'high' | 'moderate' | 'low';
 
+export interface InsightAction {
+    id: string;
+    title: string;
+    description: string;
+    actionType: string;
+    windowHours: number;
+    metricKey: string;
+    cta?: {
+        label: string;
+        route: string;
+        params?: Record<string, any>;
+    };
+}
+
 export interface PersonalInsight {
     id: string;
     category: InsightCategory;
@@ -24,6 +38,7 @@ export interface PersonalInsight {
     confidence: ConfidenceLevel;
     icon: string;            // Ionicons name
     gradient: [string, string];
+    action: InsightAction;
     cta: {
         label: string;
         route: string;
@@ -180,6 +195,32 @@ function getGlucoseConfidence(data: InsightData): ConfidenceLevel {
 // RECOMMENDATION GENERATORS
 // ============================================
 
+const DEFAULT_ACTION_WINDOW_HOURS = 48;
+
+function buildAction(params: {
+    id: string;
+    title: string;
+    description: string;
+    actionType: string;
+    metricKey: string;
+    windowHours?: number;
+    cta?: {
+        label: string;
+        route: string;
+        params?: Record<string, any>;
+    };
+}): InsightAction {
+    return {
+        id: params.id,
+        title: params.title,
+        description: params.description,
+        actionType: params.actionType,
+        metricKey: params.metricKey,
+        windowHours: params.windowHours ?? DEFAULT_ACTION_WINDOW_HOURS,
+        cta: params.cta,
+    };
+}
+
 function generateMealRecommendations(data: InsightData): PersonalInsight[] {
     const insights: PersonalInsight[] = [];
     const confidence = getMealConfidence(data);
@@ -197,6 +238,15 @@ function generateMealRecommendations(data: InsightData): PersonalInsight[] {
             confidence: 'low',
             icon: 'restaurant-outline',
             gradient: GRADIENTS.meals,
+            action: buildAction({
+                id: 'action-log-meal',
+                title: 'Log your next meal',
+                description: 'Add one meal log in the next 48 hours.',
+                actionType: 'log_meal',
+                metricKey: 'meal_count',
+                windowHours: 48,
+                cta: { label: 'Log a meal', route: '/log-meal' },
+            }),
             cta: { label: 'Log a meal', route: '/log-meal' },
         });
         return insights;
@@ -219,6 +269,15 @@ function generateMealRecommendations(data: InsightData): PersonalInsight[] {
             confidence,
             icon: 'nutrition-outline',
             gradient: GRADIENTS.meals,
+            action: buildAction({
+                id: 'action-fibre-anchor',
+                title: 'Add fibre to one meal',
+                description: 'Include a fibre-rich side at your next lunch.',
+                actionType: 'fiber_boost',
+                metricKey: 'glucose_avg',
+                windowHours: 48,
+                cta: { label: 'Log a meal', route: '/log-meal' },
+            }),
             cta: { label: 'Log a meal', route: '/log-meal' },
         });
     }
@@ -235,6 +294,15 @@ function generateMealRecommendations(data: InsightData): PersonalInsight[] {
             confidence: 'low',
             icon: 'checkbox-outline',
             gradient: GRADIENTS.meals,
+            action: buildAction({
+                id: 'action-meal-checkin',
+                title: 'Complete a meal check-in',
+                description: 'Add one after-meal check-in in the next 72 hours.',
+                actionType: 'meal_checkin',
+                metricKey: 'checkin_count',
+                windowHours: 72,
+                cta: { label: 'Add check-in', route: '/meal-checkin' },
+            }),
             cta: { label: 'Add check-in', route: '/meal-checkin' },
         });
     } else if (data.checkinsThisWeek !== undefined && data.totalMealsThisWeek !== undefined) {
@@ -248,7 +316,16 @@ function generateMealRecommendations(data: InsightData): PersonalInsight[] {
             confidence: checkInConfidence,
             icon: 'checkmark-circle-outline',
             gradient: GRADIENTS.meals,
-            cta: { label: 'View patterns', route: '/insights' },
+            action: buildAction({
+                id: 'action-checkin-streak',
+                title: 'Add another check-in',
+                description: 'Complete one more check-in in the next 72 hours.',
+                actionType: 'meal_checkin',
+                metricKey: 'checkin_count',
+                windowHours: 72,
+                cta: { label: 'Add check-in', route: '/meal-checkin' },
+            }),
+            cta: { label: 'Add check-in', route: '/meal-checkin' },
         });
     }
 
@@ -276,6 +353,15 @@ function generateActivityRecommendations(data: InsightData): PersonalInsight[] {
                 confidence,
                 icon: 'walk-outline',
                 gradient: GRADIENTS.activity,
+                action: buildAction({
+                    id: 'action-post-dinner-walk',
+                    title: 'Post-dinner walk',
+                    description: 'Add a 10-minute walk after one dinner in the next 48 hours.',
+                    actionType: 'post_meal_walk',
+                    metricKey: 'time_in_range',
+                    windowHours: 48,
+                    cta: { label: 'Log activity', route: '/log-activity' },
+                }),
                 cta: { label: 'Log activity', route: '/log-activity' },
             });
         } else {
@@ -289,7 +375,16 @@ function generateActivityRecommendations(data: InsightData): PersonalInsight[] {
                 confidence,
                 icon: 'walk-outline',
                 gradient: GRADIENTS.activity,
-                cta: { label: 'View activity', route: '/log-activity' },
+                action: buildAction({
+                    id: 'action-extend-walk',
+                    title: 'Extend one walk',
+                    description: 'Add 5 minutes to one walk in the next 48 hours.',
+                    actionType: 'post_meal_walk',
+                    metricKey: 'time_in_range',
+                    windowHours: 48,
+                    cta: { label: 'Log activity', route: '/log-activity' },
+                }),
+                cta: { label: 'Log activity', route: '/log-activity' },
             });
         }
     }
@@ -311,7 +406,16 @@ function generateActivityRecommendations(data: InsightData): PersonalInsight[] {
             confidence: 'high',
             icon: 'footsteps-outline',
             gradient: GRADIENTS.activity,
-            cta: { label: 'View activity', route: '/log-activity' },
+            action: buildAction({
+                id: 'action-step-boost',
+                title: 'Add a short walk',
+                description: 'Add a 10-minute walk in the next 48 hours.',
+                actionType: 'steps_boost',
+                metricKey: 'steps',
+                windowHours: 48,
+                cta: { label: 'Log activity', route: '/log-activity' },
+            }),
+            cta: { label: 'Log activity', route: '/log-activity' },
         });
     }
 
@@ -333,6 +437,15 @@ function generateSleepRecommendations(data: InsightData): PersonalInsight[] {
             confidence: 'low',
             icon: 'moon-outline',
             gradient: GRADIENTS.sleep,
+            action: buildAction({
+                id: 'action-track-sleep',
+                title: 'Sync sleep data',
+                description: 'Connect sleep data in the next 72 hours.',
+                actionType: 'sleep_logging',
+                metricKey: 'sleep_hours',
+                windowHours: 72,
+                cta: { label: 'Connect Health', route: '/settings' },
+            }),
             cta: { label: 'Connect Health', route: '/settings' },
         });
         return insights;
@@ -352,6 +465,15 @@ function generateSleepRecommendations(data: InsightData): PersonalInsight[] {
                 confidence,
                 icon: 'moon-outline',
                 gradient: GRADIENTS.sleep,
+                action: buildAction({
+                    id: 'action-sleep-wind-down',
+                    title: 'Earlier wind-down',
+                    description: 'Start a 30-minute earlier wind-down tonight.',
+                    actionType: 'sleep_window',
+                    metricKey: 'sleep_hours',
+                    windowHours: 48,
+                    cta: { label: 'View sleep', route: '/insights' },
+                }),
                 cta: { label: 'View sleep', route: '/insights' },
             });
         } else {
@@ -365,6 +487,15 @@ function generateSleepRecommendations(data: InsightData): PersonalInsight[] {
                 confidence,
                 icon: 'moon-outline',
                 gradient: GRADIENTS.sleep,
+                action: buildAction({
+                    id: 'action-sleep-consistency',
+                    title: 'Keep a steady bedtime',
+                    description: 'Keep your bedtime consistent over the next 72 hours.',
+                    actionType: 'sleep_consistency',
+                    metricKey: 'sleep_hours',
+                    windowHours: 72,
+                    cta: { label: 'View patterns', route: '/insights' },
+                }),
                 cta: { label: 'View patterns', route: '/insights' },
             });
         }
@@ -388,6 +519,15 @@ function generateGlucoseRecommendations(data: InsightData): PersonalInsight[] {
             confidence: 'low',
             icon: 'analytics-outline',
             gradient: GRADIENTS.glucose,
+            action: buildAction({
+                id: 'action-log-glucose',
+                title: 'Log glucose readings',
+                description: 'Add two readings in the next 48 hours.',
+                actionType: 'log_glucose',
+                metricKey: 'glucose_logs_count',
+                windowHours: 48,
+                cta: { label: 'Log glucose', route: '/log-glucose' },
+            }),
             cta: { label: 'Log glucose', route: '/log-glucose' },
         });
         return insights;
@@ -405,6 +545,15 @@ function generateGlucoseRecommendations(data: InsightData): PersonalInsight[] {
             confidence,
             icon: 'analytics-outline',
             gradient: GRADIENTS.glucose,
+            action: buildAction({
+                id: 'action-glucose-fibre-pairing',
+                title: 'Pair carbs with fibre',
+                description: 'Pair your next higher-carb meal with fibre.',
+                actionType: 'meal_pairing',
+                metricKey: 'time_in_range',
+                windowHours: 48,
+                cta: { label: 'Log a meal', route: '/log-meal' },
+            }),
             cta: { label: 'View patterns', route: '/insights' },
         });
     } else if (data.timeInZonePercent !== undefined) {
@@ -423,6 +572,15 @@ function generateGlucoseRecommendations(data: InsightData): PersonalInsight[] {
             confidence,
             icon: 'analytics-outline',
             gradient: GRADIENTS.glucose,
+            action: buildAction({
+                id: 'action-glucose-zone',
+                title: 'Post-meal walk',
+                description: 'Add a short post-meal walk in the next 48 hours.',
+                actionType: 'post_meal_walk',
+                metricKey: 'time_in_range',
+                windowHours: 48,
+                cta: { label: 'Log activity', route: '/log-activity' },
+            }),
             cta: { label: 'View patterns', route: '/insights' },
         });
     }
@@ -488,6 +646,49 @@ const CTA_ROUTES: Record<InsightCategory, { label: string; route: string }> = {
     glucose: { label: 'Log glucose', route: '/log-glucose' },
 };
 
+function getDefaultAction(category: InsightCategory): InsightAction {
+    switch (category) {
+        case 'meals':
+            return buildAction({
+                id: 'action-default-meals',
+                title: 'Log a meal',
+                description: 'Add one meal log in the next 48 hours.',
+                actionType: 'log_meal',
+                metricKey: 'meal_count',
+                cta: CTA_ROUTES.meals,
+            });
+        case 'activity':
+            return buildAction({
+                id: 'action-default-activity',
+                title: 'Log activity',
+                description: 'Add one activity log in the next 48 hours.',
+                actionType: 'log_activity',
+                metricKey: 'steps',
+                cta: CTA_ROUTES.activity,
+            });
+        case 'sleep':
+            return buildAction({
+                id: 'action-default-sleep',
+                title: 'Keep a steady bedtime',
+                description: 'Aim for a consistent sleep window tonight.',
+                actionType: 'sleep_window',
+                metricKey: 'sleep_hours',
+                windowHours: 72,
+                cta: CTA_ROUTES.sleep,
+            });
+        case 'glucose':
+        default:
+            return buildAction({
+                id: 'action-default-glucose',
+                title: 'Log glucose',
+                description: 'Add a glucose reading in the next 48 hours.',
+                actionType: 'log_glucose',
+                metricKey: 'glucose_logs_count',
+                cta: CTA_ROUTES.glucose,
+            });
+    }
+}
+
 /**
  * Map LLM output (no UI styling) to PersonalInsight with icon/gradient
  */
@@ -512,6 +713,7 @@ export function mapToPersonalInsight(
         confidence: output.confidence,
         icon: ICONS[output.category] || 'sparkles-outline',
         gradient: GRADIENTS[output.category] || ['#424242', '#212121'],
+        action: getDefaultAction(output.category),
         cta: CTA_ROUTES[output.category],
     };
 }
@@ -530,7 +732,7 @@ interface CachedInsights {
     timestamp: number;
 }
 
-const INSIGHTS_CACHE_VERSION = 'v2'; // Bumped for new recommendation schema
+const INSIGHTS_CACHE_VERSION = 'v3'; // Bumped for action metadata
 
 function getCacheKey(userId: string, trackingMode: TrackingMode): string {
     const dateKey = new Date().toISOString().split('T')[0]; // YYYY-MM-DD

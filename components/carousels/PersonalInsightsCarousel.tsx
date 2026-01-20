@@ -53,16 +53,18 @@ const ConfidenceBadge = ({ level }: { level: string }) => {
 // ============================================
 
 const InsightCard = React.memo(({ insight }: { insight: PersonalInsight }) => {
+    const cta = insight.action?.cta ?? insight.cta;
+
     const handlePress = () => {
-        if (insight.cta?.route) {
-            router.push(insight.cta.route as any);
+        if (cta?.route) {
+            router.push(cta.route as any);
         }
     };
 
     return (
         <AnimatedPressable
             onPress={handlePress}
-            disabled={!insight.cta}
+            disabled={!cta}
         >
             <LinearGradient
                 colors={insight.gradient}
@@ -93,6 +95,21 @@ const InsightCard = React.memo(({ insight }: { insight: PersonalInsight }) => {
                     Because: {insight.because}
                 </Text>
 
+                {/* Action window */}
+                {insight.action && (
+                    <View style={styles.actionContainer}>
+                        <View style={styles.actionHeader}>
+                            <Ionicons name="flag-outline" size={14} color="rgba(255,255,255,0.85)" />
+                            <Text style={styles.actionLabel}>
+                                Next step · {insight.action.windowHours}h
+                            </Text>
+                        </View>
+                        <Text style={styles.actionText}>
+                            {insight.action.description}
+                        </Text>
+                    </View>
+                )}
+
                 {/* Micro-step chip */}
                 <View style={styles.microStepContainer}>
                     <Ionicons name="flash-outline" size={14} color="rgba(255,255,255,0.85)" style={{ marginTop: 2 }} />
@@ -102,9 +119,9 @@ const InsightCard = React.memo(({ insight }: { insight: PersonalInsight }) => {
                 </View>
 
                 {/* CTA */}
-                {insight.cta && (
+                {cta && (
                     <View style={styles.ctaContainer}>
-                        <Text style={styles.ctaText}>{insight.cta.label}</Text>
+                        <Text style={styles.ctaText}>{cta.label}</Text>
                         <Ionicons name="arrow-forward" size={14} color="rgba(255,255,255,0.9)" />
                     </View>
                 )}
@@ -216,7 +233,7 @@ const styles = StyleSheet.create({
     },
     card: {
         width: 300,
-        height: 240,
+        height: 280,
         borderRadius: 20,
         padding: 16,
         justifyContent: 'space-between',
@@ -264,6 +281,31 @@ const styles = StyleSheet.create({
         color: 'rgba(255,255,255,0.7)',
         marginTop: 4,
         fontStyle: 'italic',
+    },
+    actionContainer: {
+        backgroundColor: 'rgba(0,0,0,0.2)',
+        borderRadius: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        gap: 4,
+        marginTop: 10,
+    },
+    actionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    actionLabel: {
+        fontFamily: fonts.semiBold,
+        fontSize: 12,
+        color: 'rgba(255,255,255,0.85)',
+        letterSpacing: 0.2,
+    },
+    actionText: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: 'rgba(255,255,255,0.85)',
+        lineHeight: 18,
     },
     microStepContainer: {
         flexDirection: 'row',
