@@ -1,6 +1,5 @@
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
-import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { schedulePostMealReviewNotification } from '@/lib/notifications';
@@ -14,8 +13,8 @@ import {
   NormalizedFood,
   uploadMealPhoto,
 } from '@/lib/supabase';
-import { getSmartUnitOptions } from '@/lib/utils/portionUnits';
 import { getGlucoseInputPlaceholder, parseGlucoseInput } from '@/lib/utils/glucoseUnits';
+import { getSmartUnitOptions } from '@/lib/utils/portionUnits';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -680,7 +679,7 @@ export default function LogMealReviewScreen() {
       const finalMealTitle = mealTitle.trim() || autoMealTitle;
       const meal = await createMeal(user.id, {
         name: finalMealTitle,
-        meal_type: mealType.toLowerCase(),
+        meal_type: mealType.toLowerCase() as any,
         logged_at: mealTime.toISOString(),
         photo_path: photoUrl,
         notes: mealNotes || null,
@@ -843,9 +842,9 @@ export default function LogMealReviewScreen() {
         >
           <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
         </Pressable>
-        <Text style={styles.headerTitle}>Nutrition</Text>
+        <Text style={styles.headerTitle}>MEAL REVIEW</Text>
         <Pressable
-          onPress={() => {}}
+          onPress={() => { }}
           style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
         >
           <Ionicons name="ellipsis-horizontal" size={22} color="#FFFFFF" />
@@ -1149,6 +1148,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
+
   // Floating header
   floatingHeader: {
     position: 'absolute',
@@ -1160,17 +1160,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingTop: 8,
+    zIndex: 10,
   },
   headerButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    width: 48,
+    height: 48,
+    borderRadius: 33,
+    backgroundColor: 'rgba(63, 66, 67, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerButtonPressed: {
     opacity: 0.7,
+    transform: [{ scale: 0.97 }],
   },
   headerTitle: {
     fontFamily: fonts.semiBold,
@@ -1179,6 +1181,7 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
+    letterSpacing: 1,
   },
 
   // Bottom card

@@ -10,6 +10,7 @@ const AnimatedLine = Animated.createAnimatedComponent(Line);
 // Mascot images
 const MASCOT_CRY = require('@/assets/images/mascots/gluco_app_mascott/gluco_mascott_cry.png');
 const MASCOT_DEFAULT = require('@/assets/images/mascots/gluco_app_mascott/gluco_mascott_default.png');
+const LOCK_ICON = require('@/assets/images/icons/lock_red.png');
 
 // Colors
 const COLORS = {
@@ -64,10 +65,10 @@ export function GlucoseTrendIndicator({
                 return {
                     mascot: MASCOT_CRY,
                     label: '- - -',
-                    labelColor: COLORS.green,
+                    labelColor: COLORS.red,
                     needleAngle: -70, // Default to low/start position for no data
                     showNeedle: false,
-                    subtitle: "Not enough data for trends",
+                    subtitle: "Start logging to unlock your trends",
                 };
         }
     }, [status]);
@@ -131,7 +132,7 @@ export function GlucoseTrendIndicator({
         return `M ${startX} ${startY} A ${radius} ${radius} 0 1 1 ${endX} ${endY}`;
     }, [centerX, centerY, radius]);
 
-    const mascotSize = size * 0.43; // Slight increase from 0.35
+    const mascotSize = size * 0.35; // Reduced from 0.43
     const topPadding = 10;
     const bottomExtension = radius * Math.sin(30 * Math.PI / 180);
     const svgHeight = radius + bottomExtension + topPadding + strokeWidth;
@@ -174,7 +175,7 @@ export function GlucoseTrendIndicator({
                 </Svg>
 
                 {/* Mascot sits inside the arc - pulled up higher */}
-                <View style={{ marginTop: centerY - mascotSize / 2 - 10, zIndex: 1 }}>
+                <View style={{ marginTop: centerY - mascotSize / 2 - 25, zIndex: 1 }}>
                     <Image
                         source={mascot}
                         style={{ width: mascotSize, height: mascotSize }}
@@ -204,7 +205,7 @@ const styles = StyleSheet.create({
     },
     textContainer: {
         alignItems: 'center',
-        marginTop: -15, // Increased negative margin to pull text closer to mascot
+        marginTop: -35, // Increased negative margin to pull text closer to mascot
         width: '180%',
     },
     statusLabel: {
@@ -220,6 +221,13 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         textAlign: 'center',
         width: '100%',
+    },
+    lockIconsRow: {
+        flexDirection: 'row',
+        gap: 8,
+        marginBottom: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
 });
 

@@ -2555,7 +2555,7 @@ async function listMealPhotos(userId: string): Promise<{ path: string; signed_ur
         return paths.map(path => ({ path, signed_url: null }));
     }
 
-    return signed.map(entry => ({ path: entry.path, signed_url: entry.signedUrl || null }));
+    return signed.map(entry => ({ path: entry.path || '', signed_url: entry.signedUrl || null }));
 }
 
 /**
@@ -2686,6 +2686,29 @@ export async function resetUserLearning(userId: string): Promise<boolean> {
 // ============================================================================
 // DELETE USER DATA
 // ============================================================================
+
+/**
+ * Update a post-meal review with a manually logged glucose value
+ */
+export async function updatePostMealReviewWithManualGlucose(
+    reviewId: string,
+    glucoseVal: number
+): Promise<boolean> {
+    const { error } = await supabase
+        .from('post_meal_reviews')
+        .update({
+            manual_glucose_mg_dl: glucoseVal, // Assuming DB stores in mg/dL or adapt based on column
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', reviewId);
+
+    if (error) {
+        console.error('Error updating review with glucose:', error);
+        return false;
+    }
+
+    return true;
+}
 
 /**
  * Delete all user data from the database

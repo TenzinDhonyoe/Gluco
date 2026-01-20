@@ -376,7 +376,7 @@ export default function LogMealItemsScreen() {
 
     // Navigate back with selected items and original form state
     router.navigate({
-      pathname: returnTo,
+      pathname: returnTo as any,
       params: {
         selectedFoods: JSON.stringify(selectedItems),
         ...(replaceIndex !== null && !Number.isNaN(replaceIndex)

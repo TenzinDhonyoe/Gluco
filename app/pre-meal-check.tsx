@@ -309,7 +309,7 @@ export default function PreMealCheckScreen() {
 
                 setResult(mockResult);
                 setDrivers(mockResult.drivers);
-                setTips(mockResult.adjustment_tips.map(t => ({ ...t, selected: false, id: t.id || Math.random().toString() })));
+                setTips(mockResult.adjustment_tips.map(t => ({ ...t, selected: false, id: (t as any).id || Math.random().toString() })));
                 setLoading(false);
                 return;
             }

@@ -38,6 +38,7 @@ import {
 import { formatGlucoseWithUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
@@ -219,6 +220,19 @@ export default function InsightsScreen() {
     const [activeExperiments, setActiveExperiments] = useState<UserExperiment[]>([]);
     const [experimentsLoading, setExperimentsLoading] = useState(false);
     const [startingExperiment, setStartingExperiment] = useState<string | null>(null);
+    const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set());
+
+    const toggleCardExpanded = (id: string) => {
+        setExpandedCardIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    };
 
     const syncingActionsRef = useRef(false);
     const syncingFeaturesRef = useRef(false);
@@ -477,24 +491,34 @@ export default function InsightsScreen() {
                     if (baselineValue !== null && outcomeValue !== null) {
                         const delta = outcomeValue - baselineValue;
                         const improved = isImproved(metricKey, delta);
-                        patch = {
-                            ...patch,
-                            baseline_metric: {
-                                metricKey,
-                                value: baselineValue,
-                                window_start: baselineStart.toISOString(),
-                                window_end: windowStart.toISOString(),
-                            },
-                            outcome_metric: {
-                                metricKey,
-                                value: outcomeValue,
-                                window_start: windowStart.toISOString(),
-                                window_end: windowEnd.toISOString(),
-                            },
-                            delta_value: delta,
-                            improved,
-                            last_evaluated_at: new Date().toISOString(),
-                        } as Partial<UserAction>;
+
+                        // Check if values actually changed to prevent infinite loop
+                        const hasChanges =
+                            action.baseline_metric?.value !== baselineValue ||
+                            action.outcome_metric?.value !== outcomeValue ||
+                            action.delta_value !== delta ||
+                            action.improved !== improved;
+
+                        if (hasChanges) {
+                            patch = {
+                                ...patch,
+                                baseline_metric: {
+                                    metricKey,
+                                    value: baselineValue,
+                                    window_start: baselineStart.toISOString(),
+                                    window_end: windowStart.toISOString(),
+                                },
+                                outcome_metric: {
+                                    metricKey,
+                                    value: outcomeValue,
+                                    window_start: windowStart.toISOString(),
+                                    window_end: windowEnd.toISOString(),
+                                },
+                                delta_value: delta,
+                                improved,
+                                last_evaluated_at: new Date().toISOString(),
+                            } as Partial<UserAction>;
+                        }
                     }
                 }
 
@@ -779,6 +803,7 @@ export default function InsightsScreen() {
     }, [dailyContext, glucoseLogs, meals]);
 
     const renderActionCard = (action: UserAction) => {
+        const isExpanded = expandedCardIds.has(action.id);
         const windowEnd = new Date(action.window_end);
         const timeLeft = Math.max(0, Math.ceil((windowEnd.getTime() - Date.now()) / (1000 * 60 * 60)));
         const metricKey = (action.action_params?.metricKey || 'time_in_range') as MetricKey;
@@ -789,42 +814,72 @@ export default function InsightsScreen() {
             ? `${deltaValue > 0 ? '+' : ''}${formatMetricValue(metricKey, deltaValue, glucoseUnit)}`
             : 'Pending';
 
-        const deltaStyle = action.improved === null || action.improved === undefined\n+            ? styles.deltaNeutral\n+            : action.improved\n+                ? styles.deltaPositive\n+                : styles.deltaNegative;\n+\n+        return (\n             <View key={action.id} style={styles.actionCard}>
+        const deltaStyle = action.improved === null || action.improved === undefined
+            ? styles.deltaNeutral
+            : action.improved
+                ? styles.deltaPositive
+                : styles.deltaNegative;
+
+        return (
             <View key={action.id} style={styles.actionCard}>
                 <View style={styles.actionHeaderRow}>
-                    <Text style={styles.actionTitle}>{action.title}</Text>
-                    <View style={[styles.statusPill, action.status === 'active' ? styles.statusActive : styles.statusInactive]}>
-                        <Text style={styles.statusPillText}>{action.status}</Text>
-                    </View>
+                    <Text style={styles.actionTitleHero}>{action.title}</Text>
+                    <TouchableOpacity onPress={() => toggleCardExpanded(action.id)} hitSlop={10}>
+                        <Ionicons name={isExpanded ? "information-circle" : "information-circle-outline"} size={22} color="#878787" />
+                    </TouchableOpacity>
                 </View>
-                <Text style={styles.actionDescription}>{action.description}</Text>
-                <Text style={styles.actionMeta}>Window ends in {timeLeft}h</Text>
 
-                <View style={styles.actionOutcomeRow}>
-                    <View>
-                        <Text style={styles.actionOutcomeLabel}>Baseline</Text>
-                        <Text style={styles.actionOutcomeValue}>{formatMetricValue(metricKey, baselineValue, glucoseUnit)}</Text>
+                <Text style={styles.actionDescription}>{action.description}</Text>
+
+                {isExpanded && (
+                    <View style={styles.expandedContent}>
+                        <Text style={styles.actionMeta}>Window ends in {timeLeft}h</Text>
+                        <View style={styles.actionOutcomeRow}>
+                            <View>
+                                <Text style={styles.actionOutcomeLabel}>Baseline</Text>
+                                <Text style={styles.actionOutcomeValue}>{formatMetricValue(metricKey, baselineValue, glucoseUnit)}</Text>
+                            </View>
+                            <View>
+                                <Text style={styles.actionOutcomeLabel}>Outcome</Text>
+                                <Text style={styles.actionOutcomeValue}>{formatMetricValue(metricKey, outcomeValue, glucoseUnit)}</Text>
+                            </View>
+                            <View>
+                                <Text style={styles.actionOutcomeLabel}>Delta</Text>
+                                <Text style={[styles.actionOutcomeValue, deltaStyle]}>
+                                    {improvementLabel}
+                                </Text>
+                            </View>
+                        </View>
                     </View>
-                    <View>
-                        <Text style={styles.actionOutcomeLabel}>Outcome</Text>
-                        <Text style={styles.actionOutcomeValue}>{formatMetricValue(metricKey, outcomeValue, glucoseUnit)}</Text>
-                    </View>
-                    <View>
-                        <Text style={styles.actionOutcomeLabel}>Delta</Text>
-                        <Text style={[styles.actionOutcomeValue, deltaStyle]}>
-                            {improvementLabel}
-                        </Text>
-                    </View>
-                </View>
+                )}
 
                 {action.status === 'active' && (
                     <View style={styles.actionButtons}>
-                        <TouchableOpacity
-                            style={styles.primaryButton}
-                            onPress={() => handleMarkActionDone(action)}
-                        >
-                            <Text style={styles.primaryButtonText}>Mark done</Text>
-                        </TouchableOpacity>
+                        {/* If there's a CTA for this action, show it alongside Mark Done, or prioritizing it? 
+                             For now, keeping Mark Done as primary for "Active" loop management. 
+                             User requested "Start action" vs "Log" conflict resolution. 
+                             For Active items, "Log" is usually the way to complete it.
+                         */}
+                        {action.cta ? (
+                            <TouchableOpacity
+                                style={styles.primaryButton}
+                                onPress={() => {
+                                    if (action.cta?.route) {
+                                        router.push(action.cta.route as any);
+                                    }
+                                }}
+                            >
+                                <Text style={styles.primaryButtonText}>{action.cta.label}</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <TouchableOpacity
+                                style={styles.primaryButton}
+                                onPress={() => handleMarkActionDone(action)}
+                            >
+                                <Text style={styles.primaryButtonText}>Mark done</Text>
+                            </TouchableOpacity>
+                        )}
+                        {/* Option to mark done if CTA exists? Maybe secondary. Keeping simple for now. */}
                     </View>
                 )}
             </View>
@@ -846,35 +901,39 @@ export default function InsightsScreen() {
             );
         }
 
-        return actionCandidates.map(insight => (
-            <View key={insight.id} style={styles.actionCard}>
-                <View style={styles.actionHeaderRow}>
-                    <Text style={styles.actionTitle}>{insight.action.title}</Text>
-                    <View style={styles.statusPill}>
-                        <Text style={styles.statusPillText}>{insight.action.windowHours}h</Text>
+        return actionCandidates.map(insight => {
+            const isExpanded = expandedCardIds.has(insight.id);
+            return (
+                <View key={insight.id} style={styles.actionCard}>
+                    <View style={styles.actionHeaderRow}>
+                        <Text style={styles.actionTitleHero}>{insight.action.title}</Text>
+                        <TouchableOpacity onPress={() => toggleCardExpanded(insight.id)} hitSlop={10}>
+                            <Ionicons name={isExpanded ? "information-circle" : "information-circle-outline"} size={22} color="#878787" />
+                        </TouchableOpacity>
+                    </View>
+
+                    <Text style={styles.actionDescription}>{insight.action.description}</Text>
+
+                    {isExpanded && (
+                        <View style={styles.expandedContent}>
+                            <Text style={styles.actionMeta}>Insight: {insight.because}</Text>
+                            <View style={styles.statusPill}>
+                                <Text style={styles.statusPillText}>Duration: {insight.action.windowHours}h</Text>
+                            </View>
+                        </View>
+                    )}
+
+                    <View style={styles.actionButtons}>
+                        <TouchableOpacity
+                            style={styles.primaryButton}
+                            onPress={() => handleStartAction(insight.id, insight.action)}
+                        >
+                            <Text style={styles.primaryButtonText}>Start action</Text>
+                        </TouchableOpacity>
                     </View>
                 </View>
-                <Text style={styles.actionDescription}>{insight.action.description}</Text>
-                <Text style={styles.actionMeta}>Because {insight.because}</Text>
-
-                <View style={styles.actionButtons}>
-                    <TouchableOpacity
-                        style={styles.primaryButton}
-                        onPress={() => handleStartAction(insight.id, insight.action)}
-                    >
-                        <Text style={styles.primaryButtonText}>Start action</Text>
-                    </TouchableOpacity>
-                    {insight.action.cta && (
-                        <TouchableOpacity
-                            style={styles.secondaryButton}
-                            onPress={() => router.push(insight.action.cta.route as any)}
-                        >
-                            <Text style={styles.secondaryButtonText}>{insight.action.cta.label}</Text>
-                        </TouchableOpacity>
-                    )}
-                </View>
-            </View>
-        ));
+            );
+        });
     };
 
     const renderCarePathway = () => {
@@ -1117,64 +1176,83 @@ export default function InsightsScreen() {
     );
 
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
-            <AnimatedScreen>
-                <View style={styles.header}>
-                    <Text style={styles.title}>Insights</Text>
-                    <Text style={styles.subtitle}>Turn signals into action and track the outcome.</Text>
-                </View>
-
-                <SegmentedControl
-                    options={[
-                        { label: 'ACTIONS', value: 'actions' },
-                        { label: 'PROGRESS', value: 'progress' },
-                        { label: 'EXPERIMENTS', value: 'experiments' },
-                    ]}
-                    value={activeTab}
-                    onChange={setActiveTab}
+        <AnimatedScreen>
+            <View style={styles.container}>
+                <LinearGradient
+                    colors={['#1a1f24', '#181c20', '#111111']}
+                    locations={[0, 0.35, 1]}
+                    style={StyleSheet.absoluteFillObject}
                 />
-
-                {insightsLoading ? (
-                    <View style={styles.loadingContainer}>
-                        <ActivityIndicator color="#878787" />
-                        <Text style={styles.loadingText}>Loading insights...</Text>
+                <SafeAreaView style={styles.safeArea} edges={['top']}>
+                    <View style={styles.header}>
+                        <Text style={styles.headerTitle}>INSIGHTS</Text>
                     </View>
-                ) : (
-                    <>
-                        {activeTab === 'actions' && renderActionsTab()}
-                        {activeTab === 'progress' && renderProgressTab()}
-                        {activeTab === 'experiments' && renderExperimentsTab()}
-                    </>
-                )}
-            </AnimatedScreen>
-        </SafeAreaView>
+
+                    <View style={styles.segmentedControlContainer}>
+                        <SegmentedControl
+                            options={[
+                                { label: 'ACTIONS', value: 'actions' },
+                                { label: 'PROGRESS', value: 'progress' },
+                                { label: 'EXPERIMENTS', value: 'experiments' },
+                            ]}
+                            value={activeTab}
+                            onChange={setActiveTab}
+                        />
+                    </View>
+
+                    {insightsLoading ? (
+                        <View style={styles.loadingContainer}>
+                            <ActivityIndicator color="#878787" />
+                            <Text style={styles.loadingText}>Loading insights...</Text>
+                        </View>
+                    ) : (
+                        <>
+                            {activeTab === 'actions' && renderActionsTab()}
+                            {activeTab === 'progress' && renderProgressTab()}
+                            {activeTab === 'experiments' && renderExperimentsTab()}
+                        </>
+                    )}
+                </SafeAreaView>
+            </View>
+        </AnimatedScreen>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#0F0F10',
+        backgroundColor: '#111111',
+    },
+    safeArea: {
+        flex: 1,
     },
     header: {
-        paddingHorizontal: 20,
-        paddingTop: 8,
-        paddingBottom: 12,
-        gap: 6,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 20,
     },
-    title: {
+    headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 26,
+        fontSize: 18,
         color: '#FFFFFF',
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+    },
+    segmentedControlContainer: {
+        paddingHorizontal: 16,
+        marginBottom: 16,
     },
     subtitle: {
         fontFamily: fonts.regular,
         fontSize: 14,
         color: '#B8B8B8',
+        textAlign: 'center',
+        marginBottom: 10,
     },
     scrollContent: {
         paddingHorizontal: 20,
-        paddingBottom: 40,
+        paddingBottom: 160,
         paddingTop: 16,
         gap: 16,
     },
@@ -1211,46 +1289,59 @@ const styles = StyleSheet.create({
         backgroundColor: '#1A1A1E',
         borderRadius: 16,
         padding: 16,
-        gap: 8,
+        gap: 6,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.06)',
     },
     actionHeaderRow: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         justifyContent: 'space-between',
-        gap: 8,
+        gap: 12,
+        marginBottom: 2,
     },
-    actionTitle: {
-        fontFamily: fonts.semiBold,
-        fontSize: 16,
+    actionTitleHero: {
+        fontFamily: fonts.bold,
+        fontSize: 17,
         color: '#FFFFFF',
         flex: 1,
+        lineHeight: 22,
     },
     actionDescription: {
         fontFamily: fonts.regular,
-        fontSize: 13,
-        color: '#D0D0D0',
+        fontSize: 14,
+        color: '#B0B0B0',
+        lineHeight: 20,
+    },
+    expandedContent: {
+        marginTop: 8,
+        paddingTop: 8,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(255,255,255,0.06)',
+        gap: 8,
     },
     actionMeta: {
         fontFamily: fonts.regular,
-        fontSize: 12,
-        color: '#8C8C8C',
+        fontSize: 13,
+        color: '#878787',
+        fontStyle: 'italic',
     },
     statusPill: {
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 999,
-        backgroundColor: 'rgba(255,255,255,0.08)',
+        alignSelf: 'flex-start',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 4,
+        backgroundColor: 'rgba(255,255,255,0.06)',
+        marginTop: 4,
     },
     statusPillText: {
         fontFamily: fonts.medium,
-        fontSize: 11,
-        color: '#E4E4E4',
+        fontSize: 10,
+        color: '#878787',
         textTransform: 'uppercase',
     },
     statusActive: {
-        backgroundColor: 'rgba(53, 150, 80, 0.2)',
+        backgroundColor: 'rgba(53, 150, 80, 0.15)',
     },
     statusInactive: {
         backgroundColor: 'rgba(255,255,255,0.08)',

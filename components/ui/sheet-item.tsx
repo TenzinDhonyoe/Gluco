@@ -6,13 +6,15 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 type Props = {
   title: string;
   subtitle?: string;
+  icon?: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
   right?: React.ReactNode;
 };
 
-export function SheetItem({ title, subtitle, onPress, right }: Props) {
+export function SheetItem({ title, subtitle, icon, onPress, right }: Props) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+      {icon && <Ionicons name={icon} size={20} color="#FFFFFF" style={{ marginRight: 12 }} />}
       <View style={styles.left}>
         <Text style={styles.title}>{title}</Text>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}

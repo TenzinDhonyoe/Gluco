@@ -16,13 +16,14 @@ import { usePersonalInsights } from '@/hooks/usePersonalInsights';
 import { SleepData, useSleepData } from '@/hooks/useSleepData';
 import { useGlucoseTargetRange, useTodayScreenData } from '@/hooks/useTodayScreenData';
 import { InsightData, TrackingMode } from '@/lib/insights';
-import { GlucoseLog, MealWithCheckin } from '@/lib/supabase';
+import { getMetabolicWeeklyScores, invokeMetabolicScore, GlucoseLog, MealWithCheckin, MetabolicWeeklyScore } from '@/lib/supabase';
 import { getDateRange, getRangeDays, getRangeShortLabel, RangeKey } from '@/lib/utils/dateRanges';
 import { GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
     Animated,
     Dimensions,
@@ -86,9 +87,14 @@ const GlucoseTrendsCard = React.memo(({ range, allLogs, isLoading, glucoseUnit }
     );
 
     return (
-        <View style={styles.trendsCard}>
+        <LinearGradient
+            colors={['#2A2C2C', '#212222']} // Lighter top to target darker #212222 bottom
+            style={styles.trendsCard}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+        >
             <GlucoseTrendIndicator status={trendStatus} size={220} />
-        </View>
+        </LinearGradient>
     );
 }, (prev, next) => prev.range === next.range && prev.isLoading === next.isLoading && prev.allLogs.length === next.allLogs.length && prev.glucoseUnit === next.glucoseUnit);
 
@@ -158,7 +164,12 @@ const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
                 />
                 <Text style={styles.statUnit}>%</Text>
             </View>
-            <Text style={styles.statDescription}>{getRangeShortLabel(range)}</Text>
+            <View style={[styles.fibreStatusPill, { backgroundColor: Colors.glucoseGood + '30' }]}>
+                <View style={[styles.fibreStatusDot, { backgroundColor: Colors.glucoseGood }]} />
+                <Text style={[styles.fibreStatusText, { color: Colors.glucoseGood }]}>
+                    {targetMin.toFixed(1)}-{targetMax.toFixed(1)} mmol/L
+                </Text>
+            </View>
         </View>
     );
 }, (prev, next) => prev.range === next.range && prev.glucoseLogs === next.glucoseLogs);
@@ -388,6 +399,132 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
                     : getRangeShortLabel(range)}
             </Text>
             <Text style={styles.dataSourceLabel}>Apple Health</Text>
+        </AnimatedPressable>
+    );
+});
+
+// Metabolic Score Card - matches stat card styling, compact until data exists
+const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }: {
+    weeklyScores: MetabolicWeeklyScore[];
+    currentScore: number | null;
+    isLoading: boolean;
+}) => {
+    // Get latest score and compute velocity
+    const { latestScore, velocity, trend } = useMemo(() => {
+        const validScores = weeklyScores.filter(s => s.score7d !== null);
+
+        // Use currentScore from edge function if available, otherwise use latest from weekly scores
+        const latest = currentScore ?? validScores[0]?.score7d ?? null;
+
+        if (latest === null) {
+            return { latestScore: null, velocity: null, trend: 'neutral' as const };
+        }
+
+        // Compute velocity from last 4 weeks
+        const recentScores = validScores.slice(0, 4).reverse();
+        let vel = null;
+        let trendDir: 'up' | 'down' | 'neutral' = 'neutral';
+
+        if (recentScores.length >= 2) {
+            const first = recentScores[0].score7d as number;
+            const last = recentScores[recentScores.length - 1].score7d as number;
+            vel = (last - first) / (recentScores.length - 1);
+            trendDir = vel > 0.5 ? 'up' : vel < -0.5 ? 'down' : 'neutral';
+        }
+
+        return { latestScore: latest, velocity: vel, trend: trendDir };
+    }, [weeklyScores, currentScore]);
+
+    const hasScore = latestScore !== null && !isLoading;
+
+    const getScoreColor = (score: number) => {
+        if (score >= 70) return '#4CAF50';
+        if (score >= 50) return '#FF9800';
+        return '#F44336';
+    };
+
+    const getScoreLabel = (score: number) => {
+        if (score >= 70) return 'Excellent';
+        if (score >= 50) return 'Good';
+        return 'Needs focus';
+    };
+
+    const getTrendIcon = () => {
+        if (trend === 'up') return 'trending-up';
+        if (trend === 'down') return 'trending-down';
+        return null;
+    };
+
+    const getTrendColor = () => {
+        if (trend === 'up') return '#4CAF50';
+        if (trend === 'down') return '#F44336';
+        return '#878787';
+    };
+
+    // Empty/setup state - compact and instructional
+    if (!hasScore) {
+        return (
+            <View style={styles.metabolicScoreCardEmpty}>
+                <View style={styles.metabolicScoreEmptyLeft}>
+                    <Ionicons name="pulse-outline" size={24} color="#878787" />
+                    <View style={styles.metabolicScoreEmptyContent}>
+                        <Text style={styles.metabolicScoreEmptyTitle}>Build your metabolic score</Text>
+                        <Text style={styles.metabolicScoreEmptySubtitle}>Log sleep, activity, and meals</Text>
+                    </View>
+                </View>
+            </View>
+        );
+    }
+
+    // Data exists - show score with appropriate prominence
+    const scoreColor = getScoreColor(latestScore);
+    const scoreLabel = getScoreLabel(latestScore);
+    const trendIcon = getTrendIcon();
+    const progressPercent = Math.min(100, Math.max(0, latestScore));
+
+    return (
+        <AnimatedPressable
+            style={styles.metabolicScoreCard}
+            onPress={() => router.push({ pathname: '/(tabs)/insights', params: { tab: 'progress' } })}
+        >
+            <View style={styles.metabolicScoreHeader}>
+                <View style={styles.metabolicScoreHeaderLeft}>
+                    <Ionicons name="pulse" size={24} color={scoreColor} />
+                    <Text style={styles.metabolicScoreTitle}>METABOLIC SCORE</Text>
+                </View>
+                {velocity !== null && trendIcon && (
+                    <View style={styles.metabolicTrendContainer}>
+                        <Ionicons name={trendIcon} size={16} color={getTrendColor()} />
+                        <Text style={[styles.metabolicTrendText, { color: getTrendColor() }]}>
+                            {velocity > 0 ? '+' : ''}{velocity.toFixed(1)}/wk
+                        </Text>
+                    </View>
+                )}
+            </View>
+
+            <View style={styles.metabolicScoreContent}>
+                <View style={styles.metabolicScoreValueRow}>
+                    <Text style={[styles.metabolicScoreValue, { color: scoreColor }]}>
+                        {Math.round(latestScore)}
+                    </Text>
+                    <Text style={styles.metabolicScoreMax}>/100</Text>
+                </View>
+                <View style={[styles.metabolicScoreLabelPill, { backgroundColor: scoreColor + '20' }]}>
+                    <View style={[styles.metabolicScoreLabelDot, { backgroundColor: scoreColor }]} />
+                    <Text style={[styles.metabolicScoreLabelText, { color: scoreColor }]}>
+                        {scoreLabel}
+                    </Text>
+                </View>
+            </View>
+
+            {/* Simple progress bar - visually weaker than glucose ring */}
+            <View style={styles.metabolicProgressBar}>
+                <View style={[styles.metabolicProgressFill, { width: `${progressPercent}%`, backgroundColor: scoreColor }]} />
+            </View>
+
+            <Text style={styles.metabolicScoreDescription}>
+                From sleep, activity, and glucose
+            </Text>
         </AnimatedPressable>
     );
 });
@@ -793,6 +930,9 @@ export default function TodayScreen() {
     const [range, setRange] = useState<RangeKey>('30d');
     const [spikeSheetVisible, setSpikeSheetVisible] = useState(false);
     const [exerciseSheetVisible, setExerciseSheetVisible] = useState(false);
+    const [weeklyScores, setWeeklyScores] = useState<MetabolicWeeklyScore[]>([]);
+    const [currentScore, setCurrentScore] = useState<number | null>(null);
+    const [scoresLoading, setScoresLoading] = useState(true);
     const overlayOpacity = React.useRef(new Animated.Value(0)).current;
     const fabRef = React.useRef<AnimatedFABRef>(null);
 
@@ -809,6 +949,35 @@ export default function TodayScreen() {
 
     // Check if user is in wearables_only mode
     const isWearablesOnly = profile?.tracking_mode === 'wearables_only';
+
+    // Fetch metabolic weekly scores - invoke edge function to compute & store, then fetch
+    const fetchWeeklyScores = useCallback(async () => {
+        if (!user?.id) return;
+        setScoresLoading(true);
+        try {
+            // First, invoke the edge function to compute and store the current score
+            const result = await invokeMetabolicScore(user.id, '7d');
+
+            // Store the current score directly from edge function for immediate display
+            if (result?.score7d !== undefined && result?.score7d !== null) {
+                setCurrentScore(result.score7d);
+            }
+
+            // Then fetch all stored weekly scores for trend calculation
+            const scores = await getMetabolicWeeklyScores(user.id, 12);
+            setWeeklyScores(scores);
+        } catch (error) {
+            console.error('Error fetching metabolic scores:', error);
+        } finally {
+            setScoresLoading(false);
+        }
+    }, [user?.id]);
+
+    useFocusEffect(
+        useCallback(() => {
+            fetchWeeklyScores();
+        }, [fetchWeeklyScores])
+    );
 
     // Determine which tracking mode category the user is in
     const trackingMode = (profile?.tracking_mode || 'meals_wearables') as TrackingMode;
@@ -945,6 +1114,9 @@ export default function TodayScreen() {
 
                         {/* Active Experiment Widget */}
                         <ActiveExperimentWidget />
+
+                        {/* Metabolic Score Card - Full width prominent card */}
+                        <MetabolicScoreCard weeklyScores={weeklyScores} currentScore={currentScore} isLoading={scoresLoading} />
 
                         {/* Stats Grid */}
                         <View style={styles.statsGrid}>
@@ -1199,15 +1371,15 @@ const styles = StyleSheet.create({
         marginBottom: 0,
     },
     trendsCard: {
-        backgroundColor: '#22282C',
+        // backgroundColor: '#22282C', // Uses gradient now
         borderRadius: 24,
         paddingHorizontal: 16,
         paddingTop: 20,
         paddingBottom: 24,
         alignItems: 'center',
         justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderWidth: 1.5, // Slightly thicker for the effect
+        borderColor: 'rgba(255,255,255,0.15)', // White shining outline
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.25,
@@ -1271,6 +1443,127 @@ const styles = StyleSheet.create({
     },
     chartBlock: {
         marginTop: 4,
+    },
+    // Metabolic Score Card styles - matches stat card styling
+    metabolicScoreCard: {
+        backgroundColor: '#22282C',
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.25,
+        shadowRadius: 2,
+    },
+    metabolicScoreCardEmpty: {
+        backgroundColor: '#22282C',
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.25,
+        shadowRadius: 2,
+    },
+    metabolicScoreEmptyLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    metabolicScoreEmptyContent: {
+        flex: 1,
+    },
+    metabolicScoreEmptyTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: '#E7E8E9',
+    },
+    metabolicScoreEmptySubtitle: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#878787',
+        marginTop: 2,
+    },
+    metabolicScoreHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    metabolicScoreHeaderLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    metabolicScoreTitle: {
+        fontFamily: fonts.bold,
+        fontSize: 12,
+        color: '#878787',
+        letterSpacing: 0.5,
+    },
+    metabolicTrendContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    metabolicTrendText: {
+        fontFamily: fonts.medium,
+        fontSize: 12,
+    },
+    metabolicScoreContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+    },
+    metabolicScoreValueRow: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+    },
+    metabolicScoreValue: {
+        fontFamily: fonts.medium,
+        fontSize: 32,
+        color: '#FFFFFF',
+        lineHeight: 36,
+    },
+    metabolicScoreMax: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#878787',
+        marginLeft: 2,
+    },
+    metabolicScoreLabelPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 10,
+    },
+    metabolicScoreLabelDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        marginRight: 5,
+    },
+    metabolicScoreLabelText: {
+        fontFamily: fonts.medium,
+        fontSize: 11,
+    },
+    metabolicProgressBar: {
+        height: 4,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        borderRadius: 2,
+        marginBottom: 10,
+        overflow: 'hidden',
+    },
+    metabolicProgressFill: {
+        height: '100%',
+        borderRadius: 2,
+    },
+    metabolicScoreDescription: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: '#878787',
     },
     statsGrid: {
         gap: 16,
