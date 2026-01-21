@@ -67,14 +67,7 @@
           }
         }
       ],
-      [
-        "expo-build-properties",
-        {
-          "ios": {
-            "useFrameworks": "static"
-          }
-        }
-      ]
+      "./plugins/with-cxx-20.js"
     ],
     "experiments": {
       "typedRoutes": true,
