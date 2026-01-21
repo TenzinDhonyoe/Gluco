@@ -1,8 +1,15 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, LogBox, View } from 'react-native';
 import 'react-native-reanimated';
+
+// Silence known harmless warnings
+LogBox.ignoreLogs([
+  'View #', // Shadow efficiency warnings
+  'Image not found in storage', // Old cached images
+  'shadow set but cannot calculate shadow efficiently', // Alternative shadow warning format
+]);
 
 import { Colors } from '@/constants/Colors';
 import { AuthProvider } from '@/context/AuthContext';

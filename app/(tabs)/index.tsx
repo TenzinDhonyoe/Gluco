@@ -1241,6 +1241,7 @@ export default function TodayScreen() {
                 <BlurView
                     intensity={80}
                     tint="dark"
+                    experimentalBlurMethod="dimezisBlurView"
                     style={[styles.blurHeader, { paddingTop: insets.top }]}
                 >
                     <View style={styles.header}>

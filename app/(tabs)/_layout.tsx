@@ -180,7 +180,7 @@ function TabPressWrapper({
     isFocused,
 }: {
     children: React.ReactNode;
-    onPress: () => void;
+    onPress: (e?: any) => void;
     isFocused: boolean;
 }) {
     const scale = useSharedValue(1);
@@ -193,11 +193,11 @@ function TabPressWrapper({
         scale.value = withSpring(1, { damping: 12, stiffness: 300 });
     }, [scale]);
 
-    const handlePress = useCallback(() => {
+    const handlePress = useCallback((e?: any) => {
         if (Platform.OS === 'ios') {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
-        onPress();
+        onPress(e);
     }, [onPress]);
 
     const animatedStyle = useAnimatedStyle(() => ({
@@ -241,6 +241,15 @@ function TabLayoutInner() {
                 tabBarBackground: () => <TabBarBackground currentIndex={currentIndex} />,
                 sceneStyle: { backgroundColor: '#111111' },
                 animation: 'shift',
+                // Add haptic feedback to all tabs
+                tabBarButton: (props) => (
+                    <TabPressWrapper
+                        onPress={props.onPress ?? (() => { })}
+                        isFocused={props.accessibilityState?.selected ?? false}
+                    >
+                        {props.children}
+                    </TabPressWrapper>
+                ),
             }}
         >
             <Tabs.Screen

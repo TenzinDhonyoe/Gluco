@@ -1207,6 +1207,7 @@ export default function InsightsScreen() {
                 <BlurView
                     intensity={80}
                     tint="dark"
+                    experimentalBlurMethod="dimezisBlurView"
                     style={[styles.blurHeader, { paddingTop: insets.top }]}
                 >
                     <View style={styles.header}>

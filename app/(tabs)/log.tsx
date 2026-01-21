@@ -19,8 +19,6 @@ import {
     Image,
     Linking,
     Modal,
-    NativeScrollEvent,
-    NativeSyntheticEvent,
     Platform,
     Pressable,
     ScrollView,
@@ -430,106 +428,106 @@ export default function LogScreen() {
                     onScroll={handleScroll}
                     scrollEventThrottle={16}
                 >
-                        {/* Tips Section */}
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            style={styles.tipsScroll}
-                            contentContainerStyle={styles.tipsContainer}
-                            snapToInterval={TIP_CARD_WIDTH + 16}
-                            decelerationRate="fast"
+                    {/* Tips Section */}
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        style={styles.tipsScroll}
+                        contentContainerStyle={styles.tipsContainer}
+                        snapToInterval={TIP_CARD_WIDTH + 16}
+                        decelerationRate="fast"
+                    >
+                        {tipsData.map((tip) => (
+                            <TipCard key={tip.id} data={tip} onPress={() => handleTipPress(tip)} />
+                        ))}
+                    </ScrollView>
+
+                    {/* Quick Action Buttons */}
+                    <View style={styles.quickActionsContainer}>
+                        <AnimatedPressable
+                            style={styles.quickActionButton}
+                            onPress={() => router.push('/meal-scanner')}
                         >
-                            {tipsData.map((tip) => (
-                                <TipCard key={tip.id} data={tip} onPress={() => handleTipPress(tip)} />
-                            ))}
-                        </ScrollView>
+                            <View style={[styles.quickActionIcon, { backgroundColor: Colors.mealLight }]}>
+                                <Ionicons name="restaurant" size={20} color={Colors.meal} />
+                            </View>
+                            <Text style={styles.quickActionText}>Log Meal</Text>
+                        </AnimatedPressable>
 
-                        {/* Quick Action Buttons */}
-                        <View style={styles.quickActionsContainer}>
-                            <AnimatedPressable
-                                style={styles.quickActionButton}
-                                onPress={() => router.push('/meal-scanner')}
-                            >
-                                <View style={[styles.quickActionIcon, { backgroundColor: Colors.mealLight }]}>
-                                    <Ionicons name="restaurant" size={20} color={Colors.meal} />
-                                </View>
-                                <Text style={styles.quickActionText}>Log Meal</Text>
-                            </AnimatedPressable>
+                        <AnimatedPressable
+                            style={styles.quickActionButton}
+                            onPress={() => router.push('/log-glucose')}
+                        >
+                            <View style={[styles.quickActionIcon, { backgroundColor: Colors.glucoseLight }]}>
+                                <Ionicons name="water" size={20} color={Colors.glucose} />
+                            </View>
+                            <Text style={styles.quickActionText}>Log Glucose</Text>
+                        </AnimatedPressable>
 
-                            <AnimatedPressable
-                                style={styles.quickActionButton}
-                                onPress={() => router.push('/log-glucose')}
-                            >
-                                <View style={[styles.quickActionIcon, { backgroundColor: Colors.glucoseLight }]}>
-                                    <Ionicons name="water" size={20} color={Colors.glucose} />
-                                </View>
-                                <Text style={styles.quickActionText}>Log Glucose</Text>
-                            </AnimatedPressable>
+                        <AnimatedPressable
+                            style={styles.quickActionButton}
+                            onPress={() => router.push('/log-activity')}
+                        >
+                            <View style={[styles.quickActionIcon, { backgroundColor: Colors.activityLight }]}>
+                                <Ionicons name="walk" size={20} color={Colors.activity} />
+                            </View>
+                            <Text style={styles.quickActionText}>Log Activity</Text>
+                        </AnimatedPressable>
+                    </View>
 
+                    {/* Recent Logs Section */}
+                    <View style={styles.logsSection}>
+                        {/* Section Header */}
+                        <View style={styles.logsSectionHeader}>
+                            <Text style={styles.logsSectionTitle}>RECENT LOGS</Text>
                             <AnimatedPressable
-                                style={styles.quickActionButton}
-                                onPress={() => router.push('/log-activity')}
+                                style={styles.filterButton}
+                                onPress={() => setShowFilterDropdown(true)}
                             >
-                                <View style={[styles.quickActionIcon, { backgroundColor: Colors.activityLight }]}>
-                                    <Ionicons name="walk" size={20} color={Colors.activity} />
-                                </View>
-                                <Text style={styles.quickActionText}>Log Activity</Text>
+                                <Text style={styles.filterText}>{currentFilterLabel}</Text>
+                                <Ionicons
+                                    name="chevron-down"
+                                    size={14}
+                                    color={Colors.textTertiary}
+                                />
                             </AnimatedPressable>
                         </View>
 
-                        {/* Recent Logs Section */}
-                        <View style={styles.logsSection}>
-                            {/* Section Header */}
-                            <View style={styles.logsSectionHeader}>
-                                <Text style={styles.logsSectionTitle}>RECENT LOGS</Text>
-                                <AnimatedPressable
-                                    style={styles.filterButton}
-                                    onPress={() => setShowFilterDropdown(true)}
-                                >
-                                    <Text style={styles.filterText}>{currentFilterLabel}</Text>
-                                    <Ionicons
-                                        name="chevron-down"
-                                        size={14}
-                                        color={Colors.textTertiary}
-                                    />
-                                </AnimatedPressable>
-                            </View>
-
-                            {/* Logs List */}
-                            <View style={styles.logsCard}>
-                                {isLoading ? (
-                                    <View style={styles.loadingContainer}>
-                                        <ActivityIndicator size="small" color={Colors.textTertiary} />
-                                        <Text style={styles.loadingText}>Loading logs...</Text>
-                                    </View>
-                                ) : logs.length === 0 ? (
-                                    <View style={styles.emptyContainer}>
-                                        <Ionicons name="document-text-outline" size={32} color={Colors.textTertiary} />
-                                        <Text style={styles.emptyText}>No logs yet</Text>
-                                        <Text style={styles.emptySubtext}>
-                                            Start tracking your glucose and activities!
-                                        </Text>
-                                    </View>
-                                ) : filteredLogs.length === 0 ? (
-                                    <View style={styles.emptyContainer}>
-                                        <Ionicons name="filter-outline" size={32} color={Colors.textTertiary} />
-                                        <Text style={styles.emptyText}>No {currentFilterLabel.toLowerCase()} logs</Text>
-                                        <Text style={styles.emptySubtext}>
-                                            Try a different filter or log some {currentFilterLabel.toLowerCase()}.
-                                        </Text>
-                                    </View>
-                                ) : (
-                                    filteredLogs.map((entry, index) => (
-                                        <React.Fragment key={entry.id}>
-                                            <LogEntryRow entry={entry} />
-                                            {index < filteredLogs.length - 1 && (
-                                                <View style={styles.logDivider} />
-                                            )}
-                                        </React.Fragment>
-                                    ))
-                                )}
-                            </View>
+                        {/* Logs List */}
+                        <View style={styles.logsCard}>
+                            {isLoading ? (
+                                <View style={styles.loadingContainer}>
+                                    <ActivityIndicator size="small" color={Colors.textTertiary} />
+                                    <Text style={styles.loadingText}>Loading logs...</Text>
+                                </View>
+                            ) : logs.length === 0 ? (
+                                <View style={styles.emptyContainer}>
+                                    <Ionicons name="document-text-outline" size={32} color={Colors.textTertiary} />
+                                    <Text style={styles.emptyText}>No logs yet</Text>
+                                    <Text style={styles.emptySubtext}>
+                                        Start tracking your glucose and activities!
+                                    </Text>
+                                </View>
+                            ) : filteredLogs.length === 0 ? (
+                                <View style={styles.emptyContainer}>
+                                    <Ionicons name="filter-outline" size={32} color={Colors.textTertiary} />
+                                    <Text style={styles.emptyText}>No {currentFilterLabel.toLowerCase()} logs</Text>
+                                    <Text style={styles.emptySubtext}>
+                                        Try a different filter or log some {currentFilterLabel.toLowerCase()}.
+                                    </Text>
+                                </View>
+                            ) : (
+                                filteredLogs.map((entry, index) => (
+                                    <React.Fragment key={entry.id}>
+                                        <LogEntryRow entry={entry} />
+                                        {index < filteredLogs.length - 1 && (
+                                            <View style={styles.logDivider} />
+                                        )}
+                                    </React.Fragment>
+                                ))
+                            )}
                         </View>
+                    </View>
 
                 </Animated.ScrollView>
 
@@ -537,6 +535,7 @@ export default function LogScreen() {
                 <BlurView
                     intensity={80}
                     tint="dark"
+                    experimentalBlurMethod="dimezisBlurView"
                     style={[styles.blurHeader, { paddingTop: insets.top }]}
                 >
                     <View style={styles.header}>
