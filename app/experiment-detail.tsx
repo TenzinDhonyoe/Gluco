@@ -2,6 +2,7 @@
 // Detailed view of a user's experiment with progress tracking, exposure logging, and results
 
 import { AnimatedScreen } from '@/components/animations/animated-screen';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { runLocalExperimentAnalysis } from '@/lib/experiment-analysis';
@@ -325,9 +326,9 @@ export default function ExperimentDetailScreen() {
                 <SafeAreaView edges={['top']} style={styles.safeArea}>
                     {/* Header */}
                     <View style={styles.header}>
-                        <TouchableOpacity onPress={() => router.back()} style={styles.headerIconBtn} activeOpacity={0.7}>
-                            <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
-                        </TouchableOpacity>
+                        <LiquidGlassIconButton size={44} onPress={() => router.back()}>
+                            <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                        </LiquidGlassIconButton>
                         <Text style={styles.headerTitle} numberOfLines={1}>
                             {template?.title?.toUpperCase() || 'EXPERIMENT'}
                         </Text>

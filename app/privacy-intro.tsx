@@ -3,6 +3,7 @@
  * Shows privacy assurance before sign-in options
  */
 
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
@@ -71,13 +72,9 @@ export default function PrivacyIntroScreen() {
         <View style={styles.container}>
             <SafeAreaView style={styles.safeArea}>
                 {/* Back Button */}
-                <TouchableOpacity
-                    style={styles.backButton}
-                    onPress={handleBack}
-                    activeOpacity={0.7}
-                >
-                    <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
-                </TouchableOpacity>
+                <LiquidGlassIconButton size={44} onPress={handleBack}>
+                    <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
+                </LiquidGlassIconButton>
 
                 {/* Content */}
                 <View style={styles.content}>

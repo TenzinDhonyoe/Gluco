@@ -3,6 +3,7 @@
  * Camera-first food scanning with multiple input options
  */
 
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -154,6 +155,7 @@ export default function MealScannerScreen() {
         photoPath: string;
     } | null>(null);
     const [labelSubMode, setLabelSubMode] = useState<'barcode' | 'label'>('label');
+    const [isCartModalOpen, setIsCartModalOpen] = useState(false);
 
     // Track previous mode to revert if photo picker is cancelled
     const previousModeRef = useRef<ScanMode>('scan_food');
@@ -595,15 +597,9 @@ export default function MealScannerScreen() {
             <View style={{ flex: 1, zIndex: 1 }}>
                 {/* Header */}
                 <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-                    <Pressable
-                        onPress={handleBack}
-                        style={({ pressed }) => [
-                            styles.headerButton,
-                            pressed && styles.headerButtonPressed,
-                        ]}
-                    >
-                        <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                    </Pressable>
+                    <LiquidGlassIconButton size={44} onPress={handleBack}>
+                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                    </LiquidGlassIconButton>
                     <Text style={styles.headerTitle}>LOG MEAL</Text>
                     <View style={styles.headerButtonSpacer} />
                 </View>
@@ -626,6 +622,7 @@ export default function MealScannerScreen() {
                             onClose={handleFoodSearchClose}
                             onSave={handleFoodSearchSave}
                             onScanBarcode={() => handleModeSelect('nutrition_label')}
+                            onCartModalChange={setIsCartModalOpen}
                         />
                     </View>
                 )}
@@ -661,8 +658,8 @@ export default function MealScannerScreen() {
                     <View style={{ flex: 1 }} />
                 )}
 
-                {/* Option Pill Bar - Hide during analysis */}
-                {scannerState === 'ready' && (
+                {/* Option Pill Bar - Hide during analysis or when cart modal is open */}
+                {scannerState === 'ready' && !isCartModalOpen && (
                     <Animated.View style={[
                         styles.optionBarContainer,
                         { paddingBottom: insets.bottom + 20 },

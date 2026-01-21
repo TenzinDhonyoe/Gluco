@@ -1,6 +1,7 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -145,12 +146,9 @@ export default function SignInScreen() {
                             showsVerticalScrollIndicator={false}
                         >
                             {/* Back Button */}
-                            <AnimatedPressable
-                                style={styles.backButton}
-                                onPress={handleBack}
-                            >
-                                <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                            </AnimatedPressable>
+                            <LiquidGlassIconButton size={44} onPress={handleBack}>
+                                <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
+                            </LiquidGlassIconButton>
 
                             {/* Header Text */}
                             <Text style={styles.headerText}>

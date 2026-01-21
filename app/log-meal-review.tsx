@@ -1,4 +1,5 @@
 import { Input } from '@/components/ui/input';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -17,7 +18,6 @@ import { getGlucoseInputPlaceholder, parseGlucoseInput } from '@/lib/utils/gluco
 import { getSmartUnitOptions } from '@/lib/utils/portionUnits';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import {
@@ -34,6 +34,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle } from 'react-native-svg';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const MEAL_DRAFT_KEY = 'meal_log_draft';
@@ -227,24 +228,22 @@ function FoodAnnotationBubble({
   );
 }
 
-const MACRO_CONFIG = [
-  { key: 'calories' as const, label: 'Calories', icon: 'flame' as const, color: '#FF9500', unit: '' },
-  { key: 'carbs' as const, label: 'Carbs', icon: 'nutrition' as const, color: '#34C759', unit: 'g' },
-  { key: 'protein' as const, label: 'Protein', icon: 'barbell' as const, color: '#FF3B30', unit: 'g' },
-  { key: 'fat' as const, label: 'Fat', icon: 'water' as const, color: '#AF52DE', unit: 'g' },
+// Simple macro row configuration - matches mockup
+const SIMPLE_MACRO_CONFIG = [
+  { key: 'carbs' as const, label: 'CARBS' },
+  { key: 'protein' as const, label: 'PROTEIN' },
+  { key: 'fibre' as const, label: 'FIBER' },
+  { key: 'fat' as const, label: 'FAT' },
 ];
 
-function MacroGrid({ totals }: { totals: { calories: number; carbs: number; protein: number; fat: number } }) {
+function SimpleMacroRow({ totals }: { totals: { carbs: number; protein: number; fat: number; fibre: number } }) {
   return (
-    <View style={styles.macroGrid}>
-      {MACRO_CONFIG.map((macro) => (
-        <View key={macro.key} style={styles.macroItem}>
-          <View style={[styles.macroIconContainer, { backgroundColor: `${macro.color}20` }]}>
-            <Ionicons name={macro.icon} size={18} color={macro.color} />
-          </View>
-          <Text style={styles.macroLabel}>{macro.label}</Text>
-          <Text style={styles.macroValue}>
-            {Math.round(totals[macro.key])}{macro.unit}
+    <View style={styles.simpleMacroRow}>
+      {SIMPLE_MACRO_CONFIG.map((macro) => (
+        <View key={macro.key} style={styles.simpleMacroItem}>
+          <Text style={styles.simpleMacroLabel}>{macro.label}</Text>
+          <Text style={styles.simpleMacroValue}>
+            {Math.round(totals[macro.key])}g
           </Text>
         </View>
       ))}
@@ -252,30 +251,124 @@ function MacroGrid({ totals }: { totals: { calories: number; carbs: number; prot
   );
 }
 
-function MetabolicScoreBar({ score }: { score: number }) {
-  const percentage = (score / 10) * 100;
-  const getScoreColor = () => {
-    if (score >= 7) return '#34C759';
-    if (score >= 4) return '#FF9500';
-    return '#FF3B30';
+// Generate AI-like insights based on meal content
+function generateMealInsights(summary: any, items: any[]): string[] {
+  const insights: string[] = [];
+  const { carbs, protein, fat, fibre } = summary;
+
+  // 1. Protein Analysis
+  if (protein >= 30) {
+    insights.push("High protein content supports muscle maintenance and satiety.");
+  } else if (protein >= 15) {
+    insights.push("Good source of protein to help stabilize blood sugar response.");
+  } else if (carbs > 40 && protein < 10) {
+    insights.push("Low protein relative to carbohydrates may lead to faster glucose absorption.");
+  }
+
+  // 2. Fiber Analysis
+  if (fibre >= 10) {
+    insights.push("Excellent fiber content promotes digestive health and reduces glycemic impact.");
+  } else if (fibre >= 5) {
+    insights.push("Contains dietary fiber which helps moderate glucose spikes.");
+  } else if (carbs > 30 && fibre < 2) {
+    insights.push("Low fiber content may result in more rapid blood sugar elevation.");
+  }
+
+  // 3. Macronutrient Balance
+  if (protein > 20 && carbs > 20 && fat > 10) {
+    insights.push("Balanced macronutrient profile provides sustained energy release.");
+  } else if (fat > 20 && carbs < 20) {
+    insights.push("Healthy fats provide steady energy without significant insulin spike.");
+  } else if (fat > 20 && carbs > 50) {
+    insights.push("Combination of fats and carbs may prolong post-meal glucose response.");
+  }
+
+  // 4. Food-Specific Insights
+  const allNames = items.map(i => i.name.toLowerCase()).join(' ');
+  if (allNames.match(/fruit|berry|apple|banana|orange|grape|mango/)) {
+    insights.push("Natural sugars from fruit provide quick energy accompanied by some fiber.");
+  }
+  if (allNames.match(/oat|quinoa|rice|pasta|bread|grain/)) {
+    insights.push("Complex carbohydrates provide sustained fuel for activity.");
+  }
+  if (allNames.match(/salmon|fish|avocado|nut|seed|olive/)) {
+    insights.push("Rich in healthy fats supporting metabolic health.");
+  }
+  if (allNames.match(/yogurt|kefir|kimchi|fermented/)) {
+    insights.push("Contains probiotics supporting gut microbiome health.");
+  }
+  if (allNames.match(/sugar|candy|soda|sweet|cake|cookie/)) {
+    insights.push("High glycemic index foods may cause rapid glucose fluctuations.");
+  }
+
+  // Fallback if no specific insights generated
+  if (insights.length === 0) {
+    if (carbs < 20) insights.push("Low carbohydrate meal has minimal impact on blood glucose.");
+    else insights.push("Standard meal composition.");
+  }
+
+  // Return top 3 unique insights
+  const unique = Array.from(new Set(insights));
+  return unique.length > 0 ? unique.slice(0, 3) : ["Balanced meal."];
+}
+
+// Circular progress indicator metabolic score - matches mockup design
+function MetabolicScoreBadge({ score }: { score: number }) {
+  // Convert 0-10 score to 0-100 for display
+  const displayScore = Math.round(score * 10);
+
+  // Circle dimensions
+  const size = 48;
+  const strokeWidth = 3;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  // Calculate stroke offset based on percentage (score is 0-10, so divide by 10)
+  const percentage = score / 10;
+  const strokeDashoffset = circumference * (1 - percentage);
+
+  // Get color based on score
+  const getProgressColor = () => {
+    if (score >= 7) return '#C4E538'; // Yellow-green for high scores
+    if (score >= 4) return '#FF9500'; // Orange for medium scores
+    return '#FF3B30'; // Red for low scores
   };
 
   return (
-    <View style={styles.scoreContainer}>
-      <View style={styles.scoreHeader}>
-        <View style={styles.scoreIconContainer}>
-          <Ionicons name="heart" size={18} color="#FF2D55" />
+    <View style={styles.metabolicScoreRow}>
+      <Text style={styles.metabolicScoreLabel}>Metabolic Score</Text>
+      <View style={styles.circularScoreContainer}>
+        <Svg width={size} height={size}>
+          {/* Background circle (gray track) */}
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            stroke="rgba(255, 255, 255, 0.15)"
+            strokeWidth={strokeWidth}
+            fill="transparent"
+          />
+          {/* Progress circle */}
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            stroke={getProgressColor()}
+            strokeWidth={strokeWidth}
+            fill="transparent"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            rotation="-90"
+            origin={`${size / 2}, ${size / 2}`}
+          />
+        </Svg>
+        {/* Score text in center */}
+        <View style={styles.scoreTextContainer}>
+          <Text style={[styles.circularScoreText, { color: getProgressColor() }]}>
+            {displayScore}
+          </Text>
         </View>
-        <Text style={styles.scoreLabel}>Metabolic score</Text>
-        <Text style={styles.scoreValue}>{score}/10</Text>
-      </View>
-      <View style={styles.scoreBarBackground}>
-        <View
-          style={[
-            styles.scoreBarFill,
-            { width: `${percentage}%`, backgroundColor: getScoreColor() },
-          ]}
-        />
       </View>
     </View>
   );
@@ -366,6 +459,14 @@ export default function LogMealReviewScreen() {
   const [adjustmentsLoading, setAdjustmentsLoading] = React.useState(false);
   const [selectedAdjustments, setSelectedAdjustments] = React.useState<Set<string>>(new Set());
 
+  // Manual macro override state (null = use calculated values from items)
+  const [macroOverrides, setMacroOverrides] = React.useState<{
+    carbs: string | null;
+    protein: string | null;
+    fibre: string | null;
+    fat: string | null;
+  }>({ carbs: null, protein: null, fibre: null, fat: null });
+
   const [timeModalOpen, setTimeModalOpen] = React.useState(false);
   const HOURS = React.useMemo(() => Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')), []);
   const MINUTES = React.useMemo(() => Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')), []);
@@ -425,17 +526,26 @@ export default function LogMealReviewScreen() {
       { calories: 0, carbs: 0, protein: 0, fat: 0, fibre: 0, hasData: false }
     );
 
+    // Use overrides if provided, otherwise use calculated values
+    const parseOverride = (val: string | null, fallback: number) => {
+      if (val === null || val.trim() === '') return fallback;
+      const parsed = parseFloat(val);
+      return isNaN(parsed) ? fallback : parsed;
+    };
+
     return {
       calories: Math.round(totals.calories * servings),
-      carbs: Math.round(totals.carbs * servings),
-      protein: Math.round(totals.protein * servings),
-      fat: Math.round(totals.fat * servings),
-      fibre: Math.round(totals.fibre * servings),
-      hasData: totals.hasData,
+      carbs: Math.round(parseOverride(macroOverrides.carbs, totals.carbs * servings)),
+      protein: Math.round(parseOverride(macroOverrides.protein, totals.protein * servings)),
+      fat: Math.round(parseOverride(macroOverrides.fat, totals.fat * servings)),
+      fibre: Math.round(parseOverride(macroOverrides.fibre, totals.fibre * servings)),
+      hasData: totals.hasData || Object.values(macroOverrides).some(v => v !== null && v.trim() !== ''),
     };
-  }, [items, servings]);
+  }, [items, servings, macroOverrides]);
 
   const mealScore = React.useMemo(() => calculateMealScore(summary), [summary]);
+
+  const drivers = React.useMemo(() => generateMealInsights(summary, items), [summary, items]);
 
   const autoMealTitle = React.useMemo(
     () => buildMealName(items, mealNotes || mealNameHint),
@@ -799,138 +909,153 @@ export default function LogMealReviewScreen() {
     </View>
   );
 
-  const bubblePositions = getBubblePositions(items.length, PHOTO_HEIGHT);
+  // Format time for display
+  const formatMealDateTime = () => {
+    const time = formatTime(mealTime);
+    const now = new Date();
+    const isToday = mealTime.toDateString() === now.toDateString();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = mealTime.toDateString() === yesterday.toDateString();
+
+    if (isToday) return `${time} • Today`;
+    if (isYesterday) return `${time} • Yesterday`;
+    return `${time} • ${mealTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  };
+
+  // Get serving display for food item
+  const getServingDisplay = (item: SelectedMealItem) => {
+    const qty = item.quantity || 1;
+    const unit = item.serving_unit || 'serving';
+    if (qty === 0.5) return `1/2 ${unit}`;
+    if (qty === 0.25) return `1/4 ${unit}`;
+    if (qty === 0.75) return `3/4 ${unit}`;
+    return `${qty} ${unit}`;
+  };
 
   return (
     <View style={styles.root}>
-      {/* Full-screen photo background */}
-      <View style={[styles.photoContainer, { height: PHOTO_HEIGHT + insets.top }]}>
-        {imageUri ? (
-          <Image source={{ uri: imageUri }} style={styles.photo} resizeMode="cover" />
-        ) : (
-          <LinearGradient
-            colors={['#2C3E50', '#1a1a2e']}
-            style={styles.photoPlaceholder}
-          >
-            <Ionicons name="restaurant-outline" size={64} color="rgba(255,255,255,0.3)" />
-          </LinearGradient>
-        )}
-
-        {/* Gradient overlay for readability */}
-        <LinearGradient
-          colors={['rgba(0,0,0,0.4)', 'transparent', 'rgba(17,17,17,0.95)']}
-          locations={[0, 0.3, 0.85]}
-          style={styles.photoOverlay}
-        />
-
-        {/* Annotation bubbles */}
-        {items.slice(0, 5).map((item, index) => (
-          <FoodAnnotationBubble
-            key={`${item.provider}-${item.external_id}`}
-            item={item}
-            position={bubblePositions[index]}
-            index={index}
-          />
-        ))}
-      </View>
-
-      {/* Floating header */}
-      <SafeAreaView edges={['top']} style={styles.floatingHeader}>
-        <Pressable
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
-        >
-          <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
-        </Pressable>
+      {/* Header */}
+      <SafeAreaView edges={['top']} style={styles.newHeader}>
+        <LiquidGlassIconButton size={44} onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+        </LiquidGlassIconButton>
         <Text style={styles.headerTitle}>MEAL REVIEW</Text>
-        <Pressable
-          onPress={() => { }}
-          style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
-        >
-          <Ionicons name="ellipsis-horizontal" size={22} color="#FFFFFF" />
-        </Pressable>
+        <LiquidGlassIconButton size={44} onPress={() => setFixResultsOpen(true)}>
+          <Ionicons name="pencil" size={20} color="#E7E8E9" />
+        </LiquidGlassIconButton>
       </SafeAreaView>
 
-      {/* Bottom overlay card */}
-      <View style={[styles.bottomCard, { paddingBottom: insets.bottom + 16 }]}>
-        <View style={styles.dragHandle} />
+      <ScrollView
+        style={styles.mainScrollView}
+        contentContainerStyle={[styles.mainScrollContent, { paddingBottom: insets.bottom + 100 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Meal Name and Time */}
+        <View style={styles.mealHeader}>
+          <Text style={styles.mealTitleText}>{mealTitle || 'Untitled Meal'}</Text>
+          <Text style={styles.mealTimeText}>{formatMealDateTime()}</Text>
+        </View>
 
-        <ScrollView
-          style={styles.cardScrollView}
-          contentContainerStyle={styles.cardScrollContent}
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
-          <View style={styles.cardContent}>
-            {/* Meal type badge */}
-            <MealTypeBadge type={mealType} />
-
-            {/* Meal name and servings */}
-            <View style={styles.mealNameRow}>
-              <Text style={styles.mealName} numberOfLines={2}>{mealTitle || 'Untitled Meal'}</Text>
-              <QuantityStepper value={servings} onChange={setServings} />
+        {/* Photo Card */}
+        <View style={styles.photoCard}>
+          {imageUri ? (
+            <Image source={{ uri: imageUri }} style={styles.photoCardImage} resizeMode="cover" />
+          ) : (
+            <View style={styles.photoCardPlaceholder}>
+              <Ionicons name="restaurant-outline" size={48} color="rgba(255,255,255,0.3)" />
             </View>
+          )}
+        </View>
 
-            {/* Macro grid */}
-            <MacroGrid totals={summary} />
+        {/* Simple Macro Row */}
+        <SimpleMacroRow totals={summary} />
 
-            {/* Metabolic score */}
-            {summary.hasData && <MetabolicScoreBar score={mealScore} />}
-
-            {/* Personalized Adjustments */}
-            {(adjustments.length > 0 || adjustmentsLoading) && (
-              <View style={styles.adjustmentsSection}>
-                <Text style={styles.adjustmentsTitle}>Try these adjustments:</Text>
-                {adjustmentsLoading ? (
-                  <View style={styles.adjustmentsLoading}>
-                    <Text style={styles.adjustmentsLoadingText}>Personalizing suggestions...</Text>
-                  </View>
-                ) : (
-                  adjustments.map((adjustment) => (
-                    <AdjustmentCard
-                      key={adjustment.id}
-                      adjustment={adjustment}
-                      isSelected={selectedAdjustments.has(adjustment.id)}
-                      onToggle={() => {
-                        setSelectedAdjustments((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(adjustment.id)) {
-                            next.delete(adjustment.id);
-                          } else {
-                            next.add(adjustment.id);
-                          }
-                          return next;
-                        });
-                      }}
-                    />
-                  ))
-                )}
+        {/* Food Items List */}
+        <View style={styles.foodItemsList}>
+          {items.map((item, index) => (
+            <View key={`${item.provider}-${item.external_id}`} style={styles.foodItemRow}>
+              <View style={styles.foodItemInfo}>
+                <Text style={styles.foodItemName}>{item.display_name}</Text>
+                {item.brand && <Text style={styles.foodItemBrand}>{item.brand}</Text>}
               </View>
-            )}
-
-            {/* Action buttons */}
-            <View style={styles.actionButtons}>
-              <Pressable
-                onPress={() => setFixResultsOpen(true)}
-                style={({ pressed }) => [styles.fixResultsButton, pressed && styles.buttonPressed]}
-              >
-                <Ionicons name="sparkles" size={18} color="#FFFFFF" />
-                <Text style={styles.fixResultsText}>Fix Results</Text>
-              </Pressable>
-              <Pressable
-                onPress={handleSaveMeal}
-                disabled={isSaving || items.length === 0}
-                style={({ pressed }) => [
-                  styles.doneButton,
-                  (isSaving || items.length === 0) && styles.doneButtonDisabled,
-                  pressed && styles.buttonPressed,
-                ]}
-              >
-                <Text style={styles.doneButtonText}>{isSaving ? 'Saving...' : 'Done'}</Text>
-              </Pressable>
+              <Text style={styles.foodItemQuantity}>{getServingDisplay(item)}</Text>
             </View>
+          ))}
+        </View>
+
+        {/* Food Data Source */}
+        <Text style={styles.foodDataSource}>Food Data Source</Text>
+
+        {/* Metabolic Score */}
+        {summary.hasData && <MetabolicScoreBadge score={mealScore} />}
+
+        {/* Drivers Section */}
+        <View style={styles.driversSection}>
+          <Text style={styles.driversSectionTitle}>Drivers:</Text>
+          <View style={styles.driversList}>
+            {drivers.map((driver, index) => (
+              <View key={index} style={styles.driverItem}>
+                <View style={styles.driverBullet} />
+                <Text style={styles.driverText}>{driver}</Text>
+              </View>
+            ))}
           </View>
-        </ScrollView>
+        </View>
+
+        {/* Adjustments Section */}
+        {(adjustments.length > 0 || adjustmentsLoading) && (
+          <View style={styles.adjustmentsSection}>
+            <Text style={styles.adjustmentsTitle}>Try these adjustments:</Text>
+            {adjustmentsLoading ? (
+              <View style={styles.adjustmentsLoading}>
+                <Text style={styles.adjustmentsLoadingText}>Personalizing suggestions...</Text>
+              </View>
+            ) : (
+              adjustments.map((adjustment) => (
+                <AdjustmentCard
+                  key={adjustment.id}
+                  adjustment={adjustment}
+                  isSelected={selectedAdjustments.has(adjustment.id)}
+                  onToggle={() => {
+                    setSelectedAdjustments((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(adjustment.id)) {
+                        next.delete(adjustment.id);
+                      } else {
+                        next.add(adjustment.id);
+                      }
+                      return next;
+                    });
+                  }}
+                />
+              ))
+            )}
+          </View>
+        )}
+
+        {/* Personalized Tip */}
+        <View style={styles.tipBox}>
+          <Ionicons name="bulb" size={20} color="#E5C100" />
+          <Text style={styles.tipBoxText}>
+            Consider adding more protein to help stabilize blood sugar levels throughout the morning.
+          </Text>
+        </View>
+      </ScrollView>
+
+      {/* Bottom Button */}
+      <View style={[styles.bottomButtonContainer, { paddingBottom: insets.bottom + 16 }]}>
+        <Pressable
+          onPress={handleSaveMeal}
+          disabled={isSaving || items.length === 0}
+          style={({ pressed }) => [
+            styles.logMealButton,
+            (isSaving || items.length === 0) && styles.logMealButtonDisabled,
+            pressed && styles.buttonPressed,
+          ]}
+        >
+          <Text style={styles.logMealButtonText}>{isSaving ? 'Saving...' : 'Log this meal'}</Text>
+        </Pressable>
       </View>
 
       {/* Fix Results Sheet */}
@@ -978,6 +1103,57 @@ export default function LogMealReviewScreen() {
                 placeholder={getGlucoseInputPlaceholder(glucoseUnit)}
                 keyboardType="decimal-pad"
               />
+            </View>
+
+            {/* Macros Override */}
+            <View style={styles.sheetSection}>
+              <Text style={styles.sheetSectionLabel}>Macros (override calculated values)</Text>
+              <View style={styles.macroInputGrid}>
+                <View style={styles.macroInputItem}>
+                  <Text style={styles.macroInputLabel}>Carbs (g)</Text>
+                  <TextInput
+                    value={macroOverrides.carbs ?? ''}
+                    onChangeText={(text) => setMacroOverrides(prev => ({ ...prev, carbs: text || null }))}
+                    placeholder={String(summary.carbs)}
+                    placeholderTextColor="#6F6F6F"
+                    keyboardType="decimal-pad"
+                    style={styles.macroInput}
+                  />
+                </View>
+                <View style={styles.macroInputItem}>
+                  <Text style={styles.macroInputLabel}>Protein (g)</Text>
+                  <TextInput
+                    value={macroOverrides.protein ?? ''}
+                    onChangeText={(text) => setMacroOverrides(prev => ({ ...prev, protein: text || null }))}
+                    placeholder={String(summary.protein)}
+                    placeholderTextColor="#6F6F6F"
+                    keyboardType="decimal-pad"
+                    style={styles.macroInput}
+                  />
+                </View>
+                <View style={styles.macroInputItem}>
+                  <Text style={styles.macroInputLabel}>Fiber (g)</Text>
+                  <TextInput
+                    value={macroOverrides.fibre ?? ''}
+                    onChangeText={(text) => setMacroOverrides(prev => ({ ...prev, fibre: text || null }))}
+                    placeholder={String(summary.fibre)}
+                    placeholderTextColor="#6F6F6F"
+                    keyboardType="decimal-pad"
+                    style={styles.macroInput}
+                  />
+                </View>
+                <View style={styles.macroInputItem}>
+                  <Text style={styles.macroInputLabel}>Fat (g)</Text>
+                  <TextInput
+                    value={macroOverrides.fat ?? ''}
+                    onChangeText={(text) => setMacroOverrides(prev => ({ ...prev, fat: text || null }))}
+                    placeholder={String(summary.fat)}
+                    placeholderTextColor="#6F6F6F"
+                    keyboardType="decimal-pad"
+                    style={styles.macroInput}
+                  />
+                </View>
+              </View>
             </View>
 
             {/* Items */}
@@ -1660,6 +1836,34 @@ const styles = StyleSheet.create({
     color: '#8C8C8C',
   },
 
+  // Macro input grid for editing
+  macroInputGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 8,
+  },
+  macroInputItem: {
+    width: '47%',
+  },
+  macroInputLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: '#878787',
+    marginBottom: 6,
+  },
+  macroInput: {
+    backgroundColor: '#2A2A2A',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontFamily: fonts.regular,
+    fontSize: 16,
+    color: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#3F3F3F',
+  },
+
   // Time picker sheet
   timeSheet: {
     backgroundColor: '#3F4243',
@@ -1721,5 +1925,264 @@ const styles = StyleSheet.create({
   wheelTextActive: {
     color: '#FFFFFF',
     fontFamily: fonts.semiBold,
+  },
+
+  // ============================================
+  // NEW REDESIGNED LAYOUT STYLES
+  // ============================================
+
+  // New Header (non-floating)
+  newHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
+    backgroundColor: '#111111',
+  },
+
+  // Main scroll view
+  mainScrollView: {
+    flex: 1,
+  },
+  mainScrollContent: {
+    paddingHorizontal: 16,
+  },
+
+  // Meal header section
+  mealHeader: {
+    marginBottom: 16,
+  },
+  mealTitleText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 22,
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  mealTimeText: {
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    color: '#878787',
+  },
+
+  // Photo card
+  photoCard: {
+    width: '100%',
+    height: 180,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 20,
+    backgroundColor: '#1a1a2e',
+  },
+  photoCardImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoCardPlaceholder: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1a1a2e',
+  },
+
+  // Simple Macro Row
+  // Simple Macro Row - Card Design
+  simpleMacroRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 22,
+    paddingHorizontal: 20,
+    marginBottom: 24,
+    backgroundColor: '#1C1C1E', // Slightly lighter than background
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)', // Subtle border to define edges
+    // Shadow for depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  simpleMacroItem: {
+    alignItems: 'center',
+    flex: 1, // Distribute space evenly
+  },
+  simpleMacroLabel: {
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    color: '#9E9E9E', // Slightly muted label to make value pop
+    textTransform: 'uppercase',
+    marginBottom: 8,
+    letterSpacing: 1,
+  },
+  simpleMacroValue: {
+    fontFamily: fonts.bold, // Bolder value
+    fontSize: 22,
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+
+  // Food Items List
+  foodItemsList: {
+    marginBottom: 8,
+  },
+  foodItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  foodItemInfo: {
+    flex: 1,
+    marginRight: 16,
+  },
+  foodItemName: {
+    fontFamily: fonts.medium,
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  foodItemBrand: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: '#878787',
+    marginTop: 2,
+  },
+  foodItemQuantity: {
+    fontFamily: fonts.medium,
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+
+  // Food Data Source
+  foodDataSource: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: '#878787',
+    marginTop: 4,
+    marginBottom: 20,
+  },
+
+  // Metabolic Score Row (badge style)
+  metabolicScoreRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  metabolicScoreLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  scoreBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scoreBadgeText: {
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    color: '#000000',
+  },
+
+  // Circular progress indicator styles
+  circularScoreContainer: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scoreTextContainer: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  circularScoreText: {
+    fontFamily: fonts.bold,
+    fontSize: 14,
+  },
+  driversSection: {
+    marginBottom: 24,
+  },
+  driversSectionTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 16,
+    color: '#FFFFFF',
+    marginBottom: 12,
+  },
+  driversList: {
+    gap: 8,
+  },
+  driverItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  driverBullet: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFFFFF',
+    marginTop: 6,
+    marginRight: 10,
+  },
+  driverText: {
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    color: '#FFFFFF',
+    flex: 1,
+    lineHeight: 20,
+  },
+
+  // Tip Box
+  tipBox: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(229, 193, 0, 0.1)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    alignItems: 'flex-start',
+  },
+  tipBoxText: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    color: '#FFFFFF',
+    marginLeft: 12,
+    lineHeight: 20,
+  },
+
+  // Bottom Button Container
+  bottomButtonContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    backgroundColor: '#111111',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  logMealButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 30,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logMealButtonDisabled: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  logMealButtonText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 16,
+    color: '#000000',
   },
 });

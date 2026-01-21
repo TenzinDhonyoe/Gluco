@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PAYWALL_ENABLED } from '@/app/index';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -104,9 +105,9 @@ export default function SettingsScreen() {
             <SafeAreaView style={styles.safeArea} edges={['top']}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <AnimatedPressable style={styles.closeButton} onPress={handleClose}>
+                    <LiquidGlassIconButton size={44} onPress={handleClose}>
                         <Ionicons name="close" size={20} color="#E7E8E9" />
-                    </AnimatedPressable>
+                    </LiquidGlassIconButton>
                     <Text style={styles.headerTitle}>SETTINGS</Text>
                     <View style={styles.headerSpacer} />
                 </View>

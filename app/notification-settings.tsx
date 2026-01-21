@@ -1,3 +1,4 @@
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { supabase } from '@/lib/supabase';
@@ -143,13 +144,9 @@ export default function NotificationSettingsScreen() {
             <SafeAreaView edges={['top']} style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <TouchableOpacity
-                        style={styles.backButton}
-                        onPress={handleBack}
-                        activeOpacity={0.7}
-                    >
-                        <Ionicons name="chevron-back" size={20} color="#E7E8E9" />
-                    </TouchableOpacity>
+                    <LiquidGlassIconButton size={44} onPress={handleBack}>
+                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                    </LiquidGlassIconButton>
                     <Text style={styles.headerTitle}>NOTIFICATIONS</Text>
                     <View style={styles.headerSpacer}>
                         {isSaving && <ActivityIndicator size="small" color="#3494D9" />}

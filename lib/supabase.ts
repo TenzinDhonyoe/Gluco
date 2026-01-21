@@ -1285,14 +1285,18 @@ export async function invokePremealAnalyze(
 
 export type DailyContextSource = 'apple_health' | 'manual' | 'estimated';
 
+export type SleepQuality = 'poor' | 'fair' | 'good' | 'excellent';
+
 export interface DailyContext {
     user_id: string;
     date: string; // YYYY-MM-DD format
     steps: number | null;
     active_minutes: number | null;
     sleep_hours: number | null;
+    sleep_quality: SleepQuality | null;
     resting_hr: number | null;
     hrv_ms: number | null;
+    stress_level: number | null; // 1-5 scale
     source: DailyContextSource;
     last_synced_at: string;
     created_at: string;
@@ -1304,8 +1308,10 @@ export interface DailyContextInput {
     steps?: number | null;
     active_minutes?: number | null;
     sleep_hours?: number | null;
+    sleep_quality?: SleepQuality | null;
     resting_hr?: number | null;
     hrv_ms?: number | null;
+    stress_level?: number | null; // 1-5 scale
     source?: DailyContextSource;
 }
 
@@ -1326,8 +1332,10 @@ export async function upsertDailyContext(
                 steps: input.steps,
                 active_minutes: input.active_minutes,
                 sleep_hours: input.sleep_hours,
+                sleep_quality: input.sleep_quality,
                 resting_hr: input.resting_hr,
                 hrv_ms: input.hrv_ms,
+                stress_level: input.stress_level,
                 source: input.source || 'apple_health',
                 last_synced_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
@@ -2865,6 +2873,8 @@ export interface UserMetabolicProfile {
     data_coverage_days: number;
     valid_days_for_sensitivity: number;
     last_updated_at: string;
+    created_at: string;
+    updated_at: string;
 }
 
 export type InsightMode = 'single_conversational' | 'bullets';

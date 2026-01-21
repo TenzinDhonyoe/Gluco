@@ -7,6 +7,7 @@ import { GlucoseTrendIndicator, type TrendStatus } from '@/components/charts/Glu
 import { SegmentedControl } from '@/components/controls/segmented-control';
 import { ActiveExperimentWidget } from '@/components/experiments/ActiveExperimentWidget';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
@@ -16,14 +17,15 @@ import { usePersonalInsights } from '@/hooks/usePersonalInsights';
 import { SleepData, useSleepData } from '@/hooks/useSleepData';
 import { useGlucoseTargetRange, useTodayScreenData } from '@/hooks/useTodayScreenData';
 import { InsightData, TrackingMode } from '@/lib/insights';
-import { getMetabolicWeeklyScores, invokeMetabolicScore, GlucoseLog, MealWithCheckin, MetabolicWeeklyScore } from '@/lib/supabase';
+import { getMetabolicWeeklyScores, GlucoseLog, invokeMetabolicScore, MealWithCheckin, MetabolicWeeklyScore } from '@/lib/supabase';
 import { getDateRange, getRangeDays, getRangeShortLabel, RangeKey } from '@/lib/utils/dateRanges';
 import { GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState, useTransition } from 'react';
 import {
     Animated,
     Dimensions,
@@ -40,7 +42,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -139,7 +141,7 @@ const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
             return logDate >= startDate && logDate <= endDate;
         });
 
-        if (filteredLogs.length === 0) return 0;
+        if (filteredLogs.length === 0) return null;
 
         // Count individual readings in range (not daily averages)
         const inRangeReadings = filteredLogs.filter(
@@ -150,6 +152,8 @@ const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
         return Math.round((inRangeReadings / filteredLogs.length) * 100);
     }, [glucoseLogs, range, targetMin, targetMax]);
 
+    const hasData = percentage !== null;
+
     return (
         <View style={styles.statCard}>
             <View style={styles.statHeader}>
@@ -157,12 +161,21 @@ const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
                 <Text style={[styles.statTitle, { color: Colors.glucoseGood }]}>IN TARGET</Text>
             </View>
             <View style={styles.statValueContainer}>
-                <AnimatedInteger
-                    value={percentage}
-                    duration={500}
-                    style={styles.statValue}
-                />
-                <Text style={styles.statUnit}>%</Text>
+                {hasData ? (
+                    <>
+                        <AnimatedInteger
+                            value={percentage}
+                            duration={500}
+                            style={styles.statValue}
+                        />
+                        <Text style={styles.statUnit}>%</Text>
+                    </>
+                ) : (
+                    <>
+                        <Text style={styles.statValue}>-</Text>
+                        <Text style={styles.statUnit}>%</Text>
+                    </>
+                )}
             </View>
             <View style={[styles.fibreStatusPill, { backgroundColor: Colors.glucoseGood + '30' }]}>
                 <View style={[styles.fibreStatusDot, { backgroundColor: Colors.glucoseGood }]} />
@@ -204,9 +217,10 @@ const ActivityStatCard = React.memo(({
     // Determine values to display
     const showHealthKit = isHealthKitAuthorized && isHealthKitAvailable;
     const avgMinutes = showHealthKit ? (healthKitMinutes ?? 0) : manualAvgMinutes;
+    const hasData = avgMinutes > 0;
 
     // Display value formatting
-    const displayValue = Math.round(avgMinutes).toString();
+    const displayValue = hasData ? Math.round(avgMinutes).toString() : '-';
     const sourceLabel = showHealthKit ? 'Apple Health' : 'Manual Entry';
 
     const handlePress = () => {
@@ -224,7 +238,7 @@ const ActivityStatCard = React.memo(({
         >
             <View style={styles.statHeader}>
                 <Image source={Images.mascots.exercise} style={{ width: 40, height: 40, resizeMode: 'contain' }} />
-                <Text style={[styles.statTitle, { color: '#E55D5D' }]}>ACTIVITY</Text>
+                <Text style={[styles.statTitle, { color: Colors.activity }]}>ACTIVITY</Text>
             </View>
             <View style={styles.statValueContainer}>
                 <Text style={styles.statValue}>{displayValue}</Text>
@@ -259,9 +273,9 @@ function getFibreStatus(avgPerDay: number): FibreStatus {
 
 function getFibreStatusColor(status: FibreStatus): string {
     switch (status) {
-        case 'high': return '#4CAF50';
-        case 'moderate': return '#FF9800';
-        case 'low': return '#F44336';
+        case 'high': return Colors.success;
+        case 'moderate': return Colors.warning;
+        case 'low': return Colors.error;
     }
 }
 
@@ -271,19 +285,20 @@ const FibreStatCard = React.memo(({ range, fibreSummary }: {
     fibreSummary: { avgPerDay: number } | null;
 }) => {
     const avgPerDay = fibreSummary?.avgPerDay ?? 0;
+    const hasData = fibreSummary !== null && avgPerDay > 0;
 
     const status = getFibreStatus(avgPerDay);
-    const statusColor = getFibreStatusColor(status);
-    const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+    const statusColor = hasData ? getFibreStatusColor(status) : Colors.textTertiary;
+    const statusLabel = hasData ? (status.charAt(0).toUpperCase() + status.slice(1)) : 'No data';
 
     return (
         <View style={styles.statCard}>
             <View style={styles.statHeader}>
                 <Text style={styles.broccoliIcon}>🥦</Text>
-                <Text style={[styles.statTitle, { color: '#4A9B16' }]}>FIBRE INTAKE</Text>
+                <Text style={[styles.statTitle, { color: Colors.fiber }]}>FIBRE INTAKE</Text>
             </View>
             <View style={styles.statValueContainer}>
-                <Text style={[styles.statValue]}>{avgPerDay.toFixed(1)}</Text>
+                <Text style={[styles.statValue]}>{hasData ? avgPerDay.toFixed(1) : '-'}</Text>
                 <Text style={styles.statUnit}>g/day</Text>
             </View>
             <View style={[styles.fibreStatusPill, { backgroundColor: statusColor + '30' }]}>
@@ -297,7 +312,6 @@ const FibreStatCard = React.memo(({ range, fibreSummary }: {
 // Sleep thresholds based on CDC recommendations (7+ hours for adults)
 const SLEEP_TARGET = 7;
 const SLEEP_LOW_THRESHOLD = 6;
-const SLEEP_ICON_COLOR = '#3494D9'; // Blue color matching the app theme
 
 type SleepStatus = 'poor' | 'fair' | 'good';
 
@@ -309,9 +323,9 @@ function getSleepStatus(avgHours: number): SleepStatus {
 
 function getSleepStatusColor(status: SleepStatus): string {
     switch (status) {
-        case 'good': return SLEEP_ICON_COLOR;
-        case 'fair': return '#FF9800';
-        case 'poor': return '#F44336';
+        case 'good': return Colors.sleep;
+        case 'fair': return Colors.warning;
+        case 'poor': return Colors.error;
     }
 }
 
@@ -347,7 +361,7 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
         >
             <View style={styles.statHeader}>
                 <Image source={Images.mascots.sleep} style={{ width: 40, height: 40, resizeMode: 'contain' }} />
-                <Text style={[styles.statTitle, { color: SLEEP_ICON_COLOR }]}>SLEEP</Text>
+                <Text style={[styles.statTitle, { color: Colors.sleep }]}>SLEEP</Text>
             </View>
             <View style={styles.statValueContainer}>
                 <Text style={styles.statValue}>{displayValue}</Text>
@@ -386,8 +400,8 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
             disabled={isAuthorized}
         >
             <View style={styles.statHeader}>
-                <Ionicons name="footsteps" size={32} color="#4A90D9" />
-                <Text style={[styles.statTitle, { color: '#4A90D9' }]}>STEPS</Text>
+                <Ionicons name="footsteps" size={32} color={Colors.steps} />
+                <Text style={[styles.statTitle, { color: Colors.steps }]}>STEPS</Text>
             </View>
             <View style={styles.statValueContainer}>
                 <Text style={styles.statValue}>{displayValue}</Text>
@@ -438,9 +452,9 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
     const hasScore = latestScore !== null && !isLoading;
 
     const getScoreColor = (score: number) => {
-        if (score >= 70) return '#4CAF50';
-        if (score >= 50) return '#FF9800';
-        return '#F44336';
+        if (score >= 70) return Colors.success;
+        if (score >= 50) return Colors.warning;
+        return Colors.error;
     };
 
     const getScoreLabel = (score: number) => {
@@ -456,9 +470,9 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
     };
 
     const getTrendColor = () => {
-        if (trend === 'up') return '#4CAF50';
-        if (trend === 'down') return '#F44336';
-        return '#878787';
+        if (trend === 'up') return Colors.success;
+        if (trend === 'down') return Colors.error;
+        return Colors.textTertiary;
     };
 
     // Empty/setup state - compact and instructional
@@ -466,7 +480,7 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
         return (
             <View style={styles.metabolicScoreCardEmpty}>
                 <View style={styles.metabolicScoreEmptyLeft}>
-                    <Ionicons name="pulse-outline" size={24} color="#878787" />
+                    <Ionicons name="pulse-outline" size={24} color={Colors.textTertiary} />
                     <View style={styles.metabolicScoreEmptyContent}>
                         <Text style={styles.metabolicScoreEmptyTitle}>Build your metabolic score</Text>
                         <Text style={styles.metabolicScoreEmptySubtitle}>Log sleep, activity, and meals</Text>
@@ -547,12 +561,12 @@ const ConnectHealthCTA = ({ onConnected }: { onConnected?: () => void }) => {
 
     return (
         <AnimatedPressable style={styles.connectHealthCard} onPress={handlePress}>
-            <Ionicons name="heart-circle" size={28} color="#FF375F" />
+            <Ionicons name="heart-circle" size={28} color={Colors.heartRate} />
             <View style={styles.connectHealthContent}>
                 <Text style={styles.connectHealthTitle}>Connect Apple Health</Text>
                 <Text style={styles.connectHealthSubtitle}>Track steps, activity, and sleep</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color="#878787" />
+            <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
         </AnimatedPressable>
     );
 };
@@ -659,11 +673,11 @@ function MealReflectionSheet({
 const spikeSheetStyles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.6)',
+        backgroundColor: Colors.overlayMedium,
         justifyContent: 'flex-end',
     },
     sheet: {
-        backgroundColor: '#1A1B1C',
+        backgroundColor: Colors.backgroundCard,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         padding: 24,
@@ -672,7 +686,7 @@ const spikeSheetStyles = StyleSheet.create({
     handle: {
         width: 36,
         height: 4,
-        backgroundColor: '#3F4243',
+        backgroundColor: Colors.borderCard,
         borderRadius: 2,
         alignSelf: 'center',
         marginBottom: 20,
@@ -680,20 +694,20 @@ const spikeSheetStyles = StyleSheet.create({
     title: {
         fontFamily: fonts.semiBold,
         fontSize: 20,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 8,
     },
     subtitle: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 16,
     },
     input: {
         backgroundColor: '#232527',
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderColor: Colors.borderLight,
         padding: 16,
         fontFamily: fonts.regular,
         fontSize: 16,
@@ -701,19 +715,19 @@ const spikeSheetStyles = StyleSheet.create({
         minHeight: 80,
     },
     analyzeButton: {
-        backgroundColor: '#26A861',
+        backgroundColor: Colors.success,
         borderRadius: 12,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 20,
     },
     analyzeButtonDisabled: {
-        backgroundColor: '#3F4243',
+        backgroundColor: Colors.borderCard,
     },
     analyzeButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
 });
 
@@ -926,6 +940,7 @@ const MINI_CHART_HEIGHT = 130;
 export default function TodayScreen() {
     const { profile, user } = useAuth();
     const glucoseUnit = useGlucoseUnit();
+    const insets = useSafeAreaInsets();
     const [isFabOpen, setIsFabOpen] = useState(false);
     const [range, setRange] = useState<RangeKey>('30d');
     const [spikeSheetVisible, setSpikeSheetVisible] = useState(false);
@@ -936,16 +951,27 @@ export default function TodayScreen() {
     const overlayOpacity = React.useRef(new Animated.Value(0)).current;
     const fabRef = React.useRef<AnimatedFABRef>(null);
 
+    // Use transition for non-blocking range changes
+    const [isPending, startTransition] = useTransition();
+
+    // Handler for range changes - uses startTransition to keep UI responsive
+    const handleRangeChange = useCallback((newRange: RangeKey) => {
+        startTransition(() => {
+            setRange(newRange);
+        });
+    }, []);
+
     // Use unified data fetching hook - batches all queries
     const { glucoseLogs, activityLogs, fibreSummary, recentMeals, isLoading } = useTodayScreenData(range);
     const { targetMin, targetMax } = useGlucoseTargetRange();
 
-    // Fetch sleep data from HealthKit
+    // Fetch sleep data from HealthKit (always fetches 90d, doesn't refetch on range change)
     const { data: sleepData, refetch: refetchSleep } = useSleepData(range);
 
     // Fetch daily context (steps, active minutes) from HealthKit
-    const dateRange = getDateRange(range);
-    const dailyContext = useDailyContext(user?.id, dateRange.startDate, dateRange.endDate);
+    // Always use 90d range to avoid refetching when user switches timeframes
+    const maxDateRange = useMemo(() => getDateRange('90d'), []);
+    const dailyContext = useDailyContext(user?.id, maxDateRange.startDate, maxDateRange.endDate);
 
     // Check if user is in wearables_only mode
     const isWearablesOnly = profile?.tracking_mode === 'wearables_only';
@@ -1062,6 +1088,8 @@ export default function TodayScreen() {
         }).start();
     };
 
+    const HEADER_HEIGHT = 120 + insets.top;
+
     return (
         <AnimatedScreen>
             <View style={styles.container}>
@@ -1071,204 +1099,206 @@ export default function TodayScreen() {
                     locations={[0, 0.3, 1]}
                     style={styles.backgroundGradient}
                 />
-                <SafeAreaView edges={['top']} style={styles.safeArea}>
-                    {/* Header */}
-                    <View style={styles.header}>
-                        <AnimatedPressable style={styles.avatarButton} onPress={() => router.push('/settings')}>
-                            <Text style={styles.avatarText}>{getInitials()}</Text>
-                        </AnimatedPressable>
-                        <Text style={styles.headerTitle}>GLUCO</Text>
-                        <AnimatedPressable style={styles.notificationButton} onPress={() => router.push('/notifications-list')}>
-                            <Ionicons name="notifications-outline" size={24} color="#E7E8E9" />
-                        </AnimatedPressable>
-                    </View>
 
-                    <ScrollView
-                        style={styles.scrollView}
-                        contentContainerStyle={styles.scrollContent}
-                        showsVerticalScrollIndicator={false}
-                        stickyHeaderIndices={[0]}
-                    >
-
-
-                        {/* Sticky Range Picker - at top */}
-                        <View style={styles.stickyPickerContainer}>
-                            <SegmentedControl<RangeKey>
-                                value={range}
-                                onChange={setRange}
-                                options={[
-                                    { value: '7d', label: '7d' },
-                                    { value: '14d', label: '14d' },
-                                    { value: '30d', label: '30d' },
-                                    { value: '90d', label: '90d' },
-                                ]}
-                            />
+                {/* ScrollView - content scrolls behind header */}
+                <ScrollView
+                    style={styles.scrollView}
+                    contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 8 }]}
+                    showsVerticalScrollIndicator={false}
+                >
+                    {/* Glucose Trends - only show for glucose tracking users */}
+                    {showGlucoseUI && (
+                        <View style={styles.trendsSection}>
+                            <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} glucoseUnit={glucoseUnit} />
                         </View>
-
-                        {/* Glucose Trends - only show for glucose tracking users */}
-                        {showGlucoseUI && (
-                            <View style={styles.trendsSection}>
-                                <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} glucoseUnit={glucoseUnit} />
-                            </View>
-                        )}
-
-                        {/* Active Experiment Widget */}
-                        <ActiveExperimentWidget />
-
-                        {/* Metabolic Score Card - Full width prominent card */}
-                        <MetabolicScoreCard weeklyScores={weeklyScores} currentScore={currentScore} isLoading={scoresLoading} />
-
-                        {/* Stats Grid */}
-                        <View style={styles.statsGrid}>
-                            <View style={styles.statsRow}>
-                                {showWearableStats ? (
-                                    <>
-                                        <StepsStatCard
-                                            avgSteps={dailyContext.avgSteps}
-                                            isAuthorized={dailyContext.isAuthorized}
-                                            isAvailable={dailyContext.isAvailable}
-                                            range={range}
-                                        />
-                                        <ActivityStatCard
-                                            range={range}
-                                            activityLogs={activityLogs}
-                                            healthKitMinutes={dailyContext.avgActiveMinutes}
-                                            isHealthKitAuthorized={dailyContext.isAuthorized}
-                                            isHealthKitAvailable={dailyContext.isAvailable}
-                                        />
-                                    </>
-                                ) : showGlucoseUI ? (
-                                    <>
-                                        <DaysInRangeCard range={range} glucoseLogs={glucoseLogs} />
-                                        <FibreStatCard range={range} fibreSummary={fibreSummary} />
-                                    </>
-                                ) : (
-                                    <>
-                                        <FibreStatCard range={range} fibreSummary={fibreSummary} />
-                                        <ActivityStatCard
-                                            range={range}
-                                            activityLogs={activityLogs}
-                                            healthKitMinutes={dailyContext.avgActiveMinutes}
-                                            isHealthKitAuthorized={dailyContext.isAuthorized}
-                                            isHealthKitAvailable={dailyContext.isAvailable}
-                                        />
-                                    </>
-                                )}
-                            </View>
-                            <View style={styles.statsRow}>
-                                {showWearableStats ? (
-                                    <>
-                                        <SleepStatCard range={range} sleepData={sleepData} />
-                                        <FibreStatCard range={range} fibreSummary={fibreSummary} />
-                                    </>
-                                ) : showGlucoseUI ? (
-                                    <>
-                                        <ActivityStatCard
-                                            range={range}
-                                            activityLogs={activityLogs}
-                                            healthKitMinutes={dailyContext.avgActiveMinutes}
-                                            isHealthKitAuthorized={dailyContext.isAuthorized}
-                                            isHealthKitAvailable={dailyContext.isAvailable}
-                                        />
-                                        <SleepStatCard range={range} sleepData={sleepData} />
-                                    </>
-                                ) : (
-                                    <>
-                                        <SleepStatCard range={range} sleepData={sleepData} />
-                                        <StatCard
-                                            icon={<Image source={Images.mascots.cook} style={{ width: 32, height: 32, resizeMode: 'contain' }} />}
-                                            iconColor="#4CAF50"
-                                            title="Meals"
-                                            value="--"
-                                            description="Logged this week"
-                                        />
-                                    </>
-                                )}
-                            </View>
-                        </View>
-
-                        {/* Connect Apple Health CTA - show for wearables mode if not authorized */}
-                        {showWearableStats && !dailyContext.isAuthorized && dailyContext.isAvailable && (
-                            <ConnectHealthCTA
-                                onConnected={() => {
-                                    dailyContext.sync();
-                                    refetchSleep();
-                                }}
-                            />
-                        )}
-
-                        {/* Tip Cards - Swipeable */}
-                        <SwipeableTipCards
-                            onMealPress={() => setSpikeSheetVisible(true)}
-                            onExercisePress={() => setExerciseSheetVisible(true)}
-                        />
-
-                        {/* Personal Insights Carousel */}
-                        <PersonalInsightsCarousel
-                            insights={personalInsights}
-                            isLoading={insightsLoading}
-                        />
-
-                        {/* Today's Meals Section */}
-                        <View style={styles.mealSection}>
-                            <Text style={styles.mealSectionTitle}>Meal Check-ins</Text>
-                            <ScrollView
-                                horizontal
-                                showsHorizontalScrollIndicator={false}
-                                contentContainerStyle={styles.mealCardsContainer}
-                            >
-                                {displayMeals.length > 0 ? (
-                                    displayMeals.map((meal) => (
-                                        <MealCheckinCard
-                                            key={meal.id}
-                                            meal={meal}
-                                            onPress={() => handleMealPress(meal)}
-                                        />
-                                    ))
-                                ) : (
-                                    <View style={styles.noMealsCard}>
-                                        <Image source={Images.mascots.cook} style={{ width: 60, height: 60, resizeMode: 'contain', marginBottom: 8 }} />
-                                        <Text style={styles.noMealsText}>No meal reviews yet</Text>
-                                        <Text style={styles.noMealsSubtext}>Log a meal to see your glucose response</Text>
-                                    </View>
-                                )}
-                            </ScrollView>
-                        </View>
-                    </ScrollView>
-
-                    {/* Dark Overlay when FAB is open */}
-                    {isFabOpen && (
-                        <Animated.View
-                            style={[
-                                styles.fabOverlay,
-                                { opacity: overlayOpacity }
-                            ]}
-                        >
-                            <Pressable
-                                style={StyleSheet.absoluteFill}
-                                onPress={() => fabRef.current?.close()}
-                            />
-                        </Animated.View>
                     )}
 
-                    {/* Floating Action Button with Menu */}
-                    <View style={styles.fabContainer}>
-                        <AnimatedFAB
-                            ref={fabRef}
-                            size={56}
-                            onPress={handleFabOpenChange}
-                            onLogMeal={() => {
-                                router.push({ pathname: '/meal-scanner' } as any);
-                            }}
-                            onLogActivity={() => {
-                                router.push({ pathname: '/log-activity' } as any);
-                            }}
-                            onLogGlucose={() => {
-                                router.push({ pathname: '/log-glucose' } as any);
+                    {/* Active Experiment Widget */}
+                    <ActiveExperimentWidget />
+
+                    {/* Metabolic Score Card - Full width prominent card */}
+                    <MetabolicScoreCard weeklyScores={weeklyScores} currentScore={currentScore} isLoading={scoresLoading} />
+
+                    {/* Stats Grid */}
+                    <View style={styles.statsGrid}>
+                        <View style={styles.statsRow}>
+                            {showWearableStats ? (
+                                <>
+                                    <StepsStatCard
+                                        avgSteps={dailyContext.avgSteps}
+                                        isAuthorized={dailyContext.isAuthorized}
+                                        isAvailable={dailyContext.isAvailable}
+                                        range={range}
+                                    />
+                                    <ActivityStatCard
+                                        range={range}
+                                        activityLogs={activityLogs}
+                                        healthKitMinutes={dailyContext.avgActiveMinutes}
+                                        isHealthKitAuthorized={dailyContext.isAuthorized}
+                                        isHealthKitAvailable={dailyContext.isAvailable}
+                                    />
+                                </>
+                            ) : showGlucoseUI ? (
+                                <>
+                                    <DaysInRangeCard range={range} glucoseLogs={glucoseLogs} />
+                                    <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                </>
+                            ) : (
+                                <>
+                                    <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                    <ActivityStatCard
+                                        range={range}
+                                        activityLogs={activityLogs}
+                                        healthKitMinutes={dailyContext.avgActiveMinutes}
+                                        isHealthKitAuthorized={dailyContext.isAuthorized}
+                                        isHealthKitAvailable={dailyContext.isAvailable}
+                                    />
+                                </>
+                            )}
+                        </View>
+                        <View style={styles.statsRow}>
+                            {showWearableStats ? (
+                                <>
+                                    <SleepStatCard range={range} sleepData={sleepData} />
+                                    <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                </>
+                            ) : showGlucoseUI ? (
+                                <>
+                                    <ActivityStatCard
+                                        range={range}
+                                        activityLogs={activityLogs}
+                                        healthKitMinutes={dailyContext.avgActiveMinutes}
+                                        isHealthKitAuthorized={dailyContext.isAuthorized}
+                                        isHealthKitAvailable={dailyContext.isAvailable}
+                                    />
+                                    <SleepStatCard range={range} sleepData={sleepData} />
+                                </>
+                            ) : (
+                                <>
+                                    <SleepStatCard range={range} sleepData={sleepData} />
+                                    <StatCard
+                                        icon={<Image source={Images.mascots.cook} style={{ width: 32, height: 32, resizeMode: 'contain' }} />}
+                                        iconColor="#4CAF50"
+                                        title="Meals"
+                                        value="--"
+                                        description="Logged this week"
+                                    />
+                                </>
+                            )}
+                        </View>
+                    </View>
+
+                    {/* Connect Apple Health CTA - show for wearables mode if not authorized */}
+                    {showWearableStats && !dailyContext.isAuthorized && dailyContext.isAvailable && (
+                        <ConnectHealthCTA
+                            onConnected={() => {
+                                dailyContext.sync();
+                                refetchSleep();
                             }}
                         />
+                    )}
+
+                    {/* Tip Cards - Swipeable */}
+                    <SwipeableTipCards
+                        onMealPress={() => setSpikeSheetVisible(true)}
+                        onExercisePress={() => setExerciseSheetVisible(true)}
+                    />
+
+                    {/* Personal Insights Carousel */}
+                    <PersonalInsightsCarousel
+                        insights={personalInsights}
+                        isLoading={insightsLoading}
+                    />
+
+                    {/* Today's Meals Section */}
+                    <View style={styles.mealSection}>
+                        <Text style={styles.mealSectionTitle}>Meal Check-ins</Text>
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.mealCardsContainer}
+                        >
+                            {displayMeals.length > 0 ? (
+                                displayMeals.map((meal) => (
+                                    <MealCheckinCard
+                                        key={meal.id}
+                                        meal={meal}
+                                        onPress={() => handleMealPress(meal)}
+                                    />
+                                ))
+                            ) : (
+                                <View style={styles.noMealsCard}>
+                                    <Image source={Images.mascots.cook} style={{ width: 60, height: 60, resizeMode: 'contain', marginBottom: 8 }} />
+                                    <Text style={styles.noMealsText}>No meal reviews yet</Text>
+                                    <Text style={styles.noMealsSubtext}>Log a meal to see your glucose response</Text>
+                                </View>
+                            )}
+                        </ScrollView>
                     </View>
-                </SafeAreaView>
+                </ScrollView>
+
+                {/* Blurred Header - positioned absolutely over content */}
+                <BlurView
+                    intensity={80}
+                    tint="dark"
+                    style={[styles.blurHeader, { paddingTop: insets.top }]}
+                >
+                    <View style={styles.header}>
+                        <LiquidGlassIconButton size={44} onPress={() => router.push('/settings')}>
+                            <Text style={styles.avatarText}>{getInitials()}</Text>
+                        </LiquidGlassIconButton>
+                        <Text style={styles.headerTitle}>GLUCO</Text>
+                        <LiquidGlassIconButton size={44} onPress={() => router.push('/notifications-list')}>
+                            <Ionicons name="notifications-outline" size={22} color="#E7E8E9" />
+                        </LiquidGlassIconButton>
+                    </View>
+                    {/* Sticky Range Picker */}
+                    <View style={styles.stickyPickerContainer}>
+                        <SegmentedControl<RangeKey>
+                            value={range}
+                            onChange={handleRangeChange}
+                            options={[
+                                { value: '7d', label: '7d' },
+                                { value: '14d', label: '14d' },
+                                { value: '30d', label: '30d' },
+                                { value: '90d', label: '90d' },
+                            ]}
+                        />
+                    </View>
+                </BlurView>
+
+                {/* Dark Overlay when FAB is open */}
+                {isFabOpen && (
+                    <Animated.View
+                        style={[
+                            styles.fabOverlay,
+                            { opacity: overlayOpacity }
+                        ]}
+                    >
+                        <Pressable
+                            style={StyleSheet.absoluteFill}
+                            onPress={() => fabRef.current?.close()}
+                        />
+                    </Animated.View>
+                )}
+
+                {/* Floating Action Button with Menu */}
+                <View style={styles.fabContainer}>
+                    <AnimatedFAB
+                        ref={fabRef}
+                        size={56}
+                        onPress={handleFabOpenChange}
+                        onLogMeal={() => {
+                            router.push({ pathname: '/meal-scanner' } as any);
+                        }}
+                        onLogActivity={() => {
+                            router.push({ pathname: '/log-activity' } as any);
+                        }}
+                        onLogGlucose={() => {
+                            router.push({ pathname: '/log-glucose' } as any);
+                        }}
+                    />
+                </View>
             </View>
 
             {/* Meal Response Input Sheet */}
@@ -1298,7 +1328,7 @@ export default function TodayScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: Colors.background,
     },
     backgroundGradient: {
         position: 'absolute',
@@ -1310,12 +1340,23 @@ const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
     },
+    blurHeader: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 100,
+        borderBottomLeftRadius: 40,
+        borderBottomRightRadius: 40,
+        overflow: 'hidden',
+        paddingBottom: 0,
+    },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 16,
-        paddingVertical: 16,
+        paddingVertical: 12,
         backgroundColor: 'transparent',
     },
     avatarButton: {
@@ -1367,8 +1408,9 @@ const styles = StyleSheet.create({
     },
     stickyPickerContainer: {
         backgroundColor: 'transparent',
-        paddingVertical: 6,
-        marginBottom: 0,
+        paddingHorizontal: 16,
+        paddingTop: 4,
+        paddingBottom: 0,
     },
     trendsCard: {
         // backgroundColor: '#22282C', // Uses gradient now
@@ -1417,7 +1459,7 @@ const styles = StyleSheet.create({
         marginTop: 6,
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     statusPill: {
         flexDirection: 'row',
@@ -1481,7 +1523,7 @@ const styles = StyleSheet.create({
     metabolicScoreEmptySubtitle: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
     metabolicScoreHeader: {
@@ -1498,7 +1540,7 @@ const styles = StyleSheet.create({
     metabolicScoreTitle: {
         fontFamily: fonts.bold,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         letterSpacing: 0.5,
     },
     metabolicTrendContainer: {
@@ -1529,7 +1571,7 @@ const styles = StyleSheet.create({
     metabolicScoreMax: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginLeft: 2,
     },
     metabolicScoreLabelPill: {
@@ -1563,7 +1605,7 @@ const styles = StyleSheet.create({
     metabolicScoreDescription: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     statsGrid: {
         gap: 16,
@@ -1668,7 +1710,7 @@ const styles = StyleSheet.create({
         lineHeight: 14 * 1.2,
     },
     tipLink: {
-        color: '#3494D9',
+        color: Colors.primary,
     },
     // Swipeable tip cards styles
     tipCardsWrapper: {
@@ -1702,7 +1744,7 @@ const styles = StyleSheet.create({
         width: 6,
         height: 6,
         borderRadius: 3,
-        backgroundColor: '#878787',
+        backgroundColor: Colors.textTertiary,
     },
     indicatorDotActive: {
         backgroundColor: Colors.textPrimary,
@@ -1754,12 +1796,12 @@ const styles = StyleSheet.create({
     mealType: {
         fontFamily: fonts.medium,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     mealTime: {
         fontFamily: fonts.medium,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     mealName: {
         fontFamily: fonts.medium,
@@ -1816,9 +1858,9 @@ const styles = StyleSheet.create({
     },
     statusBadge: {
         alignSelf: 'flex-start',
-        backgroundColor: 'rgba(99, 181, 27, 0.15)',
+        backgroundColor: Colors.successLight,
         borderWidth: 0.25,
-        borderColor: '#63B51B',
+        borderColor: Colors.success,
         borderRadius: 28,
         paddingHorizontal: 12,
         paddingVertical: 4,
@@ -1826,7 +1868,7 @@ const styles = StyleSheet.create({
     statusBadgeText: {
         fontFamily: fonts.bold,
         fontSize: 12,
-        color: '#63B51B',
+        color: Colors.success,
     },
     statusDescription: {
         fontFamily: fonts.regular,
@@ -1836,7 +1878,7 @@ const styles = StyleSheet.create({
     fabContainer: {
         position: 'absolute',
         right: 16,
-        bottom: 140,
+        bottom: 120,
         zIndex: 20,
     },
     fabOverlay: {
@@ -1864,7 +1906,7 @@ const styles = StyleSheet.create({
     chartEmptySubtext: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         textAlign: 'center',
     },
     deltaText: {
@@ -1929,7 +1971,7 @@ const styles = StyleSheet.create({
     noMealsSubtext: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
         textAlign: 'center',
         paddingHorizontal: 32,
     },
@@ -1945,13 +1987,13 @@ const styles = StyleSheet.create({
     connectHealthCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(255, 55, 95, 0.1)',
+        backgroundColor: Colors.glucoseLight,
         borderRadius: 12,
         padding: 16,
         marginHorizontal: 16,
         marginBottom: 16,
         borderWidth: 1,
-        borderColor: 'rgba(255, 55, 95, 0.2)',
+        borderColor: Colors.glucoseMedium,
     },
     connectHealthContent: {
         flex: 1,
@@ -1965,7 +2007,7 @@ const styles = StyleSheet.create({
     connectHealthSubtitle: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
 });

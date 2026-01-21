@@ -3,6 +3,7 @@
  * Shows list of recent meals with check-in status
  */
 
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { getMealsWithCheckinsByDateRange, MealWithCheckin } from '@/lib/supabase';
@@ -146,9 +147,9 @@ export default function NotificationsListScreen() {
             <SafeAreaView style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <TouchableOpacity onPress={handleBack} style={styles.backButton} activeOpacity={0.7}>
-                        <Ionicons name="chevron-back" size={24} color="#E7E8E9" />
-                    </TouchableOpacity>
+                    <LiquidGlassIconButton size={44} onPress={handleBack}>
+                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                    </LiquidGlassIconButton>
                     <Text style={styles.headerTitle}>NOTIFICATIONS</Text>
                     <View style={styles.headerSpacer} />
                 </View>

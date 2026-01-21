@@ -8,15 +8,19 @@ import { ActivityLog, getActivityLogs, getGlucoseLogs, getMeals, GlucoseLog, Mea
 import { formatGlucoseWithUnit, GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Animated,
     Dimensions,
     Image,
     Linking,
     Modal,
+    NativeScrollEvent,
+    NativeSyntheticEvent,
     Platform,
     Pressable,
     ScrollView,
@@ -24,7 +28,7 @@ import {
     Text,
     View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const TIP_CARD_WIDTH = 271;
@@ -142,27 +146,27 @@ function getCategoryIcon(category: TipCategory) {
         case 'glucose':
             return <GlucoseIcon />;
         case 'meal':
-            return <MealIcon color="#EBA914" />;
+            return <MealIcon color={Colors.meal} />;
         case 'activity':
-            return <ActivityIcon color="#22EFEF" />;
+            return <ActivityIcon color={Colors.activity} />;
         case 'sleep':
-            return <Ionicons name="moon" size={20} color="#3494D9" />;
+            return <Ionicons name="moon" size={20} color={Colors.sleep} />;
     }
 }
 
 function getLogIcon(type: LogType) {
     switch (type) {
         case 'activity':
-            return <ActivityIcon color="#878787" />;
+            return <ActivityIcon color={Colors.textTertiary} />;
         case 'meal':
-            return <MealIcon color="#878787" />;
+            return <MealIcon color={Colors.textTertiary} />;
         case 'glucose':
-            return <GlucoseIcon color="#878787" />;
+            return <GlucoseIcon color={Colors.textTertiary} />;
     }
 }
 
 // Custom Icon Components
-function GlucoseIcon({ color = '#E55D5D' }: { color?: string }) {
+function GlucoseIcon({ color = Colors.glucose }: { color?: string }) {
     return (
         <View style={iconStyles.container}>
             <Ionicons name="water" size={20} color={color} />
@@ -170,7 +174,7 @@ function GlucoseIcon({ color = '#E55D5D' }: { color?: string }) {
     );
 }
 
-function MealIcon({ color = '#EBA914' }: { color?: string }) {
+function MealIcon({ color = Colors.meal }: { color?: string }) {
     return (
         <View style={iconStyles.container}>
             <Ionicons name="restaurant" size={18} color={color} />
@@ -178,7 +182,7 @@ function MealIcon({ color = '#EBA914' }: { color?: string }) {
     );
 }
 
-function ActivityIcon({ color = '#22EFEF' }: { color?: string }) {
+function ActivityIcon({ color = Colors.activity }: { color?: string }) {
     return (
         <View style={iconStyles.container}>
             <Ionicons name="walk" size={20} color={color} />
@@ -281,10 +285,42 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
 export default function LogScreen() {
     const { user, profile } = useAuth();
     const glucoseUnit = useGlucoseUnit();
+    const insets = useSafeAreaInsets();
+    const HEADER_HEIGHT = 70 + insets.top;
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [filter, setFilter] = useState<FilterType>('all');
     const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+
+    // Scroll-based header animation
+    const scrollY = useRef(new Animated.Value(0)).current;
+    const SCROLL_THRESHOLD = 50;
+
+    // Large title fades out as you scroll
+    const largeTitleOpacity = scrollY.interpolate({
+        inputRange: [0, SCROLL_THRESHOLD],
+        outputRange: [1, 0],
+        extrapolate: 'clamp',
+    });
+
+    // Small centered title fades in as you scroll
+    const smallTitleOpacity = scrollY.interpolate({
+        inputRange: [0, SCROLL_THRESHOLD],
+        outputRange: [0, 1],
+        extrapolate: 'clamp',
+    });
+
+    // Small title slides down from top
+    const smallTitleTranslateY = scrollY.interpolate({
+        inputRange: [0, SCROLL_THRESHOLD],
+        outputRange: [-20, 0],
+        extrapolate: 'clamp',
+    });
+
+    const handleScroll = Animated.event(
+        [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+        { useNativeDriver: true }
+    );
 
     // Use cached personalized tips hook (6-hour TTL, user-specific cache key)
     const { tips: personalizedTipsResult } = usePersonalizedTips({
@@ -387,17 +423,13 @@ export default function LogScreen() {
                     style={styles.backgroundGradient}
                 />
 
-                <SafeAreaView edges={['top']} style={styles.safeArea}>
-                    {/* Header */}
-                    <View style={styles.header}>
-                        <Text style={styles.headerTitle}>LOGS</Text>
-                    </View>
-
-                    <ScrollView
-                        style={styles.scrollView}
-                        contentContainerStyle={styles.scrollContent}
-                        showsVerticalScrollIndicator={false}
-                    >
+                <Animated.ScrollView
+                    style={styles.scrollView}
+                    contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 8 }]}
+                    showsVerticalScrollIndicator={false}
+                    onScroll={handleScroll}
+                    scrollEventThrottle={16}
+                >
                         {/* Tips Section */}
                         <ScrollView
                             horizontal
@@ -418,8 +450,8 @@ export default function LogScreen() {
                                 style={styles.quickActionButton}
                                 onPress={() => router.push('/meal-scanner')}
                             >
-                                <View style={[styles.quickActionIcon, { backgroundColor: 'rgba(235, 169, 20, 0.15)' }]}>
-                                    <Ionicons name="restaurant" size={20} color="#EBA914" />
+                                <View style={[styles.quickActionIcon, { backgroundColor: Colors.mealLight }]}>
+                                    <Ionicons name="restaurant" size={20} color={Colors.meal} />
                                 </View>
                                 <Text style={styles.quickActionText}>Log Meal</Text>
                             </AnimatedPressable>
@@ -428,8 +460,8 @@ export default function LogScreen() {
                                 style={styles.quickActionButton}
                                 onPress={() => router.push('/log-glucose')}
                             >
-                                <View style={[styles.quickActionIcon, { backgroundColor: 'rgba(229, 93, 93, 0.15)' }]}>
-                                    <Ionicons name="water" size={20} color="#E55D5D" />
+                                <View style={[styles.quickActionIcon, { backgroundColor: Colors.glucoseLight }]}>
+                                    <Ionicons name="water" size={20} color={Colors.glucose} />
                                 </View>
                                 <Text style={styles.quickActionText}>Log Glucose</Text>
                             </AnimatedPressable>
@@ -438,8 +470,8 @@ export default function LogScreen() {
                                 style={styles.quickActionButton}
                                 onPress={() => router.push('/log-activity')}
                             >
-                                <View style={[styles.quickActionIcon, { backgroundColor: 'rgba(34, 239, 239, 0.15)' }]}>
-                                    <Ionicons name="walk" size={20} color="#22EFEF" />
+                                <View style={[styles.quickActionIcon, { backgroundColor: Colors.activityLight }]}>
+                                    <Ionicons name="walk" size={20} color={Colors.activity} />
                                 </View>
                                 <Text style={styles.quickActionText}>Log Activity</Text>
                             </AnimatedPressable>
@@ -458,7 +490,7 @@ export default function LogScreen() {
                                     <Ionicons
                                         name="chevron-down"
                                         size={14}
-                                        color="#878787"
+                                        color={Colors.textTertiary}
                                     />
                                 </AnimatedPressable>
                             </View>
@@ -467,12 +499,12 @@ export default function LogScreen() {
                             <View style={styles.logsCard}>
                                 {isLoading ? (
                                     <View style={styles.loadingContainer}>
-                                        <ActivityIndicator size="small" color="#878787" />
+                                        <ActivityIndicator size="small" color={Colors.textTertiary} />
                                         <Text style={styles.loadingText}>Loading logs...</Text>
                                     </View>
                                 ) : logs.length === 0 ? (
                                     <View style={styles.emptyContainer}>
-                                        <Ionicons name="document-text-outline" size={32} color="#878787" />
+                                        <Ionicons name="document-text-outline" size={32} color={Colors.textTertiary} />
                                         <Text style={styles.emptyText}>No logs yet</Text>
                                         <Text style={styles.emptySubtext}>
                                             Start tracking your glucose and activities!
@@ -480,7 +512,7 @@ export default function LogScreen() {
                                     </View>
                                 ) : filteredLogs.length === 0 ? (
                                     <View style={styles.emptyContainer}>
-                                        <Ionicons name="filter-outline" size={32} color="#878787" />
+                                        <Ionicons name="filter-outline" size={32} color={Colors.textTertiary} />
                                         <Text style={styles.emptyText}>No {currentFilterLabel.toLowerCase()} logs</Text>
                                         <Text style={styles.emptySubtext}>
                                             Try a different filter or log some {currentFilterLabel.toLowerCase()}.
@@ -499,8 +531,28 @@ export default function LogScreen() {
                             </View>
                         </View>
 
-                    </ScrollView>
-                </SafeAreaView>
+                </Animated.ScrollView>
+
+                {/* Blurred Header */}
+                <BlurView
+                    intensity={80}
+                    tint="dark"
+                    style={[styles.blurHeader, { paddingTop: insets.top }]}
+                >
+                    <View style={styles.header}>
+                        {/* Large title on the left - fades out on scroll */}
+                        <Animated.Text style={[styles.headerTitle, { opacity: largeTitleOpacity }]}>
+                            LOGS
+                        </Animated.Text>
+                        {/* Small centered title - fades in and slides down on scroll */}
+                        <Animated.Text style={[styles.headerTitleSmall, {
+                            opacity: smallTitleOpacity,
+                            transform: [{ translateY: smallTitleTranslateY }]
+                        }]}>
+                            LOGS
+                        </Animated.Text>
+                    </View>
+                </BlurView>
 
                 {/* shadcn-inspired Filter Modal */}
                 <Modal
@@ -523,7 +575,7 @@ export default function LogScreen() {
                                     onPress={() => setShowFilterDropdown(false)}
                                     style={styles.filterModalCloseBtn}
                                 >
-                                    <Ionicons name="close" size={20} color="#878787" />
+                                    <Ionicons name="close" size={20} color={Colors.textTertiary} />
                                 </Pressable>
                             </View>
                             <View style={styles.filterModalDivider} />
@@ -554,7 +606,7 @@ export default function LogScreen() {
                                         </Text>
                                     </View>
                                     {filter === option.value && (
-                                        <Ionicons name="checkmark-circle" size={20} color="#3494D9" />
+                                        <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />
                                     )}
                                 </Pressable>
                             ))}
@@ -569,7 +621,7 @@ export default function LogScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: Colors.background,
     },
     backgroundGradient: {
         position: 'absolute',
@@ -581,6 +633,13 @@ const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
     },
+    blurHeader: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 100,
+    },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -589,6 +648,16 @@ const styles = StyleSheet.create({
         paddingVertical: 20,
     },
     headerTitle: {
+        fontFamily: fonts.bold,
+        fontSize: 24,
+        color: Colors.textPrimary,
+        letterSpacing: 1,
+    },
+    headerTitleSmall: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        textAlign: 'center',
         fontFamily: fonts.bold,
         fontSize: 18,
         color: Colors.textPrimary,
@@ -658,7 +727,7 @@ const styles = StyleSheet.create({
     tipCardReadMore: {
         fontFamily: fonts.medium,
         fontSize: 11,
-        color: '#3494D9',
+        color: Colors.primary,
         marginTop: 8,
     },
     // Quick Action Buttons
@@ -729,18 +798,18 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 14,
         borderBottomWidth: 1,
-        borderBottomColor: '#3F4243',
+        borderBottomColor: Colors.borderCard,
     },
     filterOptionActive: {
-        backgroundColor: 'rgba(52, 148, 217, 0.1)',
+        backgroundColor: Colors.primaryLight,
     },
     filterOptionText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     filterOptionTextActive: {
-        color: '#3494D9',
+        color: Colors.primary,
     },
     logsCard: {
         backgroundColor: '#1a1b1c',
@@ -776,7 +845,7 @@ const styles = StyleSheet.create({
     logLabel: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         lineHeight: 14 * 1.2,
     },
     logDescription: {
@@ -804,7 +873,7 @@ const styles = StyleSheet.create({
     loadingText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     // Empty state styles
     emptyContainer: {
@@ -822,7 +891,7 @@ const styles = StyleSheet.create({
     emptySubtext: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         textAlign: 'center',
     },
     // shadcn-inspired Filter Modal styles
@@ -904,12 +973,12 @@ const styles = StyleSheet.create({
         width: 10,
         height: 10,
         borderRadius: 5,
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
     },
     filterModalOptionText: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: '#AAAAAA',
+        color: Colors.textSecondary,
     },
     filterModalOptionTextActive: {
         color: '#FFFFFF',

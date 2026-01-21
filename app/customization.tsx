@@ -1,4 +1,5 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -175,15 +176,9 @@ export default function CustomizationScreen() {
             <SafeAreaView style={styles.safeArea} edges={['top']}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <Pressable
-                        style={({ pressed }) => [
-                            styles.backButton,
-                            pressed && styles.backButtonPressed,
-                        ]}
-                        onPress={handleBack}
-                    >
-                        <Ionicons name="chevron-back" size={20} color="#E7E8E9" />
-                    </Pressable>
+                    <LiquidGlassIconButton size={44} onPress={handleBack}>
+                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                    </LiquidGlassIconButton>
                     <Text style={styles.headerTitle}>CUSTOMIZATION</Text>
                     <View style={styles.headerSpacer} />
                 </View>

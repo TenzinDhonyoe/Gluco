@@ -1,3 +1,4 @@
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { fonts } from '@/hooks/useFonts';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -131,13 +132,9 @@ export default function ManualAddView({ onClose, onSave }: ManualAddViewProps) {
                     <View style={[styles.contentContainer, { paddingTop: insets.top }]}>
                         {/* Header */}
                         <View style={styles.header}>
-                            <TouchableOpacity
-                                style={styles.backButton}
-                                onPress={onClose}
-                                activeOpacity={0.7}
-                            >
-                                <Ionicons name="chevron-back" size={20} color="#E7E8E9" />
-                            </TouchableOpacity>
+                            <LiquidGlassIconButton size={44} onPress={onClose}>
+                                <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                            </LiquidGlassIconButton>
                             <Text style={styles.title}>MANUAL ENTRY</Text>
                             <View style={styles.headerSpacer} />
                         </View>

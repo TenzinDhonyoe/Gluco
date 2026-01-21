@@ -1,3 +1,4 @@
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import { AnalyzedItem, MealPhotoAnalysisResult } from '@/lib/supabase';
@@ -131,14 +132,11 @@ export default function MealPhotoEstimateScreen() {
             <View style={styles.root}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <Pressable
-                        onPress={() => router.back()}
-                        style={({ pressed }) => [styles.backBtn, pressed && styles.backBtnPressed]}
-                    >
-                        <Ionicons name="arrow-back" size={24} color={Colors.textPrimary} />
-                    </Pressable>
+                    <LiquidGlassIconButton size={44} onPress={() => router.back()}>
+                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                    </LiquidGlassIconButton>
                     <Text style={styles.title}>Edit Estimate</Text>
-                    <View style={{ width: 24 }} />
+                    <View style={{ width: 44 }} />
                 </View>
 
                 <ScrollView style={styles.content}>

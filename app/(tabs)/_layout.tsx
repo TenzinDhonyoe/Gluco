@@ -2,10 +2,13 @@ import { Colors } from '@/constants/Colors';
 import { TabTransitionProvider, useTabTransition } from '@/context/TabTransitionContext';
 import { fonts } from '@/hooks/useFonts';
 import { Feather } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Tabs, usePathname } from 'expo-router';
-import React, { useEffect } from 'react';
-import { Dimensions, Platform, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { Dimensions, Platform, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
+    interpolate,
     useAnimatedStyle,
     useSharedValue,
     withSequence,
@@ -16,13 +19,14 @@ import Animated, {
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const TAB_BAR_MARGIN = 16;
 const TAB_COUNT = 3;
-const INDICATOR_WIDTH = 24;
+const INDICATOR_WIDTH = 64;
+const INDICATOR_HEIGHT = 60;
 
-// Animated Tab Icon Component with bounce effect
+// Animated Tab Icon Component with liquid press effect
 function AnimatedTabIcon({
     name,
     color,
-    focused
+    focused,
 }: {
     name: keyof typeof Feather.glyphMap;
     color: string;
@@ -30,10 +34,9 @@ function AnimatedTabIcon({
 }) {
     const scale = useSharedValue(1);
     const translateY = useSharedValue(0);
-    const didMountRef = React.useRef(false);
+    const didMountRef = useRef(false);
 
     useEffect(() => {
-        // Avoid the "big" animation on initial app load
         if (!didMountRef.current) {
             didMountRef.current = true;
             scale.value = 1;
@@ -42,18 +45,20 @@ function AnimatedTabIcon({
         }
 
         if (focused) {
-            // Small bounce when tab becomes active (subtle)
+            // Quick liquid bounce when tab becomes active
             scale.value = withSequence(
-                withSpring(1.08, { damping: 14, stiffness: 320 }),
-                withSpring(1, { damping: 16, stiffness: 220 })
+                withSpring(1.12, { damping: 16, stiffness: 600 }),
+                withSpring(0.96, { damping: 18, stiffness: 500 }),
+                withSpring(1, { damping: 20, stiffness: 400 })
             );
             translateY.value = withSequence(
-                withSpring(-2, { damping: 14, stiffness: 320 }),
-                withSpring(0, { damping: 16, stiffness: 220 })
+                withSpring(-2, { damping: 16, stiffness: 600 }),
+                withSpring(0.5, { damping: 18, stiffness: 500 }),
+                withSpring(0, { damping: 20, stiffness: 400 })
             );
         } else {
-            scale.value = withTiming(1, { duration: 200 });
-            translateY.value = withTiming(0, { duration: 200 });
+            scale.value = withTiming(1, { duration: 100 });
+            translateY.value = withTiming(0, { duration: 100 });
         }
     }, [focused, scale, translateY]);
 
@@ -70,10 +75,146 @@ function AnimatedTabIcon({
                 <Feather
                     name={name}
                     size={24}
-                    color={color}
+                    color={focused ? '#FFFFFF' : '#6B6B6B'}
                 />
             </Animated.View>
         </View>
+    );
+}
+
+// Custom Tab Bar Background with liquid glass effect
+function TabBarBackground({ currentIndex }: { currentIndex: number }) {
+    const indicatorX = useSharedValue(0);
+    const indicatorScaleX = useSharedValue(1);
+    const indicatorScaleY = useSharedValue(1);
+    const glowOpacity = useSharedValue(0.3);
+    const prevIndex = useRef(currentIndex);
+
+    useEffect(() => {
+        const tabBarWidth = SCREEN_WIDTH - TAB_BAR_MARGIN * 2;
+        const segmentWidth = tabBarWidth / TAB_COUNT;
+        const targetX = segmentWidth * currentIndex + segmentWidth / 2 - INDICATOR_WIDTH / 2;
+
+        // Calculate direction and distance for liquid stretch effect
+        const distance = Math.abs(currentIndex - prevIndex.current);
+
+        if (distance > 0) {
+            // Quick liquid stretch effect during movement
+            indicatorScaleX.value = withSequence(
+                withSpring(1.2 + distance * 0.1, { damping: 18, stiffness: 500 }),
+                withSpring(0.95, { damping: 16, stiffness: 450 }),
+                withSpring(1, { damping: 20, stiffness: 400 })
+            );
+            indicatorScaleY.value = withSequence(
+                withSpring(0.8, { damping: 18, stiffness: 500 }),
+                withSpring(1.05, { damping: 16, stiffness: 450 }),
+                withSpring(1, { damping: 20, stiffness: 400 })
+            );
+
+            // Glow pulse on change
+            glowOpacity.value = withSequence(
+                withTiming(0.5, { duration: 50 }),
+                withTiming(0.3, { duration: 150 })
+            );
+        }
+
+        // Smooth position animation
+        indicatorX.value = withSpring(targetX, { damping: 18, stiffness: 180, mass: 0.8 });
+
+        prevIndex.current = currentIndex;
+    }, [currentIndex, indicatorX, indicatorScaleX, indicatorScaleY, glowOpacity]);
+
+    const indicatorStyle = useAnimatedStyle(() => ({
+        transform: [
+            { translateX: indicatorX.value },
+            { scaleX: indicatorScaleX.value },
+            { scaleY: indicatorScaleY.value },
+        ],
+    }));
+
+    const glowStyle = useAnimatedStyle(() => ({
+        opacity: glowOpacity.value,
+        transform: [
+            { translateX: indicatorX.value },
+            { scale: interpolate(indicatorScaleX.value, [1, 1.3], [1, 1.2]) },
+        ],
+    }));
+
+    return (
+        <View style={styles.tabBarBackgroundContainer}>
+            {/* Glass background */}
+            <LinearGradient
+                colors={['rgba(40, 44, 48, 0.95)', 'rgba(30, 33, 36, 0.98)', 'rgba(35, 38, 41, 0.95)']}
+                locations={[0, 0.5, 1]}
+                style={styles.tabBarGradient}
+            />
+
+            {/* Inner highlight */}
+            <View style={styles.innerHighlight} />
+
+
+
+            {/* Outer glow for indicator */}
+            <Animated.View style={[styles.indicatorGlow, glowStyle]} />
+
+            {/* Liquid glass indicator */}
+            <Animated.View style={[styles.liquidIndicator, indicatorStyle]}>
+                <LinearGradient
+                    colors={['rgba(255, 255, 255, 0.18)', 'rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.12)']}
+                    locations={[0, 0.5, 1]}
+                    style={styles.indicatorGradient}
+                />
+                {/* Indicator inner highlight */}
+                <View style={styles.indicatorHighlight} />
+                {/* Indicator bottom reflection */}
+                <View style={styles.indicatorReflection} />
+            </Animated.View>
+        </View>
+    );
+}
+
+// Wrapper for tab press handling with haptics
+function TabPressWrapper({
+    children,
+    onPress,
+    isFocused,
+}: {
+    children: React.ReactNode;
+    onPress: () => void;
+    isFocused: boolean;
+}) {
+    const scale = useSharedValue(1);
+
+    const handlePressIn = useCallback(() => {
+        scale.value = withSpring(0.9, { damping: 15, stiffness: 400 });
+    }, [scale]);
+
+    const handlePressOut = useCallback(() => {
+        scale.value = withSpring(1, { damping: 12, stiffness: 300 });
+    }, [scale]);
+
+    const handlePress = useCallback(() => {
+        if (Platform.OS === 'ios') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+        onPress();
+    }, [onPress]);
+
+    const animatedStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: scale.value }],
+    }));
+
+    return (
+        <Pressable
+            onPress={handlePress}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            style={styles.tabPressWrapper}
+        >
+            <Animated.View style={[styles.tabPressContent, animatedStyle]}>
+                {children}
+            </Animated.View>
+        </Pressable>
     );
 }
 
@@ -82,24 +223,8 @@ function TabLayoutInner() {
     const pathname = usePathname();
     const { setCurrentTab, currentIndex } = useTabTransition();
 
-    const indicatorX = useSharedValue(0);
-
-    useEffect(() => {
-        const tabBarWidth = SCREEN_WIDTH - TAB_BAR_MARGIN * 2;
-        const segmentWidth = tabBarWidth / TAB_COUNT;
-        const nextX = segmentWidth * currentIndex + segmentWidth / 2 - INDICATOR_WIDTH / 2;
-
-        // Smooth, minimal movement with a subtle spring
-        indicatorX.value = withSpring(nextX, { damping: 22, stiffness: 220, mass: 0.9 });
-    }, [currentIndex, indicatorX]);
-
-    const indicatorStyle = useAnimatedStyle(() => ({
-        transform: [{ translateX: indicatorX.value }],
-    }));
-
     // Extract route name from pathname and update context
     useEffect(() => {
-        // pathname will be like "/log", "/insights", etc. or "/" for index
         const routeName = pathname === '/' ? 'index' : pathname.replace('/', '');
         setCurrentTab(routeName);
     }, [pathname, setCurrentTab]);
@@ -113,11 +238,7 @@ function TabLayoutInner() {
                 tabBarInactiveTintColor: '#6B6B6B',
                 tabBarLabelStyle: styles.tabBarLabel,
                 tabBarItemStyle: styles.tabBarItem,
-                tabBarBackground: () => (
-                    <View style={styles.tabBarBackground}>
-                        <Animated.View style={[styles.movingIndicator, indicatorStyle]} />
-                    </View>
-                ),
+                tabBarBackground: () => <TabBarBackground currentIndex={currentIndex} />,
                 sceneStyle: { backgroundColor: '#111111' },
                 animation: 'shift',
             }}
@@ -176,7 +297,7 @@ export default function TabLayout() {
 const styles = StyleSheet.create({
     tabBar: {
         position: 'absolute',
-        bottom: Platform.OS === 'ios' ? 40 : 20,
+        bottom: Platform.OS === 'ios' ? 20 : 16,
         marginHorizontal: 16,
         height: 80,
         borderRadius: 28,
@@ -185,21 +306,91 @@ const styles = StyleSheet.create({
         elevation: 0,
         shadowOpacity: 0,
     },
-    tabBarBackground: {
+    tabBarBackgroundContainer: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: '#232629',
         borderRadius: 28,
+        overflow: 'hidden',
+    },
+    tabBarGradient: {
+        ...StyleSheet.absoluteFillObject,
+        borderRadius: 28,
+    },
+    topEdgeHighlight: {
+        position: 'absolute',
+        top: 0,
+        left: 20,
+        right: 20,
+        height: 1,
+        backgroundColor: 'rgba(255, 255, 255, 0.15)',
+        borderRadius: 1,
+    },
+    innerHighlight: {
+        position: 'absolute',
+        top: 1,
+        left: 1,
+        right: 1,
+        bottom: 1,
+        borderRadius: 27,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.4,
-        shadowRadius: 20,
-        elevation: 15,
+        borderColor: 'rgba(255, 255, 255, 0.05)',
+    },
+    indicatorGlow: {
+        position: 'absolute',
+        top: 2,
+        width: INDICATOR_WIDTH + 20,
+        height: INDICATOR_HEIGHT + 12,
+        borderRadius: 24,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    },
+    liquidIndicator: {
+        position: 'absolute',
+        top: 6,
+        width: INDICATOR_WIDTH,
+        height: INDICATOR_HEIGHT,
+        borderRadius: 20,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.15)',
+        // Subtle inner shadow
+        shadowColor: '#fff',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.08,
+        shadowRadius: 10,
+    },
+    indicatorGradient: {
+        ...StyleSheet.absoluteFillObject,
+        borderRadius: 20,
+    },
+    indicatorHighlight: {
+        position: 'absolute',
+        top: 1,
+        left: 10,
+        right: 10,
+        height: 1,
+        backgroundColor: 'rgba(255, 255, 255, 0.25)',
+        borderRadius: 1,
+    },
+    indicatorReflection: {
+        position: 'absolute',
+        bottom: 3,
+        left: 12,
+        right: 12,
+        height: 1,
+        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        borderRadius: 1,
+    },
+    bottomReflection: {
+        position: 'absolute',
+        bottom: 4,
+        left: 40,
+        right: 40,
+        height: 1,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        borderRadius: 1,
     },
     tabBarItem: {
-        paddingTop: 8,
-        paddingBottom: 8,
+        paddingTop: 6,
+        paddingBottom: 6,
         height: 70,
     },
     tabBarLabel: {
@@ -212,13 +403,13 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         height: 28,
     },
-    movingIndicator: {
-        position: 'absolute',
-        // roughly matches the old per-icon indicator placement
-        top: 2,
-        width: INDICATOR_WIDTH,
-        height: 3,
-        backgroundColor: Colors.textPrimary,
-        borderRadius: 2,
+    tabPressWrapper: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    tabPressContent: {
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 });

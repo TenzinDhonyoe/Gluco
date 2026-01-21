@@ -1,3 +1,4 @@
+import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import React, { useEffect, useMemo } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
@@ -11,13 +12,6 @@ const AnimatedLine = Animated.createAnimatedComponent(Line);
 const MASCOT_CRY = require('@/assets/images/mascots/gluco_app_mascott/gluco_mascott_cry.png');
 const MASCOT_DEFAULT = require('@/assets/images/mascots/gluco_app_mascott/gluco_mascott_default.png');
 const LOCK_ICON = require('@/assets/images/icons/lock_red.png');
-
-// Colors
-const COLORS = {
-    red: '#F06B6B',
-    yellow: '#FDCB6E',
-    green: '#9DD66B',
-};
 
 export type TrendStatus = 'low' | 'in_range' | 'high' | 'no_data';
 
@@ -37,7 +31,7 @@ export function GlucoseTrendIndicator({
                 return {
                     mascot: MASCOT_CRY,
                     label: 'Low',
-                    labelColor: COLORS.red,
+                    labelColor: Colors.chartRed,
                     needleAngle: -70,
                     showNeedle: true,
                     subtitle: defaultSubtitle,
@@ -46,7 +40,7 @@ export function GlucoseTrendIndicator({
                 return {
                     mascot: MASCOT_DEFAULT,
                     label: 'In Range',
-                    labelColor: COLORS.green,
+                    labelColor: Colors.success,
                     needleAngle: 0,
                     showNeedle: true,
                     subtitle: defaultSubtitle,
@@ -55,7 +49,7 @@ export function GlucoseTrendIndicator({
                 return {
                     mascot: MASCOT_CRY,
                     label: 'High',
-                    labelColor: COLORS.red,
+                    labelColor: Colors.chartRed,
                     needleAngle: 70,
                     showNeedle: true,
                     subtitle: defaultSubtitle,
@@ -65,7 +59,7 @@ export function GlucoseTrendIndicator({
                 return {
                     mascot: MASCOT_CRY,
                     label: '- - -',
-                    labelColor: COLORS.red,
+                    labelColor: Colors.chartRed,
                     needleAngle: -70, // Default to low/start position for no data
                     showNeedle: false,
                     subtitle: "Start logging to unlock your trends",
@@ -79,10 +73,10 @@ export function GlucoseTrendIndicator({
     useEffect(() => {
         // Animate to new angle whenever it changes
         if (showNeedle) {
-            // Use withTiming instead of withSpring for better performance/less "lag" feel
+            // Fast, snappy animation for responsive feel when switching time frames
             animatedAngle.value = withTiming(needleAngle, {
-                duration: 300,
-                easing: Easing.out(Easing.quad), // Simpler quadratic easing
+                duration: 150,
+                easing: Easing.linear, // Minimal easing for speed
             });
         }
     }, [needleAngle, showNeedle]);
@@ -148,11 +142,11 @@ export function GlucoseTrendIndicator({
                 >
                     <Defs>
                         <LinearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                            <Stop offset="0%" stopColor={COLORS.red} />
-                            <Stop offset="20%" stopColor={COLORS.yellow} />
-                            <Stop offset="50%" stopColor={COLORS.green} />
-                            <Stop offset="80%" stopColor={COLORS.yellow} />
-                            <Stop offset="100%" stopColor={COLORS.red} />
+                            <Stop offset="0%" stopColor={Colors.chartRed} />
+                            <Stop offset="20%" stopColor={Colors.chartYellow} />
+                            <Stop offset="50%" stopColor={Colors.success} />
+                            <Stop offset="80%" stopColor={Colors.chartYellow} />
+                            <Stop offset="100%" stopColor={Colors.chartRed} />
                         </LinearGradient>
                     </Defs>
 
@@ -218,7 +212,7 @@ const styles = StyleSheet.create({
     subtitle: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         textAlign: 'center',
         width: '100%',
     },

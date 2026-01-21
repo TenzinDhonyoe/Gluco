@@ -1,3 +1,4 @@
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { CONFIG, searchWithProgressiveResults, shouldTriggerSearch } from '@/lib/foodSearch';
@@ -36,6 +37,7 @@ interface FoodSearchResultsViewProps {
     onSave: (items: SelectedItem[]) => void;
     onScanBarcode: () => void;
     initialSelectedItems?: SelectedItem[];
+    onCartModalChange?: (isOpen: boolean) => void;
 }
 
 export default function FoodSearchResultsView({
@@ -43,6 +45,7 @@ export default function FoodSearchResultsView({
     onSave,
     onScanBarcode,
     initialSelectedItems = [],
+    onCartModalChange,
 }: FoodSearchResultsViewProps) {
     const { user, profile } = useAuth();
     const insets = useSafeAreaInsets();
@@ -66,6 +69,10 @@ export default function FoodSearchResultsView({
 
     // Manual entry modal state
 
+    // Notify parent when cart modal state changes
+    useEffect(() => {
+        onCartModalChange?.(showCartModal);
+    }, [showCartModal, onCartModalChange]);
 
     // Load favorites list when component mounts or tab changes
     const loadFavorites = useCallback(async () => {
@@ -345,13 +352,9 @@ export default function FoodSearchResultsView({
             <View style={[styles.contentContainer, { paddingTop: insets.top }]}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <TouchableOpacity
-                        style={styles.backButton}
-                        onPress={onClose}
-                        activeOpacity={0.7}
-                    >
-                        <Ionicons name="chevron-back" size={20} color="#E7E8E9" />
-                    </TouchableOpacity>
+                    <LiquidGlassIconButton size={44} onPress={onClose}>
+                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                    </LiquidGlassIconButton>
                     <View style={styles.headerSpacer} />
                     <View style={styles.headerSpacer} />
 
@@ -552,7 +555,7 @@ export default function FoodSearchResultsView({
                                 onPress={handleSavePress}
                                 activeOpacity={0.8}
                             >
-                                <Text style={styles.saveButtonText}>Add to Meal</Text>
+                                <Text style={styles.saveButtonText}>Analyze Meal</Text>
                             </TouchableOpacity>
                         </View>
                     </View>

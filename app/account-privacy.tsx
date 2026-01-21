@@ -1,4 +1,5 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -322,12 +323,9 @@ export default function AccountPrivacyScreen() {
             <SafeAreaView edges={['top']} style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <AnimatedPressable
-                        style={styles.backButton}
-                        onPress={handleBack}
-                    >
-                        <Ionicons name="chevron-back" size={20} color="#E7E8E9" />
-                    </AnimatedPressable>
+                    <LiquidGlassIconButton size={44} onPress={handleBack}>
+                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                    </LiquidGlassIconButton>
                     <Text style={styles.headerTitle}>ACCOUNT & PRIVACY</Text>
                     <View style={styles.headerSpacer} />
                 </View>

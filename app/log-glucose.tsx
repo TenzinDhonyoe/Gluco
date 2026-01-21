@@ -1,4 +1,5 @@
 import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
@@ -218,15 +219,9 @@ export default function LogGlucoseScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         {/* Header */}
         <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [
-              styles.headerIconBtn,
-              pressed && styles.headerIconBtnPressed,
-            ]}
-          >
-            <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
-          </Pressable>
+          <LiquidGlassIconButton size={44} onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+          </LiquidGlassIconButton>
 
           <Text style={styles.headerTitle}>LOG GLUCOSE</Text>
 

@@ -3,6 +3,7 @@
 
 import { AnimatedScreen } from '@/components/animations/animated-screen';
 import { SegmentedControl } from '@/components/controls/segmented-control';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import {
@@ -233,9 +234,9 @@ export default function ExperimentsListScreen() {
                 <SafeAreaView edges={['top']} style={styles.safeArea}>
                     {/* Header */}
                     <View style={styles.header}>
-                        <TouchableOpacity onPress={() => router.back()} style={styles.backButton} activeOpacity={0.7}>
-                            <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
-                        </TouchableOpacity>
+                        <LiquidGlassIconButton size={44} onPress={() => router.back()}>
+                            <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                        </LiquidGlassIconButton>
                         <Text style={styles.headerTitle}>My Experiments</Text>
                         <View style={styles.headerSpacer} />
                     </View>

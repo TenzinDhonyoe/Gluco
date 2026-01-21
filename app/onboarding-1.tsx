@@ -1,5 +1,6 @@
 import { ONBOARDING_STEP_KEY } from '@/app/index';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -154,12 +155,9 @@ export default function Onboarding1Screen() {
                         showsVerticalScrollIndicator={false}
                     >
                         {/* Back Button */}
-                        <AnimatedPressable
-                            style={styles.backButton}
-                            onPress={handleBack}
-                        >
-                            <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                        </AnimatedPressable>
+                        <LiquidGlassIconButton size={44} onPress={handleBack}>
+                            <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
+                        </LiquidGlassIconButton>
 
                         {/* Progress Indicator */}
                         <View style={styles.progressContainer}>

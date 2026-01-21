@@ -1,3 +1,4 @@
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -105,13 +106,9 @@ export default function MealCheckinScreen() {
                 >
                     {/* Header */}
                     <View style={styles.header}>
-                        <TouchableOpacity
-                            onPress={() => router.back()}
-                            style={styles.closeButton}
-                            activeOpacity={0.7}
-                        >
-                            <Ionicons name="close" size={20} color="#E7E8E9" />
-                        </TouchableOpacity>
+                        <LiquidGlassIconButton size={44} onPress={() => router.back()}>
+                            <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                        </LiquidGlassIconButton>
                         <Text style={styles.headerTitle}>After Meal Check In</Text>
                         <View style={styles.headerSpacer} />
                     </View>

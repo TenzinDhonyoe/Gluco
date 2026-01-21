@@ -1,4 +1,5 @@
 import { ONBOARDING_STEP_KEY } from '@/app/index';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -165,13 +166,9 @@ export default function Onboarding4Screen() {
                         showsVerticalScrollIndicator={false}
                     >
                         {/* Back Button */}
-                        <TouchableOpacity
-                            style={styles.backButton}
-                            onPress={handleBack}
-                            activeOpacity={0.7}
-                        >
-                            <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                        </TouchableOpacity>
+                        <LiquidGlassIconButton size={44} onPress={handleBack}>
+                            <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
+                        </LiquidGlassIconButton>
 
                         {/* Progress Indicator */}
                         <View style={styles.progressContainer}>

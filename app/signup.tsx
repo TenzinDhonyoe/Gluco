@@ -1,6 +1,7 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
@@ -132,12 +133,9 @@ export default function SignUpScreen() {
                             showsVerticalScrollIndicator={false}
                         >
                             {/* Back Button */}
-                            <AnimatedPressable
-                                style={styles.backButton}
-                                onPress={handleBack}
-                            >
-                                <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                            </AnimatedPressable>
+                            <LiquidGlassIconButton size={44} onPress={handleBack}>
+                                <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
+                            </LiquidGlassIconButton>
 
                             {/* Header Section */}
                             <View style={styles.headerSection}>

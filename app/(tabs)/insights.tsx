@@ -38,6 +38,7 @@ import {
 import { formatGlucoseWithUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
@@ -51,7 +52,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type TabKey = 'actions' | 'progress' | 'experiments';
 
@@ -195,6 +196,8 @@ export default function InsightsScreen() {
     const { user, profile } = useAuth();
     const glucoseUnit = useGlucoseUnit();
     const params = useLocalSearchParams();
+    const insets = useSafeAreaInsets();
+    const HEADER_HEIGHT = 120 + insets.top;
 
     const [activeTab, setActiveTab] = useState<TabKey>('actions');
     const insightsRangeDays = 30;
@@ -1034,7 +1037,7 @@ export default function InsightsScreen() {
     };
 
     const renderActionsTab = () => (
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false}>
             <Text style={styles.sectionTitle}>Action Loop</Text>
             <Text style={styles.sectionDescription}>Every signal maps to a 24-72 hour next step.</Text>
 
@@ -1070,7 +1073,7 @@ export default function InsightsScreen() {
     );
 
     const renderProgressTab = () => (
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false}>
             <Text style={styles.sectionTitle}>Trend Velocity</Text>
             <Text style={styles.sectionDescription}>Track direction and speed across 30, 90, and 180 days.</Text>
 
@@ -1129,7 +1132,7 @@ export default function InsightsScreen() {
     );
 
     const renderExperimentsTab = () => (
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false}>
             <View style={styles.experimentsHeader}>
                 <Text style={styles.sectionTitle}>Find What Works For You</Text>
                 <Text style={styles.sectionDescription}>Structured experiments refine what actually moves your numbers.</Text>
@@ -1183,11 +1186,32 @@ export default function InsightsScreen() {
                     locations={[0, 0.35, 1]}
                     style={StyleSheet.absoluteFillObject}
                 />
-                <SafeAreaView style={styles.safeArea} edges={['top']}>
+
+                {/* Content - scrolls behind header */}
+                <View style={styles.safeArea}>
+                    {insightsLoading ? (
+                        <View style={[styles.loadingContainer, { paddingTop: HEADER_HEIGHT + 8 }]}>
+                            <ActivityIndicator color="#878787" />
+                            <Text style={styles.loadingText}>Loading insights...</Text>
+                        </View>
+                    ) : (
+                        <>
+                            {activeTab === 'actions' && renderActionsTab()}
+                            {activeTab === 'progress' && renderProgressTab()}
+                            {activeTab === 'experiments' && renderExperimentsTab()}
+                        </>
+                    )}
+                </View>
+
+                {/* Blurred Header */}
+                <BlurView
+                    intensity={80}
+                    tint="dark"
+                    style={[styles.blurHeader, { paddingTop: insets.top }]}
+                >
                     <View style={styles.header}>
                         <Text style={styles.headerTitle}>INSIGHTS</Text>
                     </View>
-
                     <View style={styles.segmentedControlContainer}>
                         <SegmentedControl
                             options={[
@@ -1199,20 +1223,7 @@ export default function InsightsScreen() {
                             onChange={setActiveTab}
                         />
                     </View>
-
-                    {insightsLoading ? (
-                        <View style={styles.loadingContainer}>
-                            <ActivityIndicator color="#878787" />
-                            <Text style={styles.loadingText}>Loading insights...</Text>
-                        </View>
-                    ) : (
-                        <>
-                            {activeTab === 'actions' && renderActionsTab()}
-                            {activeTab === 'progress' && renderProgressTab()}
-                            {activeTab === 'experiments' && renderExperimentsTab()}
-                        </>
-                    )}
-                </SafeAreaView>
+                </BlurView>
             </View>
         </AnimatedScreen>
     );
@@ -1226,22 +1237,29 @@ const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
     },
+    blurHeader: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 100,
+    },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 16,
-        paddingVertical: 20,
+        paddingVertical: 12,
     },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 18,
+        fontSize: 24,
         color: '#FFFFFF',
         letterSpacing: 1,
         textTransform: 'uppercase',
     },
     segmentedControlContainer: {
         paddingHorizontal: 16,
-        marginBottom: 16,
+        paddingBottom: 0,
     },
     subtitle: {
         fontFamily: fonts.regular,
@@ -1253,7 +1271,6 @@ const styles = StyleSheet.create({
     scrollContent: {
         paddingHorizontal: 20,
         paddingBottom: 160,
-        paddingTop: 16,
         gap: 16,
     },
     loadingContainer: {

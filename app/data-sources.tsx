@@ -1,4 +1,5 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { fonts } from '@/hooks/useFonts';
 import {
     getActiveMinutes,
@@ -193,12 +194,9 @@ export default function DataSourcesScreen() {
             <SafeAreaView style={styles.safeArea} edges={['top']}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <AnimatedPressable
-                        style={styles.backButton}
-                        onPress={handleBack}
-                    >
-                        <Ionicons name="chevron-back" size={20} color="#E7E8E9" />
-                    </AnimatedPressable>
+                    <LiquidGlassIconButton size={44} onPress={handleBack}>
+                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                    </LiquidGlassIconButton>
                     <Text style={styles.headerTitle}>DATA SOURCES</Text>
                     <View style={styles.headerSpacer} />
                 </View>
