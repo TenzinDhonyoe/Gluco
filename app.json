@@ -8,7 +8,7 @@
     "icon": "./assets/images/branding/gluco_app_icon.png",
     "scheme": "gluco",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "runtimeVersion": {
       "policy": "appVersion"
     },
