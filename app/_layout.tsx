@@ -11,6 +11,7 @@ import { useOutfitFonts } from '@/hooks/useFonts';
 import {
   configureAndroidChannel,
   handleInitialNotification,
+  initNotifications,
   setupNotificationListeners,
 } from '@/lib/notifications';
 import { initializeRevenueCat } from '@/lib/revenuecat';
@@ -25,8 +26,10 @@ export default function RootLayout() {
 
   // Setup notification handlers
   useEffect(() => {
-    // Configure Android notification channel
-    configureAndroidChannel();
+    // Initialize notifications (listeners, channels, handlers)
+    initNotifications().then(() => {
+      configureAndroidChannel();
+    });
 
     // Setup notification response listener
     const cleanup = setupNotificationListeners();

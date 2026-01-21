@@ -3,10 +3,10 @@ import { Disclaimer } from '@/components/ui/Disclaimer';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { requestNotificationPermissions } from '@/lib/notifications';
 import { CoachingStyle, updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -62,15 +62,9 @@ export default function Onboarding5Screen() {
 
     const handleEnableNotifications = async () => {
         try {
-            const { status: existingStatus } = await Notifications.getPermissionsAsync();
-            let finalStatus = existingStatus;
+            const granted = await requestNotificationPermissions();
 
-            if (existingStatus !== 'granted') {
-                const { status } = await Notifications.requestPermissionsAsync();
-                finalStatus = status;
-            }
-
-            if (finalStatus === 'granted') {
+            if (granted) {
                 setNotificationsEnabled(true);
             } else {
                 Alert.alert(

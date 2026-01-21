@@ -18,9 +18,13 @@ const supabaseAnonKey =
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-        storage: Platform.OS === 'web' ? AsyncStorage : {
+        storage: {
             getItem: async (key: string) => {
+                if (typeof window === 'undefined') return null;
                 try {
+                    if (Platform.OS === 'web') {
+                        return await AsyncStorage.getItem(key);
+                    }
                     const secureValue = await SecureStore.getItemAsync(key);
                     if (secureValue !== null) return secureValue;
                     return await AsyncStorage.getItem(key);
@@ -29,14 +33,24 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
                 }
             },
             setItem: async (key: string, value: string) => {
+                if (typeof window === 'undefined') return;
                 try {
+                    if (Platform.OS === 'web') {
+                        await AsyncStorage.setItem(key, value);
+                        return;
+                    }
                     await SecureStore.setItemAsync(key, value);
                 } catch {
                     await AsyncStorage.setItem(key, value);
                 }
             },
             removeItem: async (key: string) => {
+                if (typeof window === 'undefined') return;
                 try {
+                    if (Platform.OS === 'web') {
+                        await AsyncStorage.removeItem(key);
+                        return;
+                    }
                     await SecureStore.deleteItemAsync(key);
                 } catch {
                     // Ignore SecureStore errors and fall back to AsyncStorage
