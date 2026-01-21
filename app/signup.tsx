@@ -133,7 +133,11 @@ export default function SignUpScreen() {
                             showsVerticalScrollIndicator={false}
                         >
                             {/* Back Button */}
-                            <LiquidGlassIconButton size={44} onPress={handleBack}>
+                            <LiquidGlassIconButton
+                                size={44}
+                                onPress={handleBack}
+                                style={styles.backButton}
+                            >
                                 <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
                             </LiquidGlassIconButton>
 
@@ -313,22 +317,9 @@ const styles = StyleSheet.create({
         paddingBottom: 40,
     },
     backButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
         marginTop: 16,
         marginBottom: 20,
-        shadowColor: '#000',
-        shadowOffset: {
-            width: 0,
-            height: 1,
-        },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
-        elevation: 2,
+        alignSelf: 'flex-start',
     },
     headerSection: {
         marginBottom: 36,
@@ -387,7 +378,7 @@ const styles = StyleSheet.create({
     },
     checkboxChecked: {
         backgroundColor: Colors.buttonPrimary,
-        borderColor: Colors.buttonBorder,
+        borderColor: Colors.primary,
     },
     checkboxText: {
         fontFamily: fonts.medium, // Outfit Medium (500)

@@ -768,15 +768,17 @@ export default function MealScannerScreen() {
                 </View>
             )}
 
-            {/* Analysis Results View */}
+            {/* Analysis Results View - Full screen overlay */}
             {analysisResult && (
-                <AnalysisResultsView
-                    imageUri={analysisResult.imageUri}
-                    items={analysisResult.items}
-                    onReview={handleAnalysisReview}
-                    onSave={handleAnalysisSave}
-                    onClose={handleAnalysisClose}
-                />
+                <View style={styles.overlayContainer}>
+                    <AnalysisResultsView
+                        imageUri={analysisResult.imageUri}
+                        items={analysisResult.items}
+                        onReview={handleAnalysisReview}
+                        onSave={handleAnalysisSave}
+                        onClose={handleAnalysisClose}
+                    />
+                </View>
             )}
         </View >
     );

@@ -8,6 +8,7 @@ import { SegmentedControl } from '@/components/controls/segmented-control';
 import { ActiveExperimentWidget } from '@/components/experiments/ActiveExperimentWidget';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { SyncBanner } from '@/components/ui/SyncBanner';
 import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
@@ -18,7 +19,7 @@ import { SleepData, useSleepData } from '@/hooks/useSleepData';
 import { useGlucoseTargetRange, useTodayScreenData } from '@/hooks/useTodayScreenData';
 import { InsightData, TrackingMode } from '@/lib/insights';
 import { getMetabolicWeeklyScores, GlucoseLog, invokeMetabolicScore, MealWithCheckin, MetabolicWeeklyScore } from '@/lib/supabase';
-import { getDateRange, getRangeDays, getRangeShortLabel, RangeKey } from '@/lib/utils/dateRanges';
+import { getDateRange, getRangeDays, RangeKey } from '@/lib/utils/dateRanges';
 import { GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -35,6 +36,7 @@ import {
     PanResponder,
     Platform,
     Pressable,
+    RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
@@ -177,9 +179,9 @@ const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
                     </>
                 )}
             </View>
-            <View style={[styles.fibreStatusPill, { backgroundColor: Colors.glucoseGood + '30' }]}>
-                <View style={[styles.fibreStatusDot, { backgroundColor: Colors.glucoseGood }]} />
-                <Text style={[styles.fibreStatusText, { color: Colors.glucoseGood }]}>
+            <View style={[styles.cardStatusPill, { backgroundColor: Colors.glucoseGood + '30' }]}>
+                <View style={[styles.cardStatusDot, { backgroundColor: Colors.glucoseGood }]} />
+                <Text style={[styles.cardStatusText, { color: Colors.glucoseGood }]}>
                     {targetMin.toFixed(1)}-{targetMax.toFixed(1)} mmol/L
                 </Text>
             </View>
@@ -221,7 +223,23 @@ const ActivityStatCard = React.memo(({
 
     // Display value formatting
     const displayValue = hasData ? Math.round(avgMinutes).toString() : '-';
-    const sourceLabel = showHealthKit ? 'Apple Health' : 'Manual Entry';
+
+    // Status logic (Low < 20m, Moderate 20-40m, High > 40m)
+    let statusColor = Colors.textTertiary;
+    let statusLabel = 'No data';
+
+    if (hasData) {
+        if (avgMinutes > 40) {
+            statusColor = Colors.success;
+            statusLabel = 'High';
+        } else if (avgMinutes >= 20) {
+            statusColor = Colors.warning;
+            statusLabel = 'Moderate';
+        } else {
+            statusColor = Colors.error;
+            statusLabel = 'Low';
+        }
+    }
 
     const handlePress = () => {
         // Allow connecting if available but not authorized
@@ -244,12 +262,11 @@ const ActivityStatCard = React.memo(({
                 <Text style={styles.statValue}>{displayValue}</Text>
                 <Text style={styles.statUnit}>min/day</Text>
             </View>
-            <Text style={styles.statDescription}>
-                {isHealthKitAvailable && !isHealthKitAuthorized
-                    ? 'Tap to connect'
-                    : getRangeShortLabel(range)}
-            </Text>
-            <Text style={styles.dataSourceLabel}>{sourceLabel}</Text>
+            {isHealthKitAvailable && !isHealthKitAuthorized ? (
+                <Text style={styles.statDescription}>Tap to connect</Text>
+            ) : (
+                <StatusPill color={statusColor} label={statusLabel} />
+            )}
         </AnimatedPressable>
     );
 }, (prev, next) =>
@@ -259,14 +276,14 @@ const ActivityStatCard = React.memo(({
     prev.isHealthKitAuthorized === next.isHealthKitAuthorized
 );
 
-// Fibre thresholds based on Canada DV (25g/day target)
+// Fibre thresholds based on Canada DV (25g/day target) and average intake (~15g)
 const FIBRE_TARGET = 25;
-const FIBRE_LOW_THRESHOLD = 12.5;
+const FIBRE_MODERATE_THRESHOLD = 15;
 
 type FibreStatus = 'low' | 'moderate' | 'high';
 
 function getFibreStatus(avgPerDay: number): FibreStatus {
-    if (avgPerDay < FIBRE_LOW_THRESHOLD) return 'low';
+    if (avgPerDay < FIBRE_MODERATE_THRESHOLD) return 'low';
     if (avgPerDay < FIBRE_TARGET) return 'moderate';
     return 'high';
 }
@@ -278,6 +295,40 @@ function getFibreStatusColor(status: FibreStatus): string {
         case 'low': return Colors.error;
     }
 }
+
+// Reusable Status Pill Component
+const StatusPill = ({ color, label }: { color: string; label: string }) => {
+    const isPulsing = label !== 'No data';
+    const opacity = React.useRef(new Animated.Value(isPulsing ? 0.4 : 1)).current;
+
+    React.useEffect(() => {
+        if (isPulsing) {
+            Animated.loop(
+                Animated.sequence([
+                    Animated.timing(opacity, {
+                        toValue: 1,
+                        duration: 1000,
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(opacity, {
+                        toValue: 0.4,
+                        duration: 1000,
+                        useNativeDriver: true,
+                    }),
+                ])
+            ).start();
+        } else {
+            opacity.setValue(1); // Static for no data
+        }
+    }, [isPulsing, opacity]);
+
+    return (
+        <View style={[styles.cardStatusPill, { backgroundColor: color + '30' }]}>
+            <Animated.View style={[styles.cardStatusDot, { backgroundColor: color, opacity }]} />
+            <Text style={[styles.cardStatusText, { color }]}>{label}</Text>
+        </View>
+    );
+};
 
 // Memoized Fibre Stat Card - shows fibre intake from logged meals
 const FibreStatCard = React.memo(({ range, fibreSummary }: {
@@ -298,25 +349,23 @@ const FibreStatCard = React.memo(({ range, fibreSummary }: {
                 <Text style={[styles.statTitle, { color: Colors.fiber }]}>FIBRE INTAKE</Text>
             </View>
             <View style={styles.statValueContainer}>
-                <Text style={[styles.statValue]}>{hasData ? avgPerDay.toFixed(1) : '-'}</Text>
+                <Text style={styles.statValue}>{hasData ? avgPerDay.toFixed(1) : '-'}</Text>
                 <Text style={styles.statUnit}>g/day</Text>
             </View>
-            <View style={[styles.fibreStatusPill, { backgroundColor: statusColor + '30' }]}>
-                <View style={[styles.fibreStatusDot, { backgroundColor: statusColor }]} />
-                <Text style={[styles.fibreStatusText, { color: statusColor }]}>{statusLabel}</Text>
-            </View>
+            <StatusPill color={statusColor} label={statusLabel} />
         </View>
     );
 }, (prev, next) => prev.range === next.range && prev.fibreSummary === next.fibreSummary);
 
 // Sleep thresholds based on CDC recommendations (7+ hours for adults)
+// <6: Poor, 6-7: Fair, >7: Good
 const SLEEP_TARGET = 7;
-const SLEEP_LOW_THRESHOLD = 6;
+const SLEEP_FAIR_THRESHOLD = 6;
 
 type SleepStatus = 'poor' | 'fair' | 'good';
 
 function getSleepStatus(avgHours: number): SleepStatus {
-    if (avgHours < SLEEP_LOW_THRESHOLD) return 'poor';
+    if (avgHours < SLEEP_FAIR_THRESHOLD) return 'poor';
     if (avgHours < SLEEP_TARGET) return 'fair';
     return 'good';
 }
@@ -337,12 +386,14 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
     const avgHours = sleepData?.avgHoursPerNight ?? 0;
     const isAuthorized = sleepData?.isAuthorized ?? false;
     const isAvailable = sleepData?.isAvailable ?? false;
+    const hasData = isAuthorized && avgHours > 0;
 
     const status = getSleepStatus(avgHours);
-    const statusColor = getSleepStatusColor(status);
+    const statusColor = hasData ? getSleepStatusColor(status) : Colors.textTertiary;
+    const statusLabel = hasData ? (status.charAt(0).toUpperCase() + status.slice(1)) : 'No data';
 
     // Format hours - show whole number like "5" or decimal like "7.5"
-    const displayValue = isAuthorized && avgHours > 0
+    const displayValue = hasData
         ? (avgHours % 1 === 0 ? Math.round(avgHours).toString() : avgHours.toFixed(1))
         : '--';
 
@@ -367,11 +418,11 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
                 <Text style={styles.statValue}>{displayValue}</Text>
                 <Text style={styles.statUnit}>hr/night</Text>
             </View>
-            <Text style={styles.statDescription}>
-                {isAvailable && !isAuthorized
-                    ? 'Tap to connect'
-                    : getRangeShortLabel(range)}
-            </Text>
+            {isAvailable && !isAuthorized ? (
+                <Text style={styles.statDescription}>Tap to connect</Text>
+            ) : (
+                <StatusPill color={statusColor} label={statusLabel} />
+            )}
         </AnimatedPressable>
     );
 }, (prev, next) => prev.range === next.range && prev.sleepData === next.sleepData);
@@ -386,6 +437,25 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
     const displayValue = isAuthorized && avgSteps !== null
         ? avgSteps.toLocaleString()
         : '—';
+
+    const hasData = isAuthorized && avgSteps !== null && avgSteps > 0;
+
+    // Dynamic thresholds for steps (Sedentary < 5k, Low Active 5k-10k, Active > 10k)
+    let statusColor = Colors.textTertiary;
+    let statusLabel = 'No data';
+
+    if (hasData && avgSteps !== null) {
+        if (avgSteps >= 10000) {
+            statusColor = Colors.success;
+            statusLabel = 'High';
+        } else if (avgSteps >= 5000) {
+            statusColor = Colors.warning;
+            statusLabel = 'Moderate';
+        } else {
+            statusColor = Colors.error;
+            statusLabel = 'Low';
+        }
+    }
 
     const handlePress = () => {
         if (!isAuthorized && isAvailable) {
@@ -407,12 +477,11 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
                 <Text style={styles.statValue}>{displayValue}</Text>
                 <Text style={styles.statUnit}>/day</Text>
             </View>
-            <Text style={styles.statDescription}>
-                {isAvailable && !isAuthorized
-                    ? 'Tap to connect'
-                    : getRangeShortLabel(range)}
-            </Text>
-            <Text style={styles.dataSourceLabel}>Apple Health</Text>
+            {isAvailable && !isAuthorized ? (
+                <Text style={styles.statDescription}>Tap to connect</Text>
+            ) : (
+                <StatusPill color={statusColor} label={statusLabel} />
+            )}
         </AnimatedPressable>
     );
 });
@@ -962,8 +1031,9 @@ export default function TodayScreen() {
     }, []);
 
     // Use unified data fetching hook - batches all queries
-    const { glucoseLogs, activityLogs, fibreSummary, recentMeals, isLoading } = useTodayScreenData(range);
+    const { glucoseLogs, activityLogs, fibreSummary, recentMeals, isLoading, refetch: refetchData } = useTodayScreenData(range);
     const { targetMin, targetMax } = useGlucoseTargetRange();
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     // Fetch sleep data from HealthKit (always fetches 90d, doesn't refetch on range change)
     const { data: sleepData, refetch: refetchSleep } = useSleepData(range);
@@ -1004,6 +1074,23 @@ export default function TodayScreen() {
             fetchWeeklyScores();
         }, [fetchWeeklyScores])
     );
+
+    // Pull-to-refresh handler - syncs all data sources
+    const onRefresh = useCallback(async () => {
+        setIsRefreshing(true);
+        try {
+            await Promise.all([
+                refetchData(),
+                dailyContext.sync(),
+                refetchSleep(),
+                fetchWeeklyScores(),
+            ]);
+        } catch (error) {
+            console.warn('Error refreshing data:', error);
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, [refetchData, dailyContext, refetchSleep, fetchWeeklyScores]);
 
     // Determine which tracking mode category the user is in
     const trackingMode = (profile?.tracking_mode || 'meals_wearables') as TrackingMode;
@@ -1105,6 +1192,14 @@ export default function TodayScreen() {
                     style={styles.scrollView}
                     contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 8 }]}
                     showsVerticalScrollIndicator={false}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={isRefreshing}
+                            onRefresh={onRefresh}
+                            tintColor={Colors.textSecondary}
+                            progressViewOffset={HEADER_HEIGHT}
+                        />
+                    }
                 >
                     {/* Glucose Trends - only show for glucose tracking users */}
                     {showGlucoseUI && (
@@ -1267,6 +1362,12 @@ export default function TodayScreen() {
                         />
                     </View>
                 </BlurView>
+
+                {/* Sync Banner - shows below header when syncing */}
+                <SyncBanner
+                    isSyncing={dailyContext.isSyncing || isLoading || isRefreshing}
+                    topOffset={HEADER_HEIGHT}
+                />
 
                 {/* Dark Overlay when FAB is open */}
                 {isFabOpen && (
@@ -1630,6 +1731,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
+        height: 40,
         marginBottom: 16,
     },
     statTitle: {
@@ -1662,7 +1764,7 @@ const styles = StyleSheet.create({
     broccoliIcon: {
         fontSize: 28,
     },
-    fibreStatusPill: {
+    cardStatusPill: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 8,
@@ -1671,13 +1773,13 @@ const styles = StyleSheet.create({
         marginTop: 4,
         alignSelf: 'flex-start',
     },
-    fibreStatusDot: {
+    cardStatusDot: {
         width: 6,
         height: 6,
         borderRadius: 3,
         marginRight: 5,
     },
-    fibreStatusText: {
+    cardStatusText: {
         fontFamily: fonts.medium,
         fontSize: 11,
     },
@@ -1977,14 +2079,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 32,
     },
     // Wearables-only mode styles
-    dataSourceLabel: {
-        fontFamily: fonts.regular,
-        fontSize: 10,
-        color: '#666',
-        marginTop: 4,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
+
     connectHealthCard: {
         flexDirection: 'row',
         alignItems: 'center',

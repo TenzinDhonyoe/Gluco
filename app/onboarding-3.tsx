@@ -5,15 +5,15 @@ import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Picker } from '@react-native-picker/picker';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    AppState,
     Animated,
+    AppState,
     Dimensions,
     ImageBackground,
     Modal,
@@ -319,23 +319,29 @@ export default function Onboarding3Screen() {
                         showsVerticalScrollIndicator={false}
                         keyboardShouldPersistTaps="handled"
                     >
-                        {/* Back Button */}
-                        <LiquidGlassIconButton size={44} onPress={handleBack}>
-                            <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
-                        </LiquidGlassIconButton>
+                        {/* Header Row */}
+                        <View style={styles.headerRow}>
+                            {/* Back Button */}
+                            <LiquidGlassIconButton
+                                size={44}
+                                onPress={handleBack}
+                                style={styles.backButton}
+                            >
+                                <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
+                            </LiquidGlassIconButton>
 
-                        {/* Progress Indicator */}
-                        <View style={styles.progressContainer}>
-                            {Array.from({ length: totalSteps }).map((_, index) => (
-                                <View
-                                    key={index}
-                                    style={[
-                                        styles.progressBar,
-                                        index < currentStep ? styles.progressBarActive : styles.progressBarInactive,
-                                        index < totalSteps - 1 && styles.progressBarSpacing,
-                                    ]}
-                                />
-                            ))}
+                            {/* Progress Indicator */}
+                            <View style={styles.progressContainer}>
+                                {Array.from({ length: totalSteps }).map((_, index) => (
+                                    <View
+                                        key={index}
+                                        style={[
+                                            styles.progressBar,
+                                            index < currentStep ? styles.progressBarActive : styles.progressBarInactive,
+                                        ]}
+                                    />
+                                ))}
+                            </View>
                         </View>
 
                         {/* Content Section */}
@@ -635,6 +641,13 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingBottom: 140,
     },
+    headerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 16,
+        marginBottom: 24,
+        gap: 16,
+    },
     backButton: {
         width: 48,
         height: 48,
@@ -651,21 +664,22 @@ const styles = StyleSheet.create({
         elevation: 2,
     },
     progressContainer: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         marginBottom: 24,
+        gap: 5,
     },
     progressBar: {
+        flex: 1,
         height: 2,
         borderRadius: 12,
     },
     progressBarActive: {
         backgroundColor: Colors.textPrimary,
-        width: 68,
     },
     progressBarInactive: {
         backgroundColor: '#878787',
-        width: 68,
     },
     progressBarSpacing: {
         marginRight: 5,
@@ -748,15 +762,15 @@ const styles = StyleSheet.create({
     continueButton: {
         flex: 2,
         height: 48,
-        backgroundColor: Colors.buttonPrimary,
+        backgroundColor: Colors.buttonSecondary,
         borderWidth: 1,
-        borderColor: Colors.buttonBorder,
+        borderColor: Colors.buttonSecondaryBorder,
         borderRadius: 8,
         justifyContent: 'center',
         alignItems: 'center',
     },
     continueButtonMuted: {
-        backgroundColor: Colors.buttonPrimary,
+        backgroundColor: Colors.buttonSecondary,
         opacity: 0.8,
     },
     continueButtonText: {

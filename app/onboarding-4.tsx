@@ -165,23 +165,29 @@ export default function Onboarding4Screen() {
                         contentContainerStyle={styles.scrollContent}
                         showsVerticalScrollIndicator={false}
                     >
-                        {/* Back Button */}
-                        <LiquidGlassIconButton size={44} onPress={handleBack}>
-                            <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
-                        </LiquidGlassIconButton>
+                        {/* Header Row */}
+                        <View style={styles.headerRow}>
+                            {/* Back Button */}
+                            <LiquidGlassIconButton
+                                size={44}
+                                onPress={handleBack}
+                                style={styles.backButton}
+                            >
+                                <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
+                            </LiquidGlassIconButton>
 
-                        {/* Progress Indicator */}
-                        <View style={styles.progressContainer}>
-                            {Array.from({ length: totalSteps }).map((_, index) => (
-                                <View
-                                    key={index}
-                                    style={[
-                                        styles.progressBar,
-                                        index < currentStep ? styles.progressBarActive : styles.progressBarInactive,
-                                        index < totalSteps - 1 && styles.progressBarSpacing,
-                                    ]}
-                                />
-                            ))}
+                            {/* Progress Indicator */}
+                            <View style={styles.progressContainer}>
+                                {Array.from({ length: totalSteps }).map((_, index) => (
+                                    <View
+                                        key={index}
+                                        style={[
+                                            styles.progressBar,
+                                            index < currentStep ? styles.progressBarActive : styles.progressBarInactive,
+                                        ]}
+                                    />
+                                ))}
+                            </View>
                         </View>
 
                         {/* Content Section */}
@@ -286,6 +292,13 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingBottom: 120,
     },
+    headerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 16,
+        marginBottom: 24,
+        gap: 16,
+    },
     backButton: {
         width: 48,
         height: 48,
@@ -302,21 +315,22 @@ const styles = StyleSheet.create({
         elevation: 2,
     },
     progressContainer: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         marginBottom: 24,
+        gap: 5,
     },
     progressBar: {
+        flex: 1,
         height: 2,
         borderRadius: 12,
     },
     progressBarActive: {
         backgroundColor: Colors.textPrimary,
-        width: 68,
     },
     progressBarInactive: {
         backgroundColor: '#878787',
-        width: 68,
     },
     progressBarSpacing: {
         marginRight: 5,
@@ -430,9 +444,9 @@ const styles = StyleSheet.create({
     continueButton: {
         width: '100%',
         height: 48,
-        backgroundColor: Colors.buttonPrimary,
+        backgroundColor: Colors.buttonSecondary,
         borderWidth: 1,
-        borderColor: Colors.buttonBorder,
+        borderColor: Colors.buttonSecondaryBorder,
         borderRadius: 8,
         justifyContent: 'center',
         alignItems: 'center',

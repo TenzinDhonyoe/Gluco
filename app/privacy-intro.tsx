@@ -3,7 +3,6 @@
  * Shows privacy assurance before sign-in options
  */
 
-import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
@@ -14,6 +13,7 @@ import React, { useState } from 'react';
 import {
     Alert,
     Image,
+    ImageBackground,
     Linking,
     Platform,
     StyleSheet,
@@ -26,10 +26,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export default function PrivacyIntroScreen() {
     const [isAppleLoading, setIsAppleLoading] = useState(false);
     const { signInWithApple } = useAuth();
-
-    const handleBack = () => {
-        router.back();
-    };
 
     const handleAppleSignIn = async () => {
         if (Platform.OS !== 'ios') {
@@ -70,68 +66,69 @@ export default function PrivacyIntroScreen() {
 
     return (
         <View style={styles.container}>
-            <SafeAreaView style={styles.safeArea}>
-                {/* Back Button */}
-                <LiquidGlassIconButton size={44} onPress={handleBack}>
-                    <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
-                </LiquidGlassIconButton>
+            <ImageBackground
+                source={require('../assets/images/backgrounds/background.png')}
+                style={styles.backgroundImage}
+                resizeMode="cover"
+            >
+                <SafeAreaView style={styles.safeArea}>
+                    {/* Content */}
+                    <View style={styles.content}>
+                        {/* Title */}
+                        <Text style={styles.title}>Privacy by design</Text>
+                        <Text style={styles.subtitle}>
+                            We never sell your data.{'\n'}We only share with services you enable.
+                        </Text>
 
-                {/* Content */}
-                <View style={styles.content}>
-                    {/* Title */}
-                    <Text style={styles.title}>Privacy by design</Text>
-                    <Text style={styles.subtitle}>
-                        We never sell your data.{'\n'}We only share with services you enable.
-                    </Text>
+                        {/* Vault Image */}
+                        <View style={styles.mascotContainer}>
+                            <Image
+                                source={require('@/assets/images/illustrations/privacy-vault.png')}
+                                style={styles.mascot}
+                                resizeMode="contain"
+                            />
+                        </View>
 
-                    {/* Vault Image */}
-                    <View style={styles.mascotContainer}>
-                        <Image
-                            source={require('@/assets/images/illustrations/privacy-vault.png')}
-                            style={styles.mascot}
-                            resizeMode="contain"
-                        />
+                        {/* Footer Text */}
+                        <Text style={styles.footerText}>
+                            For more details, please refer to our{' '}
+                            <Text style={styles.linkText} onPress={handleTermsPress}>
+                                Terms of Service
+                            </Text>
+                            {' '}and{' '}
+                            <Text style={styles.linkText} onPress={handlePrivacyPress}>
+                                Privacy Policy
+                            </Text>
+                            .
+                        </Text>
                     </View>
 
-                    {/* Footer Text */}
-                    <Text style={styles.footerText}>
-                        For more details, please refer to our{' '}
-                        <Text style={styles.linkText} onPress={handleTermsPress}>
-                            Terms of Service
-                        </Text>
-                        {' '}and{' '}
-                        <Text style={styles.linkText} onPress={handlePrivacyPress}>
-                            Privacy Policy
-                        </Text>
-                        .
-                    </Text>
-                </View>
+                    {/* Buttons */}
+                    <View style={styles.bottomSection}>
+                        {/* Apple Sign In Button */}
+                        <TouchableOpacity
+                            style={styles.appleButton}
+                            onPress={handleAppleSignIn}
+                            activeOpacity={0.8}
+                            disabled={isAppleLoading}
+                        >
+                            <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
+                            <Text style={styles.appleButtonText}>
+                                {isAppleLoading ? 'Signing in...' : 'Continue with Apple'}
+                            </Text>
+                        </TouchableOpacity>
 
-                {/* Buttons */}
-                <View style={styles.bottomSection}>
-                    {/* Apple Sign In Button */}
-                    <TouchableOpacity
-                        style={styles.appleButton}
-                        onPress={handleAppleSignIn}
-                        activeOpacity={0.8}
-                        disabled={isAppleLoading}
-                    >
-                        <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
-                        <Text style={styles.appleButtonText}>
-                            {isAppleLoading ? 'Signing in...' : 'Continue with Apple'}
-                        </Text>
-                    </TouchableOpacity>
-
-                    {/* Email Option */}
-                    <TouchableOpacity
-                        style={styles.emailButton}
-                        onPress={handleUseEmail}
-                        activeOpacity={0.7}
-                    >
-                        <Text style={styles.emailButtonText}>Use email instead</Text>
-                    </TouchableOpacity>
-                </View>
-            </SafeAreaView>
+                        {/* Email Option */}
+                        <TouchableOpacity
+                            style={styles.emailButton}
+                            onPress={handleUseEmail}
+                            activeOpacity={0.7}
+                        >
+                            <Text style={styles.emailButtonText}>Use email instead</Text>
+                        </TouchableOpacity>
+                    </View>
+                </SafeAreaView>
+            </ImageBackground>
         </View>
     );
 }
@@ -139,22 +136,19 @@ export default function PrivacyIntroScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: Colors.background,
+    },
+    backgroundImage: {
+        flex: 1,
+        width: '100%',
+        height: '100%',
     },
     safeArea: {
         flex: 1,
     },
     backButton: {
-        position: 'absolute',
-        top: 60,
-        left: 16,
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 10,
+        marginLeft: 24,
+        marginTop: 16,
     },
     content: {
         flex: 1,

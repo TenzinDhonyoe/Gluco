@@ -4,7 +4,6 @@ import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { requestNotificationPermissions } from '@/lib/notifications';
 import { CoachingStyle, updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -49,7 +48,6 @@ const COACHING_OPTIONS: CoachingOption[] = [
 
 export default function Onboarding5Screen() {
     const [selectedStyle, setSelectedStyle] = useState<CoachingStyle>('balanced');
-    const [notificationsEnabled, setNotificationsEnabled] = useState(false);
     const [aiEnabled, setAiEnabled] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
     const scrollViewRef = React.useRef<ScrollView>(null);
@@ -61,23 +59,6 @@ export default function Onboarding5Screen() {
         AsyncStorage.setItem(ONBOARDING_STEP_KEY, '5').catch(() => null);
     }, []);
 
-    const handleEnableNotifications = async () => {
-        try {
-            const granted = await requestNotificationPermissions();
-
-            if (granted) {
-                setNotificationsEnabled(true);
-            } else {
-                Alert.alert(
-                    'Notifications Disabled',
-                    'You can enable notifications later in Settings.',
-                    [{ text: 'OK' }]
-                );
-            }
-        } catch (error) {
-            console.warn('Error requesting notifications:', error);
-        }
-    };
 
     const handleContinue = async () => {
         setIsLoading(true);
@@ -85,7 +66,7 @@ export default function Onboarding5Screen() {
             if (user) {
                 await updateUserProfile(user.id, {
                     coaching_style: selectedStyle,
-                    notifications_enabled: notificationsEnabled,
+                    notifications_enabled: false,
                     ai_enabled: aiEnabled,
                     ai_consent_at: aiEnabled ? new Date().toISOString() : null,
                     onboarding_completed: true,
@@ -126,23 +107,29 @@ export default function Onboarding5Screen() {
                         contentContainerStyle={styles.scrollContent}
                         showsVerticalScrollIndicator={false}
                     >
-                        {/* Back Button */}
-                        <LiquidGlassIconButton size={44} onPress={handleBack}>
-                            <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
-                        </LiquidGlassIconButton>
+                        {/* Header Row */}
+                        <View style={styles.headerRow}>
+                            {/* Back Button */}
+                            <LiquidGlassIconButton
+                                size={44}
+                                onPress={handleBack}
+                                style={styles.backButton}
+                            >
+                                <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
+                            </LiquidGlassIconButton>
 
-                        {/* Progress Indicator */}
-                        <View style={styles.progressContainer}>
-                            {Array.from({ length: totalSteps }).map((_, index) => (
-                                <View
-                                    key={index}
-                                    style={[
-                                        styles.progressBar,
-                                        index < currentStep ? styles.progressBarActive : styles.progressBarInactive,
-                                        index < totalSteps - 1 && styles.progressBarSpacing,
-                                    ]}
-                                />
-                            ))}
+                            {/* Progress Indicator */}
+                            <View style={styles.progressContainer}>
+                                {Array.from({ length: totalSteps }).map((_, index) => (
+                                    <View
+                                        key={index}
+                                        style={[
+                                            styles.progressBar,
+                                            index < currentStep ? styles.progressBarActive : styles.progressBarInactive,
+                                        ]}
+                                    />
+                                ))}
+                            </View>
                         </View>
 
                         {/* Content Section */}
@@ -190,30 +177,6 @@ export default function Onboarding5Screen() {
                                 })}
                             </View>
 
-                            {/* Notifications Section */}
-                            <View style={styles.notificationsSection}>
-                                <TouchableOpacity
-                                    style={[
-                                        styles.notificationButton,
-                                        notificationsEnabled && styles.notificationButtonEnabled,
-                                    ]}
-                                    onPress={handleEnableNotifications}
-                                    activeOpacity={0.7}
-                                    disabled={notificationsEnabled}
-                                >
-                                    <Ionicons
-                                        name={notificationsEnabled ? "notifications" : "notifications-outline"}
-                                        size={20}
-                                        color={notificationsEnabled ? Colors.textPrimary : '#878787'}
-                                    />
-                                    <Text style={[
-                                        styles.notificationButtonText,
-                                        notificationsEnabled && styles.notificationButtonTextEnabled,
-                                    ]}>
-                                        {notificationsEnabled ? 'Notifications Enabled' : 'Enable Notifications'}
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
 
                             {/* AI Insights Section */}
                             <View style={styles.aiSection}>
@@ -278,6 +241,13 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingBottom: 180,
     },
+    headerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 16,
+        marginBottom: 24,
+        gap: 16,
+    },
     backButton: {
         width: 48,
         height: 48,
@@ -294,21 +264,22 @@ const styles = StyleSheet.create({
         elevation: 2,
     },
     progressContainer: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         marginBottom: 24,
+        gap: 5,
     },
     progressBar: {
+        flex: 1,
         height: 2,
         borderRadius: 12,
     },
     progressBarActive: {
         backgroundColor: Colors.textPrimary,
-        width: 68,
     },
     progressBarInactive: {
         backgroundColor: '#878787',
-        width: 68,
     },
     progressBarSpacing: {
         marginRight: 5,
@@ -455,9 +426,9 @@ const styles = StyleSheet.create({
     continueButton: {
         width: '100%',
         height: 48,
-        backgroundColor: Colors.buttonPrimary,
+        backgroundColor: Colors.buttonSecondary,
         borderWidth: 1,
-        borderColor: Colors.buttonBorder,
+        borderColor: Colors.buttonSecondaryBorder,
         borderRadius: 8,
         justifyContent: 'center',
         alignItems: 'center',

@@ -1,11 +1,13 @@
+import * as Haptics from 'expo-haptics';
 import React from 'react';
-import { Pressable, StyleProp, ViewStyle } from 'react-native';
+import { Platform, Pressable, StyleProp, ViewStyle } from 'react-native';
 
 interface AnimatedPressableProps {
     children: React.ReactNode;
     onPress?: () => void;
     disabled?: boolean;
     style?: StyleProp<ViewStyle>;
+    haptic?: boolean;
 }
 
 /**
@@ -17,10 +19,19 @@ export function AnimatedPressable({
     onPress,
     disabled = false,
     style,
+    haptic = true,
 }: AnimatedPressableProps) {
+    const handlePress = () => {
+        if (disabled) return;
+        if (haptic && Platform.OS === 'ios') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+        onPress?.();
+    };
+
     return (
         <Pressable
-            onPress={onPress}
+            onPress={handlePress}
             disabled={disabled}
             style={({ pressed }) => [
                 style,

@@ -146,7 +146,11 @@ export default function SignInScreen() {
                             showsVerticalScrollIndicator={false}
                         >
                             {/* Back Button */}
-                            <LiquidGlassIconButton size={44} onPress={handleBack}>
+                            <LiquidGlassIconButton
+                                size={44}
+                                onPress={handleBack}
+                                style={styles.backButton}
+                            >
                                 <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
                             </LiquidGlassIconButton>
 
@@ -278,22 +282,9 @@ const styles = StyleSheet.create({
     },
     // Back button - circular
     backButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
         marginTop: 16,
         marginBottom: 20,
-        shadowColor: '#000',
-        shadowOffset: {
-            width: 0,
-            height: 1,
-        },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
-        elevation: 2,
+        alignSelf: 'flex-start',
     },
     // Header text - Outfit Medium, 16px, line-height 1.2
     headerText: {

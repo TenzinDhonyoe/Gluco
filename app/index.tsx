@@ -5,6 +5,7 @@ import { fonts } from '@/hooks/useFonts';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ResizeMode, Video } from 'expo-av';
+import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -123,6 +124,7 @@ export default function WelcomeScreen() {
     }, [user, profile, loading]);
 
     const handleGetStarted = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         router.push('/privacy-intro');
     };
 
@@ -246,7 +248,7 @@ const styles = StyleSheet.create({
     },
     headingContainer: {
         position: 'absolute',
-        bottom: 220,
+        bottom: 200,
         left: 24,
         right: 24,
         alignItems: 'flex-start',
@@ -278,9 +280,9 @@ const styles = StyleSheet.create({
         width: '100%',
         maxWidth: 361,
         height: 56,
-        backgroundColor: Colors.buttonPrimary,
+        backgroundColor: Colors.buttonSecondary,
         borderWidth: 1,
-        borderColor: Colors.buttonBorder,
+        borderColor: Colors.buttonSecondaryBorder,
         borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',

@@ -1,6 +1,7 @@
 import { fonts } from '@/hooks/useFonts';
+import * as Haptics from 'expo-haptics';
 import React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
 
 type Variant = 'primary' | 'secondary' | 'ghost';
 type Size = 'sm' | 'md';
@@ -13,6 +14,7 @@ type Props = {
   variant?: Variant;
   size?: Size;
   style?: ViewStyle;
+  haptic?: boolean;
 };
 
 export function Button({
@@ -23,12 +25,21 @@ export function Button({
   variant = 'primary',
   size = 'md',
   style,
+  haptic = true,
 }: Props) {
   const isDisabled = disabled || loading;
 
+  const handlePress = () => {
+    if (isDisabled) return;
+    if (haptic && Platform.OS === 'ios') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    onPress?.();
+  };
+
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       disabled={isDisabled}
       style={({ pressed }) => [
         styles.base,

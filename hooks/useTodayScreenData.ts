@@ -25,6 +25,7 @@ export interface TodayScreenData {
     recentMeals: MealWithCheckin[];
     isLoading: boolean;
     error: Error | null;
+    refetch: () => Promise<void>;
 }
 
 /**
@@ -120,7 +121,7 @@ export function useTodayScreenData(_range: RangeKey): TodayScreenData {
         }, [fetchData])
     );
 
-    return data;
+    return { ...data, refetch: fetchData };
 }
 
 /**
