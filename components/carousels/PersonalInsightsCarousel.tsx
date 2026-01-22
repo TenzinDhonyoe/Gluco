@@ -15,10 +15,13 @@ import { router } from 'expo-router';
 import React from 'react';
 import {
     ActivityIndicator,
+    Animated,
     Image,
+    PanResponder,
     ScrollView,
     StyleSheet,
     Text,
+    TouchableOpacity,
     View
 } from 'react-native';
 
@@ -29,6 +32,115 @@ import {
 interface PersonalInsightsCarouselProps {
     insights: PersonalInsight[];
     isLoading?: boolean;
+    onMealPress?: () => void;
+    onExercisePress?: () => void;
+}
+
+// ============================================
+// SWIPEABLE TIP CARDS
+// ============================================
+
+function SwipeableTipCards({ onMealPress, onExercisePress }: {
+    onMealPress?: () => void;
+    onExercisePress?: () => void;
+}) {
+    const [activeIndex, setActiveIndex] = React.useState(0);
+    const slideAnim = React.useRef(new Animated.Value(0)).current;
+
+    const cards = [
+        {
+            image: Images.mascots.cook,
+            text: 'Planning your next lunch?',
+            linkText: 'Tap to check spike risk',
+            onPress: onMealPress,
+        },
+        {
+            image: Images.mascots.exercise,
+            text: 'Planning your next exercise?',
+            linkText: 'Tap to check spike risk',
+            onPress: onExercisePress,
+        },
+    ];
+
+    const handleSwipe = (direction: 'left' | 'right') => {
+        const nextIndex = direction === 'left'
+            ? (activeIndex + 1) % cards.length
+            : (activeIndex - 1 + cards.length) % cards.length;
+
+        Animated.sequence([
+            Animated.timing(slideAnim, {
+                toValue: direction === 'left' ? -30 : 30,
+                duration: 100,
+                useNativeDriver: true,
+            }),
+            Animated.timing(slideAnim, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+            }),
+        ]).start();
+
+        setActiveIndex(nextIndex);
+    };
+
+    const panResponder = React.useMemo(() =>
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponder: (_, gestureState) => {
+                return Math.abs(gestureState.dx) > 15 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+            },
+            onPanResponderRelease: (_, gestureState) => {
+                if (gestureState.dx < -50) {
+                    handleSwipe('left');
+                } else if (gestureState.dx > 50) {
+                    handleSwipe('right');
+                }
+            },
+        }),
+        [activeIndex]);
+
+    const currentCard = cards[activeIndex];
+
+    return (
+        <View style={styles.tipCardsWrapper}>
+            <Animated.View
+                {...panResponder.panHandlers}
+                style={[
+                    styles.tipCardContainer,
+                    { transform: [{ translateX: slideAnim }] }
+                ]}
+            >
+                <TouchableOpacity
+                    style={styles.tipCardTouchable}
+                    onPress={currentCard.onPress}
+                    activeOpacity={0.8}
+                >
+                    <View style={styles.tipCardStackBack} />
+                    <View style={styles.tipCard}>
+                        <View style={styles.mascotContainer}>
+                            <Image source={currentCard.image} style={{ width: 44, height: 44, resizeMode: 'contain' }} />
+                        </View>
+                        <View style={{ flex: 1, gap: 2 }}>
+                            <Text style={styles.tipText}>{currentCard.text}</Text>
+                            {/* <Text style={styles.tipLink}>{currentCard.linkText}</Text> */}
+                        </View>
+                    </View>
+                </TouchableOpacity>
+            </Animated.View>
+
+            <View style={styles.dotsContainer}>
+                {cards.map((_, index) => (
+                    <View
+                        key={index}
+                        style={[
+                            styles.dot,
+                            index === activeIndex && styles.dotActive
+                        ]}
+                    />
+                ))}
+            </View>
+        </View>
+    );
 }
 
 // ============================================
@@ -90,33 +202,15 @@ const InsightCard = React.memo(({ insight }: { insight: PersonalInsight }) => {
                     {insight.recommendation}
                 </Text>
 
-                {/* Because (smaller) */}
-                <Text style={styles.cardBecause}>
-                    Because: {insight.because}
-                </Text>
-
-                {/* Action window */}
+                {/* Consolidated Action Box */}
                 {insight.action && (
                     <View style={styles.actionContainer}>
-                        <View style={styles.actionHeader}>
-                            <Ionicons name="flag-outline" size={14} color="rgba(255,255,255,0.85)" />
-                            <Text style={styles.actionLabel}>
-                                Next step · {insight.action.windowHours}h
-                            </Text>
-                        </View>
+                        <Ionicons name={insight.icon as any} size={16} color="rgba(255,255,255,0.9)" style={{ marginTop: 2 }} />
                         <Text style={styles.actionText}>
                             {insight.action.description}
                         </Text>
                     </View>
                 )}
-
-                {/* Micro-step chip */}
-                <View style={styles.microStepContainer}>
-                    <Ionicons name="flash-outline" size={14} color="rgba(255,255,255,0.85)" style={{ marginTop: 2 }} />
-                    <Text style={styles.microStepText}>
-                        {insight.microStep}
-                    </Text>
-                </View>
 
                 {/* CTA */}
                 {cta && (
@@ -158,45 +252,36 @@ const LoadingState = () => (
     </View>
 );
 
+
 // ============================================
 // MAIN COMPONENT
 // ============================================
 
-export const PersonalInsightsCarousel = React.memo(({
-    insights,
-    isLoading = false,
-}: PersonalInsightsCarouselProps) => {
+export function PersonalInsightsCarousel({ insights, isLoading, onMealPress, onExercisePress }: PersonalInsightsCarouselProps) {
     if (isLoading) {
         return (
-            <View style={styles.container}>
-                <Text style={styles.sectionTitle}>Personal Insights</Text>
-                <LoadingState />
+            <View style={[styles.container, { minHeight: 180, justifyContent: 'center' }]}>
+                <ActivityIndicator size="small" color="#FFFFFF" />
             </View>
         );
     }
 
-    if (insights.length === 0) {
-        return (
-            <View style={styles.container}>
-                <Text style={styles.sectionTitle}>Personal Insights</Text>
-                <EmptyState />
-            </View>
-        );
+    if (!insights || insights.length === 0) {
+        return null;
     }
 
     return (
         <View style={styles.container}>
             <Text style={styles.sectionTitle}>Personal Insights</Text>
 
+            {/* Spike Risk / Planning Card */}
+            {/* <SwipeableTipCards onMealPress={onMealPress} onExercisePress={onExercisePress} /> */}
+
             <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                style={{ marginHorizontal: -16 }}
                 contentContainerStyle={styles.scrollContent}
-                decelerationRate="fast"
-                snapToInterval={312} // card width (300) + gap (12)
-                snapToAlignment="start"
-                pagingEnabled={false} // Ensure paging isn't conflicting with snapToInterval
+                style={{ marginHorizontal: -16 }}
             >
                 {insights.map((insight) => (
                     <InsightCard key={insight.id} insight={insight} />
@@ -204,12 +289,12 @@ export const PersonalInsightsCarousel = React.memo(({
             </ScrollView>
 
             {/* Disclaimer */}
-            <Text style={styles.disclaimer}>
+            <Text style={styles.disclaimerText}>
                 Wellness insights only. Not medical advice.
             </Text>
         </View>
     );
-});
+}
 
 export default PersonalInsightsCarousel;
 
@@ -229,14 +314,13 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         gap: 12,
-        paddingHorizontal: 16,
+        paddingHorizontal: 16, // padding restored for breakout alignment
     },
     card: {
-        width: 300,
-        height: 280,
+        width: 280, // Slightly narrower
+        height: 220, // Significantly shorter
         borderRadius: 20,
         padding: 16,
-        justifyContent: 'space-between',
     },
     cardHeader: {
         flexDirection: 'row',
@@ -269,66 +353,36 @@ const styles = StyleSheet.create({
         textTransform: 'capitalize',
     },
     cardRecommendation: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
+        fontFamily: fonts.semiBold,
+        fontSize: 16, // Slightly smaller
         color: '#FFFFFF',
-        lineHeight: 20,
-        marginTop: 10,
-    },
-    cardBecause: {
-        fontFamily: fonts.regular,
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.7)',
-        marginTop: 4,
-        fontStyle: 'italic',
+        lineHeight: 21,
+        marginTop: 8,
+        letterSpacing: -0.3,
     },
     actionContainer: {
-        backgroundColor: 'rgba(0,0,0,0.2)',
-        borderRadius: 12,
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        gap: 4,
-        marginTop: 10,
-    },
-    actionHeader: {
         flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-    },
-    actionLabel: {
-        fontFamily: fonts.semiBold,
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.85)',
-        letterSpacing: 0.2,
+        alignItems: 'center', // Center vertically since text is smaller
+        gap: 8,
+        backgroundColor: 'rgba(0,0,0,0.15)',
+        borderRadius: 12,
+        paddingHorizontal: 10,
+        paddingVertical: 8, // Tighter vertical padding
+        marginTop: 12,
+        marginBottom: 8,
     },
     actionText: {
-        fontFamily: fonts.regular,
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.85)',
-        lineHeight: 18,
-    },
-    microStepContainer: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: 8,
-        marginTop: 12,
-        backgroundColor: 'rgba(255,255,255,0.12)',
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        borderRadius: 12,
-    },
-    microStepText: {
-        fontFamily: fonts.regular,
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.9)',
+        fontFamily: fonts.medium,
+        fontSize: 12, // Smaller text
+        color: 'rgba(255,255,255,0.95)',
+        lineHeight: 16,
         flex: 1,
-        lineHeight: 18,
     },
     ctaContainer: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 4,
-        marginTop: 10,
+        marginTop: 12,
     },
     ctaText: {
         fontFamily: fonts.medium,
@@ -369,11 +423,75 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#878787',
     },
-    disclaimer: {
+    disclaimerText: {
         fontFamily: fonts.regular,
         fontSize: 11,
-        color: '#6B6B6B',
+        color: '#6c757d',
+        fontStyle: 'italic',
+        lineHeight: 14,
         textAlign: 'center',
         marginTop: 12,
+    },
+    // Swipeable Tip Cards Styles
+    tipCardsWrapper: {
+        marginBottom: 16,
+        // paddingHorizontal: 16, // Removed to match parent padding in index.tsx
+    },
+    tipCardContainer: {
+        position: 'relative',
+        marginBottom: 8,
+    },
+    tipCardTouchable: {
+    },
+    tipCardStackBack: {
+        position: 'absolute',
+        bottom: -6,
+        left: 14,
+        right: 14,
+        height: 20,
+        backgroundColor: '#1C2124',
+        borderRadius: 16,
+        zIndex: -1,
+    },
+    tipCard: {
+        backgroundColor: '#22282C', // Matches statCard color
+        borderRadius: 16,
+        padding: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    mascotContainer: {
+        width: 44,
+        height: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    tipText: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: '#E7E8E9', // Colors.textPrimary replacement
+        lineHeight: 20,
+    },
+    tipLink: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: '#3494D9', // Colors.primary replacement
+        lineHeight: 20,
+    },
+    dotsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: 8,
+        marginTop: 6,
+    },
+    dot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#3F4243',
+    },
+    dotActive: {
+        backgroundColor: '#FFFFFF',
     },
 });

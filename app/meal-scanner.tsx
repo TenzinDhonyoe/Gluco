@@ -4,6 +4,7 @@
  */
 
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -18,24 +19,32 @@ import {
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, FlashMode, useCameraPermissions } from 'expo-camera';
+import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Animated,
-    Easing,
+    Dimensions,
     LayoutAnimation,
     Platform,
     Pressable,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     UIManager,
     View
 } from 'react-native';
+import ReanimatedAnimated, {
+    useAnimatedStyle,
+    useSharedValue,
+    withSequence,
+    withSpring,
+    withTiming
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AnalysisResultsView from './components/scanner/AnalysisResultsView';
 import FoodSearchResultsView, { SelectedItem } from './components/scanner/FoodSearchResultsView';
@@ -137,6 +146,199 @@ const SCAN_OPTIONS: { mode: ScanMode; icon: keyof typeof Ionicons.glyphMap; labe
     { mode: 'manual_add', icon: 'create-outline', label: 'Manual' },
 ];
 
+// Constants for liquid glass option bar
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const OPTION_BAR_PADDING = 6;
+const INDICATOR_SIZE = 56; // Circular indicator
+
+// Animated Option Icon with bounce effect
+function AnimatedOptionIcon({
+    icon,
+    focused,
+    color,
+}: {
+    icon: keyof typeof Ionicons.glyphMap;
+    focused: boolean;
+    color: string;
+}) {
+    const scale = useSharedValue(1);
+    const translateY = useSharedValue(0);
+    const didMountRef = useRef(false);
+
+    useEffect(() => {
+        if (!didMountRef.current) {
+            didMountRef.current = true;
+            return;
+        }
+
+        if (focused) {
+            scale.value = withSequence(
+                withSpring(1.15, { damping: 16, stiffness: 600 }),
+                withSpring(0.95, { damping: 18, stiffness: 500 }),
+                withSpring(1, { damping: 20, stiffness: 400 })
+            );
+            translateY.value = withSequence(
+                withSpring(-2, { damping: 16, stiffness: 600 }),
+                withSpring(0.5, { damping: 18, stiffness: 500 }),
+                withSpring(0, { damping: 20, stiffness: 400 })
+            );
+        } else {
+            scale.value = withTiming(1, { duration: 100 });
+            translateY.value = withTiming(0, { duration: 100 });
+        }
+    }, [focused, scale, translateY]);
+
+    const iconStyle = useAnimatedStyle(() => ({
+        transform: [
+            { scale: scale.value },
+            { translateY: translateY.value },
+        ],
+    }));
+
+    return (
+        <ReanimatedAnimated.View style={iconStyle}>
+            <Ionicons name={icon} size={22} color={color} />
+        </ReanimatedAnimated.View>
+    );
+}
+
+// Liquid Glass Option Bar Component
+function LiquidGlassOptionBar({
+    currentMode,
+    onModeSelect,
+    bottomInset,
+    isFloating,
+}: {
+    currentMode: ScanMode;
+    onModeSelect: (mode: ScanMode) => void;
+    bottomInset: number;
+    isFloating: boolean;
+}) {
+    const indicatorX = useSharedValue(0);
+    const indicatorScaleX = useSharedValue(1);
+    const indicatorScaleY = useSharedValue(1);
+    const translateY = useSharedValue(0);
+    const prevIndexRef = useRef(SCAN_OPTIONS.findIndex(o => o.mode === currentMode));
+
+    // Calculate segment width based on option count
+    const optionCount = SCAN_OPTIONS.length;
+    const barWidth = SCREEN_WIDTH - 32; // 16px margin on each side
+    const segmentWidth = barWidth / optionCount;
+
+    // Current index
+    const currentIndex = useMemo(() =>
+        SCAN_OPTIONS.findIndex(o => o.mode === currentMode),
+        [currentMode]
+    );
+
+    // Animate indicator position
+    useEffect(() => {
+        // Center the indicator on the button - buttons fill full bar width
+        const targetX = segmentWidth * currentIndex + segmentWidth / 2 - INDICATOR_SIZE / 2;
+        const distance = Math.abs(currentIndex - prevIndexRef.current);
+
+        if (distance > 0) {
+            // Liquid stretch effect
+            indicatorScaleX.value = withSequence(
+                withSpring(1.25 + distance * 0.08, { damping: 18, stiffness: 500 }),
+                withSpring(0.92, { damping: 16, stiffness: 450 }),
+                withSpring(1, { damping: 20, stiffness: 400 })
+            );
+            indicatorScaleY.value = withSequence(
+                withSpring(0.78, { damping: 18, stiffness: 500 }),
+                withSpring(1.06, { damping: 16, stiffness: 450 }),
+                withSpring(1, { damping: 20, stiffness: 400 })
+            );
+        }
+
+        indicatorX.value = withSpring(targetX, { damping: 18, stiffness: 180, mass: 0.8 });
+        prevIndexRef.current = currentIndex;
+    }, [currentIndex, segmentWidth, indicatorX, indicatorScaleX, indicatorScaleY]);
+
+    // Animate vertical position for floating
+    useEffect(() => {
+        translateY.value = withSpring(isFloating ? -110 : 0, { damping: 20, stiffness: 200 });
+    }, [isFloating, translateY]);
+
+    const indicatorStyle = useAnimatedStyle(() => ({
+        transform: [
+            { translateX: indicatorX.value },
+            { scaleX: indicatorScaleX.value },
+            { scaleY: indicatorScaleY.value },
+        ],
+    }));
+
+
+
+    const containerStyle = useAnimatedStyle(() => ({
+        transform: [{ translateY: translateY.value }],
+    }));
+
+    const handlePress = useCallback((mode: ScanMode) => {
+        if (Platform.OS === 'ios') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+        onModeSelect(mode);
+    }, [onModeSelect]);
+
+    return (
+        <ReanimatedAnimated.View
+            style={[
+                styles.liquidOptionBarContainer,
+                { paddingBottom: bottomInset + 20 },
+                containerStyle
+            ]}
+        >
+            <View style={styles.liquidOptionBar}>
+                {/* Glass background */}
+                <LinearGradient
+                    colors={['rgba(40, 44, 48, 0.95)', 'rgba(30, 33, 36, 0.98)', 'rgba(35, 38, 41, 0.95)']}
+                    locations={[0, 0.5, 1]}
+                    style={styles.optionBarGradient}
+                />
+
+                {/* Inner highlight */}
+                <View style={styles.optionBarInnerHighlight} />
+
+                {/* Liquid glass indicator */}
+                <ReanimatedAnimated.View style={[styles.liquidIndicator, indicatorStyle]}>
+                    <LinearGradient
+                        colors={['rgba(255, 255, 255, 0.22)', 'rgba(255, 255, 255, 0.10)', 'rgba(255, 255, 255, 0.15)']}
+                        locations={[0, 0.5, 1]}
+                        style={styles.liquidIndicatorGradient}
+                    />
+                </ReanimatedAnimated.View>
+
+                {/* Option buttons */}
+                {SCAN_OPTIONS.map((option) => {
+                    const isActive = currentMode === option.mode;
+                    return (
+                        <Pressable
+                            key={option.mode}
+                            style={[styles.liquidOptionButton, { width: segmentWidth }]}
+                            onPress={() => handlePress(option.mode)}
+                        >
+                            <View style={styles.liquidOptionContent}>
+                                <AnimatedOptionIcon
+                                    icon={option.icon}
+                                    focused={isActive}
+                                    color={isActive ? '#FFFFFF' : '#6B6B6B'}
+                                />
+                                <Text style={[
+                                    styles.liquidOptionLabel,
+                                    isActive && styles.liquidOptionLabelActive
+                                ]}>
+                                    {option.label}
+                                </Text>
+                            </View>
+                        </Pressable>
+                    );
+                })}
+            </View>
+        </ReanimatedAnimated.View>
+    );
+}
+
 export default function MealScannerScreen() {
     const insets = useSafeAreaInsets();
     const { user, profile } = useAuth();
@@ -151,11 +353,28 @@ export default function MealScannerScreen() {
     const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null);
     const [analysisResult, setAnalysisResult] = useState<{
         items: SelectedMealItem[];
-        imageUri: string;
-        photoPath: string;
+        imageUri?: string;
+        photoPath?: string;
     } | null>(null);
     const [labelSubMode, setLabelSubMode] = useState<'barcode' | 'label'>('label');
     const [isCartModalOpen, setIsCartModalOpen] = useState(false);
+
+    // Macro overrides logic
+    const [editMacrosOpen, setEditMacrosOpen] = useState(false);
+    const [macroOverrides, setMacroOverrides] = useState<{
+        calories?: number;
+        carbs?: number;
+        protein?: number;
+        fat?: number;
+        fibre?: number;
+    }>({});
+
+    // Reset overrides when result changes
+    useEffect(() => {
+        if (!analysisResult) {
+            setMacroOverrides({});
+        }
+    }, [analysisResult]);
 
     // Track previous mode to revert if photo picker is cancelled
     const previousModeRef = useRef<ScanMode>('scan_food');
@@ -163,47 +382,6 @@ export default function MealScannerScreen() {
     // Derived state
     const showCaptureControls = !labelScanResult && (scanMode === 'scan_food' || scanMode === 'nutrition_label');
 
-    // Animation for sliding bubble
-    const bubbleAnim = useRef(new Animated.Value(0)).current;
-    const bubbleWidthAnim = useRef(new Animated.Value(0)).current;
-    const optionLayouts = useRef<{ [key in ScanMode]?: { x: number; width: number } }>({});
-
-    // Animation for vertical dock movement
-    const dockAnim = useRef(new Animated.Value(0)).current; // 0 = Bottom (Docked), 1 = Up (Floating)
-
-    // Animate bubble when mode changes
-    useEffect(() => {
-        const layout = optionLayouts.current[scanMode];
-        if (layout) {
-            Animated.parallel([
-                Animated.timing(bubbleAnim, {
-                    toValue: layout.x,
-                    useNativeDriver: false,
-                    duration: 300,
-                    easing: Easing.out(Easing.cubic),
-                }),
-                Animated.timing(bubbleWidthAnim, {
-                    toValue: layout.width,
-                    useNativeDriver: false,
-                    duration: 300,
-                    easing: Easing.out(Easing.cubic),
-                }),
-            ]).start();
-        }
-    }, [scanMode]);
-
-    // Animate dock vertical position based on capture controls visibility
-    useEffect(() => {
-        Animated.timing(dockAnim, {
-            toValue: showCaptureControls ? 1 : 0,
-            duration: 300,
-            useNativeDriver: false, // transforming layout properties
-            easing: Easing.out(Easing.cubic),
-        }).start();
-    }, [showCaptureControls]);
-
-
-    // Animation - Removed complex sliding bubble for a simpler, custom design
     const handleBack = useCallback(() => {
         router.back();
     }, []);
@@ -279,11 +457,13 @@ export default function MealScannerScreen() {
                     'No Food Detected',
                     'Could not identify food items in this photo. Try taking a clearer picture with better lighting, or add items manually.',
                     [
-                        { text: 'Retake Photo', onPress: () => {
-                            setScannerState('ready');
-                            setAnalysisStep(null);
-                            setCapturedImageUri(null);
-                        }},
+                        {
+                            text: 'Retake Photo', onPress: () => {
+                                setScannerState('ready');
+                                setAnalysisStep(null);
+                                setCapturedImageUri(null);
+                            }
+                        },
                         {
                             text: 'Search Database',
                             onPress: () => {
@@ -436,13 +616,11 @@ export default function MealScannerScreen() {
     }, []);
 
     const handleFoodSearchSave = useCallback((items: SelectedItem[]) => {
-        // Navigate to review with selected items
-        router.push({
-            pathname: '/log-meal-review',
-            params: {
-                items: JSON.stringify(items),
-                mealTime: new Date().toISOString(),
-            },
+        // Show AnalysisResultsView with selected items
+        setAnalysisResult({
+            items: items as SelectedMealItem[],
+            imageUri: undefined,
+            photoPath: undefined,
         });
     }, []);
 
@@ -464,12 +642,11 @@ export default function MealScannerScreen() {
     }, []);
 
     const handleManualAddSave = useCallback((item: SelectedItem) => {
-        router.push({
-            pathname: '/log-meal-review',
-            params: {
-                items: JSON.stringify([item]),
-                mealTime: new Date().toISOString(),
-            },
+        // Show AnalysisResultsView with manual item
+        setAnalysisResult({
+            items: [item] as SelectedMealItem[],
+            imageUri: undefined,
+            photoPath: undefined,
         });
     }, []);
 
@@ -480,19 +657,7 @@ export default function MealScannerScreen() {
     // Analysis Results handlers
     const handleAnalysisReview = useCallback(() => {
         if (!analysisResult) return;
-        router.push({
-            pathname: '/log-meal-review',
-            params: {
-                items: JSON.stringify(analysisResult.items),
-                mealName: '',
-                mealNotes: '',
-                imageUri: analysisResult.imageUri,
-                photoPath: analysisResult.photoPath,
-                mealTime: new Date().toISOString(),
-            },
-        });
-        setAnalysisResult(null);
-        setCapturedImageUri(null);
+        setEditMacrosOpen(true);
     }, [analysisResult]);
 
     const handleAnalysisSave = useCallback(async () => {
@@ -507,7 +672,8 @@ export default function MealScannerScreen() {
                 imageUri: analysisResult.imageUri,
                 photoPath: analysisResult.photoPath,
                 mealTime: new Date().toISOString(),
-                autoSave: 'true',
+                macroOverrides: JSON.stringify(macroOverrides),
+                autoSave: 'false', // Let them review one last time or auto-save if preferred
             },
         });
         setAnalysisResult(null);
@@ -658,72 +824,14 @@ export default function MealScannerScreen() {
                     <View style={{ flex: 1 }} />
                 )}
 
-                {/* Option Pill Bar - Hide during analysis or when cart modal is open */}
+                {/* Liquid Glass Option Bar - Hide during analysis or when cart modal is open */}
                 {scannerState === 'ready' && !isCartModalOpen && (
-                    <Animated.View style={[
-                        styles.optionBarContainer,
-                        { paddingBottom: insets.bottom + 20 },
-                        {
-                            transform: [{
-                                translateY: dockAnim.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: [0, -110] // Move UP by 110px when floating
-                                })
-                            }]
-                        }
-                    ]}>
-                        <View style={styles.optionBar}>
-                            {/* Animated Pill Background */}
-                            <Animated.View
-                                style={[
-                                    styles.slidingPill,
-                                    {
-                                        transform: [{ translateX: bubbleAnim }],
-                                        width: bubbleWidthAnim,
-                                    },
-                                ]}
-                            />
-                            {SCAN_OPTIONS.map((option) => {
-                                const isActive = scanMode === option.mode;
-                                return (
-                                    <TouchableOpacity
-                                        key={option.mode}
-                                        style={styles.optionButton}
-                                        onPress={() => handleModeSelect(option.mode)}
-                                        activeOpacity={0.7}
-                                        onLayout={(event) => {
-                                            const { x, width } = event.nativeEvent.layout;
-                                            optionLayouts.current[option.mode] = { x, width };
-
-                                            // Initial measurements - set without animation if it matches current mode
-                                            // Using setValue is safe for initial render
-                                            if (isActive) {
-                                                bubbleAnim.setValue(x);
-                                                bubbleWidthAnim.setValue(width);
-                                            }
-                                        }}
-                                    >
-                                        <View style={[
-                                            styles.iconContainer,
-                                            // Removed iconContainerActive as we fill the whole button now
-                                        ]}>
-                                            <Ionicons
-                                                name={option.icon}
-                                                size={20}
-                                                color={isActive ? '#000000' : '#878787'}
-                                            />
-                                        </View>
-                                        <Text style={[
-                                            styles.optionLabel,
-                                            isActive && styles.optionLabelActive
-                                        ]}>
-                                            {option.label}
-                                        </Text>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
-                    </Animated.View>
+                    <LiquidGlassOptionBar
+                        currentMode={scanMode}
+                        onModeSelect={handleModeSelect}
+                        bottomInset={insets.bottom}
+                        isFloating={showCaptureControls}
+                    />
                 )}
 
                 {/* Capture Controls - Hide in non-camera modes AND during analysis */}
@@ -777,9 +885,87 @@ export default function MealScannerScreen() {
                         onReview={handleAnalysisReview}
                         onSave={handleAnalysisSave}
                         onClose={handleAnalysisClose}
+                        macroOverrides={macroOverrides}
                     />
                 </View>
             )}
+
+            {/* Edit Macros Sheet */}
+            <Sheet open={editMacrosOpen} onOpenChange={setEditMacrosOpen}>
+                <SheetContent style={styles.macroSheet}>
+                    <View style={styles.sheetHeader}>
+                        <Text style={styles.sheetTitle}>Edit Macros</Text>
+                        <Pressable onPress={() => setEditMacrosOpen(false)}>
+                            <Ionicons name="close" size={24} color="#FFFFFF" />
+                        </Pressable>
+                    </View>
+
+                    <View style={styles.macroInputGrid}>
+                        <View style={[styles.macroInputItem, { width: '100%' }]}>
+                            <Text style={styles.macroInputLabel}>Calories (kcal)</Text>
+                            <TextInput
+                                value={macroOverrides.calories?.toString() ?? ''}
+                                onChangeText={(text) => setMacroOverrides(p => ({ ...p, calories: Number(text) || undefined }))}
+                                placeholder="0"
+                                placeholderTextColor="#6F6F6F"
+                                keyboardType="number-pad"
+                                style={styles.macroInput}
+                            />
+                        </View>
+                        <View style={styles.macroInputItem}>
+                            <Text style={styles.macroInputLabel}>Carbs (g)</Text>
+                            <TextInput
+                                value={macroOverrides.carbs?.toString() ?? ''}
+                                onChangeText={(text) => setMacroOverrides(p => ({ ...p, carbs: Number(text) || undefined }))}
+                                placeholder="0"
+                                placeholderTextColor="#6F6F6F"
+                                keyboardType="number-pad"
+                                style={styles.macroInput}
+                            />
+                        </View>
+                        <View style={styles.macroInputItem}>
+                            <Text style={styles.macroInputLabel}>Protein (g)</Text>
+                            <TextInput
+                                value={macroOverrides.protein?.toString() ?? ''}
+                                onChangeText={(text) => setMacroOverrides(p => ({ ...p, protein: Number(text) || undefined }))}
+                                placeholder="0"
+                                placeholderTextColor="#6F6F6F"
+                                keyboardType="number-pad"
+                                style={styles.macroInput}
+                            />
+                        </View>
+                        <View style={styles.macroInputItem}>
+                            <Text style={styles.macroInputLabel}>Fiber (g)</Text>
+                            <TextInput
+                                value={macroOverrides.fibre?.toString() ?? ''}
+                                onChangeText={(text) => setMacroOverrides(p => ({ ...p, fibre: Number(text) || undefined }))}
+                                placeholder="0"
+                                placeholderTextColor="#6F6F6F"
+                                keyboardType="number-pad"
+                                style={styles.macroInput}
+                            />
+                        </View>
+                        <View style={styles.macroInputItem}>
+                            <Text style={styles.macroInputLabel}>Fat (g)</Text>
+                            <TextInput
+                                value={macroOverrides.fat?.toString() ?? ''}
+                                onChangeText={(text) => setMacroOverrides(p => ({ ...p, fat: Number(text) || undefined }))}
+                                placeholder="0"
+                                placeholderTextColor="#6F6F6F"
+                                keyboardType="number-pad"
+                                style={styles.macroInput}
+                            />
+                        </View>
+                    </View>
+
+                    <TouchableOpacity
+                        style={styles.saveMacrosButton}
+                        onPress={() => setEditMacrosOpen(false)}
+                    >
+                        <Text style={styles.saveMacrosText}>Done</Text>
+                    </TouchableOpacity>
+                </SheetContent>
+            </Sheet>
         </View >
     );
 }
@@ -970,67 +1156,75 @@ const styles = StyleSheet.create({
         borderBottomRightRadius: 12,
     },
 
-    // Option bar
-    optionBarContainer: {
+    // Liquid Glass Option Bar
+    liquidOptionBarContainer: {
         alignItems: 'center',
         paddingHorizontal: 16,
-        paddingBottom: 20,
         zIndex: 20,
         position: 'absolute',
         bottom: 0,
         left: 0,
         right: 0,
     },
-    optionBar: {
+    liquidOptionBar: {
         flexDirection: 'row',
-        backgroundColor: '#1E1E1E',
-        borderRadius: 40, // Fully rounded
-        padding: 4,
-        gap: 4,
+        borderRadius: 32,
+        height: 72,
+        overflow: 'hidden',
         borderWidth: 1,
-        borderColor: '#333333',
+        borderColor: 'rgba(255, 255, 255, 0.08)',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 6,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.4,
+        shadowRadius: 16,
+        elevation: 10,
     },
-    optionButton: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-        borderRadius: 30, // Fully rounded
-        minWidth: 60,
-        gap: 4,
-        zIndex: 2, // Above pill
+    optionBarGradient: {
+        ...StyleSheet.absoluteFillObject,
+        borderRadius: 32,
     },
-    // optionButtonActive removed - layout handled by slidingPill
-    slidingPill: {
+    optionBarInnerHighlight: {
         position: 'absolute',
-        top: 4, // Matches padding of container (4)
-        bottom: 4,
-        backgroundColor: '#FFFFFF',
-        borderRadius: 30,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-        zIndex: 1, // Behind text/icons
+        top: 1,
+        left: 1,
+        right: 1,
+        bottom: 1,
+        borderRadius: 31,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.05)',
     },
-    iconContainer: {
-        width: 24,
-        height: 24,
-        justifyContent: 'center',
+    liquidIndicator: {
+        position: 'absolute',
+        top: (72 - INDICATOR_SIZE) / 2,
+        width: INDICATOR_SIZE,
+        height: INDICATOR_SIZE,
+        borderRadius: INDICATOR_SIZE / 2, // Fully circular
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.18)',
+    },
+    liquidIndicatorGradient: {
+        ...StyleSheet.absoluteFillObject,
+        borderRadius: INDICATOR_SIZE / 2,
+    },
+    liquidOptionButton: {
+        height: 72,
         alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 2,
     },
-    optionLabel: {
+    liquidOptionContent: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+    },
+    liquidOptionLabel: {
         fontFamily: fonts.medium,
         fontSize: 10,
-        color: '#878787',
+        color: '#6B6B6B',
     },
-    optionLabelActive: {
-        color: '#000000', // Inverse text for white bg
+    liquidOptionLabelActive: {
+        color: '#FFFFFF',
         fontFamily: fonts.semiBold,
     },
 
@@ -1081,6 +1275,59 @@ const styles = StyleSheet.create({
     },
     analyzeText: {
         fontFamily: fonts.medium,
+        fontSize: 16,
+        color: '#FFFFFF',
+    },
+    // Macro Sheet Styles
+    macroSheet: {
+        padding: 20,
+        backgroundColor: '#1C1C1E',
+    },
+    sheetHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 24,
+    },
+    sheetTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 20,
+        color: '#FFFFFF',
+    },
+    macroInputGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 16,
+        marginBottom: 24,
+    },
+    macroInputItem: {
+        width: '47%', // 2 per row
+    },
+    macroInputLabel: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: Colors.textSecondary,
+        marginBottom: 8,
+    },
+    macroInput: {
+        backgroundColor: '#2C2C2E',
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        color: '#FFFFFF',
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
+    },
+    saveMacrosButton: {
+        backgroundColor: '#285E2A',
+        borderWidth: 1,
+        borderColor: '#448D47',
+        borderRadius: 16,
+        paddingVertical: 16,
+        alignItems: 'center',
+    },
+    saveMacrosText: {
+        fontFamily: fonts.semiBold,
         fontSize: 16,
         color: '#FFFFFF',
     },

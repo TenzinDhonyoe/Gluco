@@ -8,12 +8,11 @@ import { Tabs, usePathname } from 'expo-router';
 import React, { useCallback, useEffect, useRef } from 'react';
 import { Dimensions, Platform, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
-    interpolate,
     useAnimatedStyle,
     useSharedValue,
     withSequence,
     withSpring,
-    withTiming,
+    withTiming
 } from 'react-native-reanimated';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -87,7 +86,6 @@ function TabBarBackground({ currentIndex }: { currentIndex: number }) {
     const indicatorX = useSharedValue(0);
     const indicatorScaleX = useSharedValue(1);
     const indicatorScaleY = useSharedValue(1);
-    const glowOpacity = useSharedValue(0.3);
     const prevIndex = useRef(currentIndex);
 
     useEffect(() => {
@@ -110,19 +108,13 @@ function TabBarBackground({ currentIndex }: { currentIndex: number }) {
                 withSpring(1.05, { damping: 16, stiffness: 450 }),
                 withSpring(1, { damping: 20, stiffness: 400 })
             );
-
-            // Glow pulse on change
-            glowOpacity.value = withSequence(
-                withTiming(0.5, { duration: 50 }),
-                withTiming(0.3, { duration: 150 })
-            );
         }
 
         // Smooth position animation
         indicatorX.value = withSpring(targetX, { damping: 18, stiffness: 180, mass: 0.8 });
 
         prevIndex.current = currentIndex;
-    }, [currentIndex, indicatorX, indicatorScaleX, indicatorScaleY, glowOpacity]);
+    }, [currentIndex, indicatorX, indicatorScaleX, indicatorScaleY]);
 
     const indicatorStyle = useAnimatedStyle(() => ({
         transform: [
@@ -132,13 +124,7 @@ function TabBarBackground({ currentIndex }: { currentIndex: number }) {
         ],
     }));
 
-    const glowStyle = useAnimatedStyle(() => ({
-        opacity: glowOpacity.value,
-        transform: [
-            { translateX: indicatorX.value },
-            { scale: interpolate(indicatorScaleX.value, [1, 1.3], [1, 1.2]) },
-        ],
-    }));
+
 
     return (
         <View style={styles.tabBarBackgroundContainer}>
@@ -154,9 +140,6 @@ function TabBarBackground({ currentIndex }: { currentIndex: number }) {
 
 
 
-            {/* Outer glow for indicator */}
-            <Animated.View style={[styles.indicatorGlow, glowStyle]} />
-
             {/* Liquid glass indicator */}
             <Animated.View style={[styles.liquidIndicator, indicatorStyle]}>
                 <LinearGradient
@@ -164,10 +147,6 @@ function TabBarBackground({ currentIndex }: { currentIndex: number }) {
                     locations={[0, 0.5, 1]}
                     style={styles.indicatorGradient}
                 />
-                {/* Indicator inner highlight */}
-                <View style={styles.indicatorHighlight} />
-                {/* Indicator bottom reflection */}
-                <View style={styles.indicatorReflection} />
             </Animated.View>
         </View>
     );
@@ -343,14 +322,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.05)',
     },
-    indicatorGlow: {
-        position: 'absolute',
-        top: 2,
-        width: INDICATOR_WIDTH + 20,
-        height: INDICATOR_HEIGHT + 12,
-        borderRadius: 24,
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    },
+
     liquidIndicator: {
         position: 'absolute',
         top: 6,
@@ -360,43 +332,12 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.15)',
-        // Subtle inner shadow
-        shadowColor: '#fff',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.08,
-        shadowRadius: 10,
     },
     indicatorGradient: {
         ...StyleSheet.absoluteFillObject,
         borderRadius: 20,
     },
-    indicatorHighlight: {
-        position: 'absolute',
-        top: 1,
-        left: 10,
-        right: 10,
-        height: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.25)',
-        borderRadius: 1,
-    },
-    indicatorReflection: {
-        position: 'absolute',
-        bottom: 3,
-        left: 12,
-        right: 12,
-        height: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        borderRadius: 1,
-    },
-    bottomReflection: {
-        position: 'absolute',
-        bottom: 4,
-        left: 40,
-        right: 40,
-        height: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-        borderRadius: 1,
-    },
+
     tabBarItem: {
         paddingTop: 6,
         paddingBottom: 6,

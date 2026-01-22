@@ -33,7 +33,6 @@ import {
     Image,
     KeyboardAvoidingView,
     Modal,
-    PanResponder,
     Platform,
     Pressable,
     RefreshControl,
@@ -42,14 +41,98 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle, G, Line } from 'react-native-svg';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const TARGET_MIN_MMOL = 3.9;
 const TARGET_MAX_MMOL = 10.0;
+
+const MetabolicScoreRing = ({
+    size = 48,
+    score = null,
+    scoreColor = Colors.textSecondary
+}: {
+    size?: number;
+    score?: number | null;
+    scoreColor?: string;
+}) => {
+    const strokeWidth = 4;
+    const radius = (size - strokeWidth) / 2;
+    const center = size / 2;
+    const innerRadius = radius - 6;
+
+    // Generate tick marks
+    const ticks = useMemo(() => {
+        const items = [];
+        const totalTicks = 60;
+        const activeTicks = score !== null ? Math.round((score / 100) * totalTicks) : 0;
+
+        for (let i = 0; i < totalTicks; i++) {
+            // Start from bottom (90 degrees + offset) or top?
+            // Standard gauge often starts from 135deg to 45deg, but this circle looks full 360 or close to it.
+            // The image shows a full circle. Let's assume 0 is top or standard 360.
+            // Svg rotation: 0 is Right, 90 is Down.
+            // Let's make index 0 be the top (270 deg).
+            const angle = (i * 6 - 90) * (Math.PI / 180);
+
+            const x1 = center + (radius) * Math.cos(angle);
+            const y1 = center + (radius) * Math.sin(angle);
+            const x2 = center + (radius - 3) * Math.cos(angle);
+            const y2 = center + (radius - 3) * Math.sin(angle);
+
+            const isActive = score !== null && i < activeTicks;
+            const tickColor = isActive ? scoreColor : "rgba(255,255,255,0.15)";
+            const tickOpacity = isActive ? 1 : 0.6;
+
+            items.push(
+                <Line
+                    key={i}
+                    x1={x1}
+                    y1={y1}
+                    x2={x2}
+                    y2={y2}
+                    stroke={tickColor}
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    opacity={tickOpacity}
+                />
+            );
+        }
+        return items;
+    }, [center, radius, score, scoreColor]);
+
+    return (
+        <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+            <Svg width={size} height={size}>
+                {/* Tick marks ring */}
+                <G>{ticks}</G>
+
+                {/* Inner solid ring */}
+                <Circle
+                    cx={center}
+                    cy={center}
+                    r={innerRadius}
+                    stroke="rgba(255,255,255,0.1)"
+                    strokeWidth={strokeWidth}
+                    fill="none"
+                />
+            </Svg>
+            <View style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center' }]}>
+                {score !== null ? (
+                    <Text style={{ fontFamily: fonts.bold, fontSize: size * 0.32, color: '#FFFFFF' }}>
+                        {Math.round(score)}
+                    </Text>
+                ) : (
+                    <Ionicons name="lock-closed" size={size * 0.35} color="rgba(255,255,255,0.7)" />
+                )}
+            </View>
+        </View>
+    );
+};
 
 // Determine trend status based on average glucose
 function getTrendStatus(avg: number, hasData: boolean, min: number = TARGET_MIN_MMOL, max: number = TARGET_MAX_MMOL): TrendStatus {
@@ -549,10 +632,10 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
         return (
             <View style={styles.metabolicScoreCardEmpty}>
                 <View style={styles.metabolicScoreEmptyLeft}>
-                    <Ionicons name="pulse-outline" size={24} color={Colors.textTertiary} />
+                    <MetabolicScoreRing size={56} />
                     <View style={styles.metabolicScoreEmptyContent}>
-                        <Text style={styles.metabolicScoreEmptyTitle}>Build your metabolic score</Text>
-                        <Text style={styles.metabolicScoreEmptySubtitle}>Log sleep, activity, and meals</Text>
+                        <Text style={styles.metabolicScoreEmptyTitle}>Metabolic Score</Text>
+                        <Text style={styles.metabolicScoreEmptySubtitle}>Log sleep, activity, and meals to unlock</Text>
                     </View>
                 </View>
             </View>
@@ -567,47 +650,33 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
 
     return (
         <AnimatedPressable
-            style={styles.metabolicScoreCard}
+            style={styles.metabolicScoreCardEmpty}
             onPress={() => router.push({ pathname: '/(tabs)/insights', params: { tab: 'progress' } })}
         >
-            <View style={styles.metabolicScoreHeader}>
-                <View style={styles.metabolicScoreHeaderLeft}>
-                    <Ionicons name="pulse" size={24} color={scoreColor} />
-                    <Text style={styles.metabolicScoreTitle}>METABOLIC SCORE</Text>
-                </View>
-                {velocity !== null && trendIcon && (
-                    <View style={styles.metabolicTrendContainer}>
-                        <Ionicons name={trendIcon} size={16} color={getTrendColor()} />
-                        <Text style={[styles.metabolicTrendText, { color: getTrendColor() }]}>
-                            {velocity > 0 ? '+' : ''}{velocity.toFixed(1)}/wk
-                        </Text>
+            <View style={styles.metabolicScoreEmptyLeft}>
+                <MetabolicScoreRing size={56} score={latestScore} scoreColor={scoreColor} />
+                <View style={styles.metabolicScoreEmptyContent}>
+                    <Text style={styles.metabolicScoreEmptyTitle}>Metabolic Score</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={[styles.metabolicScoreLabelPill, { backgroundColor: scoreColor + '20', paddingVertical: 2, paddingHorizontal: 8 }]}>
+                            <Text style={[styles.metabolicScoreLabelText, { color: scoreColor, fontSize: 11 }]}>
+                                {scoreLabel}
+                            </Text>
+                        </View>
+                        {velocity !== null && trendIcon && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                                <Ionicons name={trendIcon} size={12} color={getTrendColor()} />
+                                <Text style={{ fontFamily: fonts.medium, fontSize: 11, color: getTrendColor() }}>
+                                    {velocity > 0 ? '+' : ''}{velocity.toFixed(1)}/wk
+                                </Text>
+                            </View>
+                        )}
                     </View>
-                )}
-            </View>
-
-            <View style={styles.metabolicScoreContent}>
-                <View style={styles.metabolicScoreValueRow}>
-                    <Text style={[styles.metabolicScoreValue, { color: scoreColor }]}>
-                        {Math.round(latestScore)}
-                    </Text>
-                    <Text style={styles.metabolicScoreMax}>/100</Text>
-                </View>
-                <View style={[styles.metabolicScoreLabelPill, { backgroundColor: scoreColor + '20' }]}>
-                    <View style={[styles.metabolicScoreLabelDot, { backgroundColor: scoreColor }]} />
-                    <Text style={[styles.metabolicScoreLabelText, { color: scoreColor }]}>
-                        {scoreLabel}
+                    <Text style={[styles.metabolicScoreDescription, { marginTop: 4, opacity: 0.7 }]}>
+                        From sleep, activity, and glucose
                     </Text>
                 </View>
             </View>
-
-            {/* Simple progress bar - visually weaker than glucose ring */}
-            <View style={styles.metabolicProgressBar}>
-                <View style={[styles.metabolicProgressFill, { width: `${progressPercent}%`, backgroundColor: scoreColor }]} />
-            </View>
-
-            <Text style={styles.metabolicScoreDescription}>
-                From sleep, activity, and glucose
-            </Text>
         </AnimatedPressable>
     );
 });
@@ -899,108 +968,7 @@ function ExerciseInputSheet({
 }
 
 // Swipeable Tip Cards Component
-function SwipeableTipCards({ onMealPress, onExercisePress }: {
-    onMealPress: () => void;
-    onExercisePress: () => void;
-}) {
-    const [activeIndex, setActiveIndex] = useState(0);
-    const slideAnim = React.useRef(new Animated.Value(0)).current;
 
-    const cards = [
-        {
-            image: Images.mascots.cook,
-            text: 'Planning your next lunch?',
-            linkText: 'Tap to check impact',
-            onPress: onMealPress,
-        },
-        {
-            image: Images.mascots.exercise,
-            text: 'Planning your next exercise?',
-            linkText: 'Tap to check impact',
-            onPress: onExercisePress,
-        },
-    ];
-
-    const handleSwipe = (direction: 'left' | 'right') => {
-        const nextIndex = direction === 'left'
-            ? (activeIndex + 1) % cards.length
-            : (activeIndex - 1 + cards.length) % cards.length;
-
-        // Animate card shuffle horizontally
-        Animated.sequence([
-            Animated.timing(slideAnim, {
-                toValue: direction === 'left' ? -30 : 30,
-                duration: 100,
-                useNativeDriver: true,
-            }),
-            Animated.timing(slideAnim, {
-                toValue: 0,
-                duration: 200,
-                useNativeDriver: true,
-            }),
-        ]).start();
-
-        setActiveIndex(nextIndex);
-    };
-
-    const panResponder = React.useMemo(() =>
-        PanResponder.create({
-            onStartShouldSetPanResponder: () => false,
-            onMoveShouldSetPanResponder: (_, gestureState) => {
-                // Only respond to horizontal swipes
-                return Math.abs(gestureState.dx) > 15 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
-            },
-            onPanResponderRelease: (_, gestureState) => {
-                if (gestureState.dx < -50) {
-                    handleSwipe('left');
-                } else if (gestureState.dx > 50) {
-                    handleSwipe('right');
-                }
-            },
-        }),
-        [activeIndex]);
-
-    const currentCard = cards[activeIndex];
-
-    return (
-        <View style={styles.tipCardsWrapper}>
-            <Animated.View
-                {...panResponder.panHandlers}
-                style={[
-                    styles.tipCardContainer,
-                    { transform: [{ translateX: slideAnim }] }
-                ]}
-            >
-                <TouchableOpacity
-                    style={styles.tipCardTouchable}
-                    onPress={currentCard.onPress}
-                    activeOpacity={0.8}
-                >
-                    <View style={styles.tipCardShadow} />
-                    <View style={styles.tipCard}>
-                        <Image source={currentCard.image} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
-                        <Text style={styles.tipText}>
-                            {currentCard.text} <Text style={styles.tipLink}>{currentCard.linkText}</Text>
-                        </Text>
-                    </View>
-                </TouchableOpacity>
-            </Animated.View>
-
-            {/* Dots indicator */}
-            <View style={styles.dotsContainer}>
-                {cards.map((_, index) => (
-                    <View
-                        key={index}
-                        style={[
-                            styles.dot,
-                            index === activeIndex && styles.dotActive
-                        ]}
-                    />
-                ))}
-            </View>
-        </View>
-    );
-}
 // Meal Card Component with Mini Chart
 // const MINI_CHART_WIDTH = 280;
 const MINI_CHART_HEIGHT = 130;
@@ -1293,16 +1261,12 @@ export default function TodayScreen() {
                         />
                     )}
 
-                    {/* Tip Cards - Swipeable */}
-                    <SwipeableTipCards
-                        onMealPress={() => setSpikeSheetVisible(true)}
-                        onExercisePress={() => setExerciseSheetVisible(true)}
-                    />
-
-                    {/* Personal Insights Carousel */}
+                    {/* Personal Insights Carousel (includes Tip Cards) */}
                     <PersonalInsightsCarousel
                         insights={personalInsights}
                         isLoading={insightsLoading}
+                        onMealPress={() => setSpikeSheetVisible(true)}
+                        onExercisePress={() => setExerciseSheetVisible(true)}
                     />
 
                     {/* Today's Meals Section */}
@@ -1618,8 +1582,8 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     metabolicScoreEmptyTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
+        fontFamily: fonts.semiBold,
+        fontSize: 20,
         color: '#E7E8E9',
     },
     metabolicScoreEmptySubtitle: {
@@ -1783,60 +1747,8 @@ const styles = StyleSheet.create({
         fontFamily: fonts.medium,
         fontSize: 11,
     },
-    tipCardContainer: {
-        position: 'relative',
-        marginBottom: 16,
-    },
-    tipCardShadow: {
-        position: 'absolute',
-        top: 22,
-        left: 12,
-        right: 12,
-        height: 79,
-        backgroundColor: '#22282C',
-        borderRadius: 16,
-    },
-    tipCard: {
-        backgroundColor: '#3A4246',
-        borderRadius: 16,
-        padding: 16,
-        gap: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.25,
-        shadowRadius: 8,
-    },
-    tipText: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: Colors.textPrimary,
-        lineHeight: 14 * 1.2,
-    },
-    tipLink: {
-        color: Colors.primary,
-    },
-    // Swipeable tip cards styles
-    tipCardsWrapper: {
-        marginBottom: 16,
-    },
-    tipCardTouchable: {
-        // No additional styles needed, uses tipCardContainer
-    },
-    dotsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        gap: 8,
-        marginTop: 12,
-    },
-    dot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: '#3F4243',
-    },
-    dotActive: {
-        backgroundColor: '#FFFFFF',
-    },
+
+
     pageIndicator: {
         flexDirection: 'row',
         justifyContent: 'center',
@@ -2106,4 +2018,5 @@ const styles = StyleSheet.create({
         color: Colors.textTertiary,
         marginTop: 2,
     },
+
 });

@@ -111,7 +111,6 @@ export function SegmentedControl<T extends string>({
   const slideX = useSharedValue(0);
   const sliderScale = useSharedValue(1);
   const sliderOpacity = useSharedValue(1);
-  const glowOpacity = useSharedValue(0.5);
 
   const activeIndex = options.findIndex(opt => opt.value === value);
   const itemWidth = containerWidth > 0 ? (containerWidth - 8) / options.length : 0;
@@ -130,13 +129,8 @@ export function SegmentedControl<T extends string>({
         sliderScale.value = withSpring(1, { damping: 20, stiffness: 400 });
         sliderOpacity.value = withTiming(1, { duration: 80 });
       });
-
-      // Pulse the glow effect
-      glowOpacity.value = withTiming(0.7, { duration: 50 }, () => {
-        glowOpacity.value = withTiming(0.4, { duration: 150 });
-      });
     }
-  }, [activeIndex, containerWidth, itemWidth, slideX, sliderScale, sliderOpacity, glowOpacity]);
+  }, [activeIndex, containerWidth, itemWidth, slideX, sliderScale, sliderOpacity]);
 
   const sliderAnimatedStyle = useAnimatedStyle(() => {
     return {
@@ -149,15 +143,7 @@ export function SegmentedControl<T extends string>({
     };
   });
 
-  const glowAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: glowOpacity.value,
-      transform: [
-        { translateX: slideX.value },
-        { scale: interpolate(sliderScale.value, [0.92, 1], [1.1, 1]) },
-      ],
-    };
-  });
+
 
   const onLayout = (e: LayoutChangeEvent) => {
     setContainerWidth(e.nativeEvent.layout.width);
@@ -179,15 +165,7 @@ export function SegmentedControl<T extends string>({
   return (
     <View style={styles.container} testID={testID} onLayout={onLayout}>
       {/* Outer glow effect */}
-      {containerWidth > 0 && (
-        <Animated.View
-          style={[
-            styles.glowOuter,
-            { width: itemWidth + 8 },
-            glowAnimatedStyle,
-          ]}
-        />
-      )}
+
 
       {/* Animated sliding indicator with glass effect */}
       {containerWidth > 0 && (
@@ -205,10 +183,6 @@ export function SegmentedControl<T extends string>({
             end={{ x: 0, y: 1 }}
             style={styles.sliderGradient}
           />
-          {/* Inner highlight for glass depth */}
-          <View style={styles.sliderInnerHighlight} />
-          {/* Bottom reflection */}
-          <View style={styles.sliderBottomReflection} />
         </Animated.View>
       )}
 
@@ -241,19 +215,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
     position: 'relative',
     overflow: 'hidden',
-    // Subtle inner shadow effect
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
   },
-  glowOuter: {
-    position: 'absolute',
-    top: 0,
-    height: '100%',
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-  },
+
   sliderContainer: {
     position: 'absolute',
     top: 4,
@@ -263,34 +226,12 @@ const styles = StyleSheet.create({
     // Glass border effect
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
-    // Shadow for depth
-    shadowColor: '#fff',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
   },
   sliderGradient: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 999,
   },
-  sliderInnerHighlight: {
-    position: 'absolute',
-    top: 1,
-    left: 8,
-    right: 8,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    borderRadius: 999,
-  },
-  sliderBottomReflection: {
-    position: 'absolute',
-    bottom: 2,
-    left: 12,
-    right: 12,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 999,
-  },
+
   itemPressable: {
     flex: 1,
     zIndex: 1,

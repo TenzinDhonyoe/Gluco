@@ -245,9 +245,9 @@ function generateMealRecommendations(data: InsightData): PersonalInsight[] {
                 actionType: 'log_meal',
                 metricKey: 'meal_count',
                 windowHours: 48,
-                cta: { label: 'Log a meal', route: '/log-meal' },
+                cta: { label: 'Log a meal', route: '/meal-scanner' },
             }),
-            cta: { label: 'Log a meal', route: '/log-meal' },
+            cta: { label: 'Log a meal', route: '/meal-scanner' },
         });
         return insights;
     }
@@ -276,9 +276,9 @@ function generateMealRecommendations(data: InsightData): PersonalInsight[] {
                 actionType: 'fiber_boost',
                 metricKey: 'glucose_avg',
                 windowHours: 48,
-                cta: { label: 'Log a meal', route: '/log-meal' },
+                cta: { label: 'Log a meal', route: '/meal-scanner' },
             }),
-            cta: { label: 'Log a meal', route: '/log-meal' },
+            cta: { label: 'Log a meal', route: '/meal-scanner' },
         });
     }
 
@@ -552,7 +552,7 @@ function generateGlucoseRecommendations(data: InsightData): PersonalInsight[] {
                 actionType: 'meal_pairing',
                 metricKey: 'time_in_range',
                 windowHours: 48,
-                cta: { label: 'Log a meal', route: '/log-meal' },
+                cta: { label: 'Log a meal', route: '/meal-scanner' },
             }),
             cta: { label: 'View patterns', route: '/insights' },
         });
@@ -640,7 +640,7 @@ const ICONS: Record<InsightCategory, string> = {
 };
 
 const CTA_ROUTES: Record<InsightCategory, { label: string; route: string }> = {
-    meals: { label: 'Log a meal', route: '/log-meal' },
+    meals: { label: 'Log a meal', route: '/meal-scanner' },
     activity: { label: 'Log activity', route: '/log-activity' },
     sleep: { label: 'View patterns', route: '/insights' },
     glucose: { label: 'Log glucose', route: '/log-glucose' },
@@ -732,7 +732,7 @@ interface CachedInsights {
     timestamp: number;
 }
 
-const INSIGHTS_CACHE_VERSION = 'v3'; // Bumped for action metadata
+const INSIGHTS_CACHE_VERSION = 'v4'; // Bumped for action metadata
 
 function getCacheKey(userId: string, trackingMode: TrackingMode): string {
     const dateKey = new Date().toISOString().split('T')[0]; // YYYY-MM-DD

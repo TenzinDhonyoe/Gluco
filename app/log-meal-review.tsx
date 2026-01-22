@@ -284,7 +284,7 @@ function generateMealInsights(summary: any, items: any[]): string[] {
   }
 
   // 4. Food-Specific Insights
-  const allNames = items.map(i => i.name.toLowerCase()).join(' ');
+  const allNames = items.map(i => (i.name || i.display_name || '').toLowerCase()).join(' ');
   if (allNames.match(/fruit|berry|apple|banana|orange|grape|mango/)) {
     insights.push("Natural sugars from fruit provide quick energy accompanied by some fiber.");
   }
@@ -630,7 +630,15 @@ export default function LogMealReviewScreen() {
         setMealTime(parsed);
       }
     }
-  }, [params.items, params.mealNotes, params.mealName, params.mealTitleEdited, params.imageUri, params.photoPath, params.mealTime]);
+    if (params.macroOverrides && typeof params.macroOverrides === 'string') {
+      try {
+        const overrides = JSON.parse(params.macroOverrides);
+        setMacroOverrides(overrides);
+      } catch (e) {
+        console.error('Failed to parse macroOverrides:', e);
+      }
+    }
+  }, [params.items, params.mealNotes, params.mealName, params.mealTitleEdited, params.imageUri, params.photoPath, params.mealTime, params.macroOverrides]);
 
   React.useEffect(() => {
     if (!params.selectedFoods || typeof params.selectedFoods !== 'string') return;

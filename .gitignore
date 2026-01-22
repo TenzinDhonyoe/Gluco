@@ -58,6 +58,14 @@ supabase/.branches/
 .vscode/
 .idea/
 
+# AI/Agent tools
+.agent/
+.agents/
+.claude/
+.codex/
+.cursor/
+.gemini/
+
 # Secrets (never commit these)
 *.secret
 secrets.json

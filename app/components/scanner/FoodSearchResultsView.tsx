@@ -391,7 +391,7 @@ export default function FoodSearchResultsView({
                         autoCorrect={false}
                     />
                     {isSearching && (
-                        <ActivityIndicator size="small" color="#3494D9" style={{ marginRight: 8 }} />
+                        <ActivityIndicator size="small" color="#4CAF50" style={{ marginRight: 8 }} />
                     )}
                     {searchQuery.length > 0 && !isSearching && (
                         <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
@@ -457,7 +457,7 @@ export default function FoodSearchResultsView({
                                 />
                             ) : isSearching ? (
                                 <View style={styles.loadingContainer}>
-                                    <ActivityIndicator color="#3494D9" size="large" />
+                                    <ActivityIndicator color="#4CAF50" size="large" />
                                 </View>
                             ) : searchQuery.length >= 2 ? (
                                 <View style={styles.emptyContainer}>
@@ -479,7 +479,7 @@ export default function FoodSearchResultsView({
                         <>
                             {isLoadingTab ? (
                                 <View style={styles.loadingContainer}>
-                                    <ActivityIndicator color="#3494D9" size="large" />
+                                    <ActivityIndicator color="#4CAF50" size="large" />
                                 </View>
                             ) : recents.length > 0 ? (
                                 <FlatList
@@ -504,7 +504,7 @@ export default function FoodSearchResultsView({
                         <>
                             {isLoadingTab ? (
                                 <View style={styles.loadingContainer}>
-                                    <ActivityIndicator color="#3494D9" size="large" />
+                                    <ActivityIndicator color="#4CAF50" size="large" />
                                 </View>
                             ) : favorites.length > 0 ? (
                                 <FlatList
@@ -649,7 +649,7 @@ const styles = StyleSheet.create({
     },
     didYouMeanQuery: {
         fontFamily: fonts.semiBold,
-        color: '#3494D9',
+        color: '#4CAF50',
     },
     tabsContainer: {
         flexDirection: 'row',
@@ -752,8 +752,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     checkButtonSelected: {
-        backgroundColor: '#3494D9',
-        borderColor: '#3494D9',
+        backgroundColor: '#4CAF50',
+        borderColor: '#4CAF50',
     },
     // New Cart Styles
     cartButton: {
@@ -766,9 +766,9 @@ const styles = StyleSheet.create({
         position: 'relative',
     },
     cartButtonActive: {
-        backgroundColor: 'rgba(52, 148, 217, 0.3)',
+        backgroundColor: 'rgba(76, 175, 80, 0.3)',
         borderWidth: 1,
-        borderColor: 'rgba(52, 148, 217, 0.5)',
+        borderColor: 'rgba(76, 175, 80, 0.5)',
     },
     badge: {
         position: 'absolute',
@@ -828,8 +828,10 @@ const styles = StyleSheet.create({
         paddingBottom: 16,
     },
     modalSaveButton: {
-        backgroundColor: '#3494D9',
-        borderRadius: 16,
+        backgroundColor: '#285E2A',
+        borderWidth: 1,
+        borderColor: '#448D47',
+        borderRadius: 30,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 16,
@@ -914,7 +916,7 @@ const styles = StyleSheet.create({
     manualEntryButtonText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#3494D9',
+        color: '#4CAF50',
         marginLeft: 6,
     },
     // Modal styles

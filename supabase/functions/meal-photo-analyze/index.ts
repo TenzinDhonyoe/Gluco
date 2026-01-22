@@ -688,30 +688,58 @@ async function analyzePhotoWithGemini(
             throw new Error('Empty response from AI');
         }
 
-        // Parse JSON response
+        // Parse JSON response with multiple fallback strategies
         let parsed: unknown = null;
-        try {
-            parsed = JSON.parse(content);
-        } catch (parseError) {
-            // Try to extract JSON from markdown code blocks
-            const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-            if (jsonMatch) {
-                try {
-                    parsed = JSON.parse(jsonMatch[1].trim());
-                } catch {
-                    // Try extracting raw JSON object
-                    const objMatch = content.match(/\{[\s\S]*\}/);
-                    if (objMatch) {
-                        parsed = JSON.parse(objMatch[0]);
+        const parseStrategies = [
+            // Strategy 1: Direct parse (if response is pure JSON)
+            () => JSON.parse(content),
+            // Strategy 2: Extract from markdown code blocks
+            () => {
+                const match = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+                if (match) return JSON.parse(match[1].trim());
+                throw new Error('No markdown block');
+            },
+            // Strategy 3: Find JSON object with balanced braces
+            () => {
+                let start = content.indexOf('{');
+                if (start === -1) throw new Error('No opening brace');
+                let depth = 0;
+                let end = -1;
+                for (let i = start; i < content.length; i++) {
+                    if (content[i] === '{') depth++;
+                    else if (content[i] === '}') {
+                        depth--;
+                        if (depth === 0) {
+                            end = i + 1;
+                            break;
+                        }
                     }
                 }
-            } else {
-                // Try extracting raw JSON object
-                const objMatch = content.match(/\{[\s\S]*\}/);
-                if (objMatch) {
-                    parsed = JSON.parse(objMatch[0]);
-                } else {
-                    log('ERROR', 'Could not parse AI response', { content: content.substring(0, 500) });
+                if (end === -1) throw new Error('No balanced braces');
+                return JSON.parse(content.substring(start, end));
+            },
+            // Strategy 4: Clean common issues and try again
+            () => {
+                let cleaned = content
+                    .replace(/^[^{]*/, '') // Remove leading non-JSON
+                    .replace(/[^}]*$/, '') // Remove trailing non-JSON
+                    .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+                    .trim();
+                return JSON.parse(cleaned);
+            },
+        ];
+
+        for (let i = 0; i < parseStrategies.length; i++) {
+            try {
+                parsed = parseStrategies[i]();
+                log('DEBUG', `JSON parsed successfully with strategy ${i + 1}`);
+                break;
+            } catch (e) {
+                if (i === parseStrategies.length - 1) {
+                    log('ERROR', 'All JSON parsing strategies failed', {
+                        content: content.substring(0, 1000),
+                        lastError: e instanceof Error ? e.message : 'Unknown'
+                    });
                     throw new Error('Could not parse AI response as JSON');
                 }
             }

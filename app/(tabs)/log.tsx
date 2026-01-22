@@ -1,5 +1,6 @@
 import { AnimatedScreen } from '@/components/animations/animated-screen';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { LiquidGlassButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -444,35 +445,35 @@ export default function LogScreen() {
 
                     {/* Quick Action Buttons */}
                     <View style={styles.quickActionsContainer}>
-                        <AnimatedPressable
+                        <LiquidGlassButton
                             style={styles.quickActionButton}
                             onPress={() => router.push('/meal-scanner')}
                         >
-                            <View style={[styles.quickActionIcon, { backgroundColor: Colors.mealLight }]}>
-                                <Ionicons name="restaurant" size={20} color={Colors.meal} />
+                            <View style={[styles.quickActionIcon, { backgroundColor: 'transparent' }]}>
+                                <Ionicons name="restaurant" size={24} color="#FFB74D" />
                             </View>
                             <Text style={styles.quickActionText}>Log Meal</Text>
-                        </AnimatedPressable>
+                        </LiquidGlassButton>
 
-                        <AnimatedPressable
+                        <LiquidGlassButton
                             style={styles.quickActionButton}
                             onPress={() => router.push('/log-glucose')}
                         >
-                            <View style={[styles.quickActionIcon, { backgroundColor: Colors.glucoseLight }]}>
-                                <Ionicons name="water" size={20} color={Colors.glucose} />
+                            <View style={[styles.quickActionIcon, { backgroundColor: 'transparent' }]}>
+                                <Ionicons name="water" size={24} color="#FF5252" />
                             </View>
                             <Text style={styles.quickActionText}>Log Glucose</Text>
-                        </AnimatedPressable>
+                        </LiquidGlassButton>
 
-                        <AnimatedPressable
+                        <LiquidGlassButton
                             style={styles.quickActionButton}
                             onPress={() => router.push('/log-activity')}
                         >
-                            <View style={[styles.quickActionIcon, { backgroundColor: Colors.activityLight }]}>
-                                <Ionicons name="walk" size={20} color={Colors.activity} />
+                            <View style={[styles.quickActionIcon, { backgroundColor: 'transparent' }]}>
+                                <Ionicons name="walk" size={24} color="#81C784" />
                             </View>
                             <Text style={styles.quickActionText}>Log Activity</Text>
-                        </AnimatedPressable>
+                        </LiquidGlassButton>
                     </View>
 
                     {/* Recent Logs Section */}
@@ -670,7 +671,7 @@ const styles = StyleSheet.create({
     },
     // Tips Section
     tipsScroll: {
-        marginBottom: 32,
+        marginBottom: 20,
     },
     tipsContainer: {
         paddingHorizontal: 16,
@@ -739,13 +740,10 @@ const styles = StyleSheet.create({
     },
     quickActionButton: {
         flex: 1,
-        backgroundColor: '#1a1b1c',
-        borderRadius: 16,
         paddingVertical: 16,
         alignItems: 'center',
         gap: 8,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        // Visual styles handled by LiquidGlassButton
     },
     quickActionIcon: {
         width: 44,

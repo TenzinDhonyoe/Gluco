@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
-const CACHE_VERSION = 'v6'; // Bumped to invalidate after adding action metadata
+const CACHE_VERSION = 'v7'; // Bumped to invalidate after adding action metadata
 
 interface CacheEntry {
     ts: number;

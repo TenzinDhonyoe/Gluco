@@ -9,6 +9,8 @@ import Animated, {
     withSpring,
 } from 'react-native-reanimated';
 
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
 interface LiquidGlassButtonProps {
     children: React.ReactNode;
     onPress?: () => void;
@@ -55,7 +57,7 @@ export function LiquidGlassButton({
     const handlePress = useCallback(() => {
         if (disabled) return;
         if (haptic && Platform.OS === 'ios') {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         }
         onPress?.();
     }, [disabled, haptic, onPress]);
@@ -85,35 +87,32 @@ export function LiquidGlassButton({
     const borderRadius = getBorderRadius();
 
     return (
-        <Pressable
+        <AnimatedPressable
             onPress={handlePress}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
             disabled={disabled}
+            style={[
+                styles.container,
+                { borderRadius },
+                getSize(),
+                disabled && styles.disabled,
+                style,
+                animatedStyle,
+            ]}
         >
-            <Animated.View
-                style={[
-                    styles.container,
-                    { borderRadius },
-                    getSize(),
-                    disabled && styles.disabled,
-                    style,
-                    animatedStyle,
-                ]}
-            >
-                {/* Glass gradient background */}
-                <LinearGradient
-                    colors={['rgba(60, 65, 70, 0.9)', 'rgba(45, 48, 52, 0.9)', 'rgba(50, 54, 58, 0.9)']}
-                    locations={[0, 0.5, 1]}
-                    style={[styles.gradient, { borderRadius }]}
-                />
+            {/* Glass gradient background */}
+            <LinearGradient
+                colors={['rgba(60, 65, 70, 0.9)', 'rgba(45, 48, 52, 0.9)', 'rgba(50, 54, 58, 0.9)']}
+                locations={[0, 0.5, 1]}
+                style={[styles.gradient, { borderRadius }]}
+            />
 
-                {/* Content */}
-                <View style={styles.content}>
-                    {children}
-                </View>
-            </Animated.View>
-        </Pressable>
+            {/* Content */}
+            <View style={styles.content}>
+                {children}
+            </View>
+        </AnimatedPressable>
     );
 }
 

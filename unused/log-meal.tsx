@@ -32,6 +32,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import uuid from 'react-native-uuid';
+import AnalysisResultsView from './components/scanner/AnalysisResultsView';
 
 const MEAL_DRAFT_KEY = 'meal_log_draft';
 const MEAL_ITEMS_DRAFT_KEY = 'meal_items_draft';
@@ -373,6 +374,12 @@ export default function LogMealScreen() {
   const [imageSheetOpen, setImageSheetOpen] = React.useState(false);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
   const [analysisStep, setAnalysisStep] = React.useState<string | null>(null);
+  const [analysisResult, setAnalysisResult] = React.useState<{
+    items: SelectedMealItem[];
+    imageUri?: string;
+    photoPath?: string;
+    mealNotes?: string;
+  } | null>(null);
   const isReadyRef = React.useRef(false);
   const resumePromptedRef = React.useRef(false);
 
@@ -617,16 +624,12 @@ export default function LogMealScreen() {
         matchedItems = await matchParsedItems(parsed);
       }
 
-      router.push({
-        pathname: '/log-meal-review',
-        params: {
-          items: JSON.stringify(matchedItems),
-          mealName: '',
-          mealNotes: trimmedNotes,
-          imageUri: imageUri || '',
-          photoPath: nextPhotoPath || '',
-          mealTime: mealTime.toISOString(),
-        },
+      // Show AnalysisResultsView instead of navigating
+      setAnalysisResult({
+        items: matchedItems,
+        imageUri: imageUri || undefined,
+        photoPath: nextPhotoPath || undefined,
+        mealNotes: trimmedNotes,
       });
     } catch (e) {
       console.error('Meal analyze error:', e);
@@ -856,6 +859,46 @@ export default function LogMealScreen() {
         <View style={styles.analyzeOverlay}>
           <ActivityIndicator size="large" color={Colors.buttonPrimary} />
           <Text style={styles.analyzeText}>{analysisStep || 'Analyzing...'}</Text>
+        </View>
+      ) : null}
+
+      {/* Analysis Results View - Full screen overlay */}
+      {analysisResult ? (
+        <View style={StyleSheet.absoluteFill}>
+          <AnalysisResultsView
+            imageUri={analysisResult.imageUri}
+            items={analysisResult.items}
+            onReview={() => {
+              router.push({
+                pathname: '/log-meal-review',
+                params: {
+                  items: JSON.stringify(analysisResult.items),
+                  mealName: '',
+                  mealNotes: analysisResult.mealNotes || '',
+                  imageUri: analysisResult.imageUri || '',
+                  photoPath: analysisResult.photoPath || '',
+                  mealTime: mealTime.toISOString(),
+                },
+              });
+              setAnalysisResult(null);
+            }}
+            onSave={() => {
+              router.push({
+                pathname: '/log-meal-review',
+                params: {
+                  items: JSON.stringify(analysisResult.items),
+                  mealName: '',
+                  mealNotes: analysisResult.mealNotes || '',
+                  imageUri: analysisResult.imageUri || '',
+                  photoPath: analysisResult.photoPath || '',
+                  mealTime: mealTime.toISOString(),
+                  autoSave: 'true',
+                },
+              });
+              setAnalysisResult(null);
+            }}
+            onClose={() => setAnalysisResult(null)}
+          />
         </View>
       ) : null}
     </View>

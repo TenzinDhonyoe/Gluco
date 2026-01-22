@@ -1,30 +1,49 @@
 /**
  * Analysis Results View
- * Displays meal analysis results with photo, macros, and action buttons
- * Redesigned to match new UI mockup
+ * Displays meal analysis results with photo, macros, AI-powered insights, and action buttons
  */
 
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
+import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import {
+    invokePremealAnalyze,
+    PremealAdjustmentTip,
+    PremealDriver,
+    PremealMealDraft,
+    PremealResult,
+} from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     Dimensions,
     Image,
     ScrollView,
     StyleSheet,
     Text,
-    TouchableOpacity,
-    View,
+    View
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+    interpolateColor,
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withSequence,
+    withSpring,
+    withTiming
+} from 'react-native-reanimated';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle } from 'react-native-svg';
 import { SelectedItem } from './FoodSearchResultsView';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const PHOTO_HEIGHT = SCREEN_WIDTH * 0.55;
 
 interface AnalysisResultsViewProps {
-    imageUri: string;
+    imageUri?: string;
     items: SelectedItem[];
     onReview: () => void;
     onSave: () => void;
@@ -32,6 +51,13 @@ interface AnalysisResultsViewProps {
     headerTitle?: string;
     primaryActionLabel?: string;
     reviewIcon?: keyof typeof Ionicons.glyphMap;
+    macroOverrides?: {
+        calories?: number;
+        carbs?: number;
+        protein?: number;
+        fat?: number;
+        fibre?: number;
+    };
 }
 
 // Format serving size for display
@@ -46,15 +72,6 @@ function formatServing(item: SelectedItem): string {
     return `${qty} ${unit}`;
 }
 
-// Get meal type based on time
-function getMealType(): string {
-    const hour = new Date().getHours();
-    if (hour < 11) return 'Breakfast';
-    if (hour < 15) return 'Lunch';
-    if (hour < 18) return 'Snack';
-    return 'Dinner';
-}
-
 // Format timestamp
 function formatTimestamp(): string {
     const now = new Date();
@@ -66,6 +83,101 @@ function formatTimestamp(): string {
     return `${displayHour}:${displayMin} ${ampm} • Today`;
 }
 
+// Get score color based on value (0-100)
+function getScoreColor(score: number): string {
+    if (score >= 70) return Colors.success; // Green
+    if (score >= 40) return Colors.warning; // Yellow/Orange
+    return Colors.error; // Red
+}
+
+// Get benefit badge color
+function getBenefitColor(level: 'low' | 'medium' | 'high'): string {
+    switch (level) {
+        case 'high': return Colors.success;
+        case 'medium': return Colors.warning;
+        case 'low': return Colors.primary;
+    }
+}
+
+// Get benefit label
+function getBenefitLabel(level: 'low' | 'medium' | 'high'): string {
+    switch (level) {
+        case 'high': return 'High Impact';
+        case 'medium': return 'Medium Impact';
+        case 'low': return 'Low Impact';
+    }
+}
+
+// Circular Progress Score Component
+function AnimatedScoreBadge({ score }: { score: number }) {
+    const animatedScore = useSharedValue(0);
+
+    // Get color based on score: red (0) -> yellow (50) -> green (100)
+    const getProgressColor = (value: number) => {
+        if (value < 40) return Colors.error;  // Red for low
+        if (value < 70) return Colors.warning; // Yellow/orange for medium
+        return Colors.success; // Green for high
+    };
+
+    const progressColor = getProgressColor(score);
+
+    // SVG circle properties
+    const size = 60;
+    const strokeWidth = 6;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = 2 * Math.PI * radius;
+    const progress = Math.max(0, Math.min(100, score)) / 100;
+    const strokeDashoffset = circumference * (1 - progress);
+
+    useEffect(() => {
+        animatedScore.value = withSpring(score, { damping: 15, stiffness: 100 });
+    }, [score]);
+
+    const textStyle = useAnimatedStyle(() => {
+        const color = interpolateColor(
+            animatedScore.value,
+            [0, 40, 70, 100],
+            [Colors.error, Colors.error, Colors.warning, Colors.success]
+        );
+        return { color };
+    });
+
+
+
+    return (
+        <View style={styles.circularProgress}>
+            <Svg width={size} height={size} style={{ transform: [{ rotate: '-90deg' }] }}>
+                {/* Background circle */}
+                <Circle
+                    cx={size / 2}
+                    cy={size / 2}
+                    r={radius}
+                    stroke="rgba(255, 255, 255, 0.15)"
+                    strokeWidth={strokeWidth}
+                    fill="transparent"
+                />
+                {/* Progress circle */}
+                <Circle
+                    cx={size / 2}
+                    cy={size / 2}
+                    r={radius}
+                    stroke={progressColor}
+                    strokeWidth={strokeWidth}
+                    fill="transparent"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={strokeDashoffset}
+                    strokeLinecap="round"
+                />
+            </Svg>
+            <View style={styles.scoreTextContainer}>
+                <Text style={[styles.scoreValue, { color: progressColor }]}>
+                    {Math.round(score)}
+                </Text>
+            </View>
+        </View>
+    );
+}
+
 export default function AnalysisResultsView({
     imageUri,
     items,
@@ -75,194 +187,324 @@ export default function AnalysisResultsView({
     headerTitle = 'MEAL REVIEW',
     primaryActionLabel = 'Log this meal',
     reviewIcon = 'create-outline',
+    macroOverrides,
 }: AnalysisResultsViewProps) {
     const insets = useSafeAreaInsets();
+    const { user } = useAuth();
+    const [isLoadingInsights, setIsLoadingInsights] = useState(true);
+    const [insights, setInsights] = useState<PremealResult | null>(null);
 
-    // Calculate totals from items
-    const totals = items.reduce(
-        (acc, item) => ({
-            calories: acc.calories + (item.calories_kcal || 0) * (item.quantity || 1),
-            carbs: acc.carbs + (item.carbs_g || 0) * (item.quantity || 1),
-            protein: acc.protein + (item.protein_g || 0) * (item.quantity || 1),
-            fat: acc.fat + (item.fat_g || 0) * (item.quantity || 1),
-            fiber: acc.fiber + (item.fibre_g || 0) * (item.quantity || 1),
-        }),
-        { calories: 0, carbs: 0, protein: 0, fat: 0, fiber: 0 }
-    );
+    // Mascot animation
+    const mascotScale = useSharedValue(1);
+    useEffect(() => {
+        if (isLoadingInsights) {
+            mascotScale.value = withRepeat(
+                withSequence(
+                    withTiming(1.1, { duration: 800 }),
+                    withTiming(1, { duration: 800 })
+                ),
+                -1,
+                true
+            );
+        }
+    }, [isLoadingInsights]);
+
+    const mascotStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: mascotScale.value }],
+    }));
+
+    // Calculate totals from items, respecting overrides
+    const totals = useMemo(() => {
+        const calculated = items.reduce(
+            (acc, item) => ({
+                calories: acc.calories + (item.calories_kcal || 0) * (item.quantity || 1),
+                carbs: acc.carbs + (item.carbs_g || 0) * (item.quantity || 1),
+                protein: acc.protein + (item.protein_g || 0) * (item.quantity || 1),
+                fat: acc.fat + (item.fat_g || 0) * (item.quantity || 1),
+                fiber: acc.fiber + (item.fibre_g || 0) * (item.quantity || 1),
+            }),
+            { calories: 0, carbs: 0, protein: 0, fat: 0, fiber: 0 }
+        );
+
+        return {
+            calories: macroOverrides?.calories ?? calculated.calories,
+            carbs: macroOverrides?.carbs ?? calculated.carbs,
+            protein: macroOverrides?.protein ?? calculated.protein,
+            fat: macroOverrides?.fat ?? calculated.fat,
+            fiber: macroOverrides?.fibre ?? calculated.fiber,
+        };
+    }, [items, macroOverrides]);
 
     // Generate meal name from items
-    const mealName = items.length > 0
-        ? items.slice(0, 2).map(i => i.display_name).join(' with ')
-        : 'Analyzed Meal';
+    const mealName = useMemo(() => {
+        if (items.length === 0) return 'Analyzed Meal';
+        if (items.length === 1) return items[0].display_name;
+        return items.slice(0, 2).map(i => i.display_name).join(' with ');
+    }, [items]);
 
-    // Simple metabolic score (placeholder logic - higher protein & fiber, lower carbs = better)
-    const metabolicScore = Math.min(100, Math.max(0, Math.round(
-        50 + (totals.protein * 1.5) + (totals.fiber * 2) - (totals.carbs * 0.3)
-    )));
+    // Fetch AI insights
+    useEffect(() => {
+        async function fetchInsights() {
+            if (!user?.id || items.length === 0) {
+                setIsLoadingInsights(false);
+                return;
+            }
 
-    // Generate drivers based on meal composition
-    const drivers = [];
-    if (totals.protein > 20) drivers.push('Good protein content supports satiety');
-    if (totals.fiber > 5) drivers.push('Fiber helps slow glucose absorption');
-    if (totals.carbs > 40) drivers.push('Higher carb content may impact glucose');
-    if (totals.fat > 10) drivers.push('Healthy fats help moderate response');
-    if (drivers.length === 0) drivers.push('Balanced meal composition');
+            setIsLoadingInsights(true);
+            try {
+                const mealDraft: PremealMealDraft = {
+                    name: mealName,
+                    logged_at: new Date().toISOString(),
+                    items: items.map(item => ({
+                        display_name: item.display_name,
+                        quantity: item.quantity || 1,
+                        unit: item.serving_unit,
+                        nutrients: {
+                            calories_kcal: item.calories_kcal,
+                            carbs_g: item.carbs_g,
+                            protein_g: item.protein_g,
+                            fat_g: item.fat_g,
+                            fibre_g: item.fibre_g,
+                        },
+                    })),
+                };
 
-    // Generate adjustment suggestions
-    const adjustments = [];
-    if (totals.carbs > 50) {
-        adjustments.push({
-            title: 'Reduce portion size',
-            risk: '-8% Risk',
-            description: 'A smaller portion can help moderate glucose response.',
+                const result = await invokePremealAnalyze(user.id, mealDraft);
+                setInsights(result);
+            } catch (error) {
+                console.error('Error fetching meal insights:', error);
+            } finally {
+                setIsLoadingInsights(false);
+            }
+        }
+
+        fetchInsights();
+    }, [user?.id, items, mealName]);
+
+    // Calculate wellness score (use API score or fallback)
+    const wellnessScore = useMemo(() => {
+        if (insights?.wellness_score !== undefined) {
+            return insights.wellness_score;
+        }
+        // Fallback calculation if API doesn't return score
+        // Higher protein & fiber = better, high carbs = lower
+        const proteinBonus = Math.min(totals.protein * 1.5, 30);
+        const fiberBonus = Math.min(totals.fiber * 3, 25);
+        const carbPenalty = Math.min(totals.carbs * 0.4, 40);
+        return Math.min(100, Math.max(0, Math.round(50 + proteinBonus + fiberBonus - carbPenalty)));
+    }, [insights, totals]);
+
+    // Get drivers (from API or fallback)
+    const drivers: PremealDriver[] = useMemo(() => {
+        if (insights?.drivers && insights.drivers.length > 0) {
+            return insights.drivers;
+        }
+        // Fallback drivers based on meal composition
+        const fallbackDrivers: PremealDriver[] = [];
+        if (totals.protein > 20) {
+            fallbackDrivers.push({ text: 'Good protein content supports satiety and stable energy', reason_code: 'protein_high' });
+        }
+        if (totals.fiber > 5) {
+            fallbackDrivers.push({ text: 'Fiber helps slow glucose absorption', reason_code: 'fiber_good' });
+        }
+        if (totals.carbs > 40 && totals.fiber < 5) {
+            fallbackDrivers.push({ text: 'Higher carb content with lower fiber may affect glucose', reason_code: 'carb_fiber_ratio' });
+        }
+        if (totals.fat > 10 && totals.fat < 30) {
+            fallbackDrivers.push({ text: 'Healthy fats help moderate glucose response', reason_code: 'fat_moderate' });
+        }
+        if (fallbackDrivers.length === 0) {
+            fallbackDrivers.push({ text: 'Balanced meal composition', reason_code: 'balanced' });
+        }
+        return fallbackDrivers;
+    }, [insights, totals]);
+
+    // Get adjustment tips (from API or fallback)
+    const adjustmentTips: PremealAdjustmentTip[] = useMemo(() => {
+        if (insights?.adjustment_tips && insights.adjustment_tips.length > 0) {
+            return insights.adjustment_tips;
+        }
+        // Fallback tips
+        const fallbackTips: PremealAdjustmentTip[] = [];
+        if (totals.fiber < 5) {
+            fallbackTips.push({
+                title: 'Add more fiber',
+                detail: 'Adding vegetables or whole grains can help slow glucose absorption.',
+                benefit_level: 'high',
+                action_type: 'add_fiber',
+            });
+        }
+        if (totals.protein < 15) {
+            fallbackTips.push({
+                title: 'Add a protein source',
+                detail: 'Protein helps stabilize blood sugar and keeps you fuller longer.',
+                benefit_level: 'high',
+                action_type: 'add_protein',
+            });
+        }
+        fallbackTips.push({
+            title: 'Take a 10-min walk after eating',
+            detail: 'Light activity after meals helps your body process glucose more effectively.',
+            benefit_level: 'medium',
+            action_type: 'post_meal_walk',
         });
-    }
-    if (totals.fiber < 5) {
-        adjustments.push({
-            title: 'Add more fiber',
-            risk: '-6% Risk',
-            description: 'Adding vegetables or whole grains can slow glucose absorption.',
-        });
-    }
-    if (totals.protein < 15) {
-        adjustments.push({
-            title: 'Add protein source',
-            risk: '-10% Risk',
-            description: 'Protein helps stabilize blood sugar levels.',
-        });
-    }
-    adjustments.push({
-        title: 'Take a 10 min post meal walk',
-        risk: '-5% Risk',
-        description: 'Light activity after eating helps your body process glucose.',
-    });
+        return fallbackTips.slice(0, 3);
+    }, [insights, totals]);
+
+    // Personalized tip based on score
+    const personalizedTip = useMemo(() => {
+        if (wellnessScore >= 70) {
+            return "Great choice! This meal has a good balance of nutrients for steady energy.";
+        } else if (wellnessScore >= 40) {
+            return "This meal is okay, but consider the suggestions below to optimize your response.";
+        } else {
+            return "Consider pairing this meal with protein or fiber to help moderate your glucose response.";
+        }
+    }, [wellnessScore]);
 
     return (
         <View style={styles.container}>
-            {/* Header */}
-            <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-                <TouchableOpacity style={styles.headerButton} onPress={onClose}>
-                    <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>{headerTitle}</Text>
-                <TouchableOpacity style={styles.headerButton} onPress={onReview}>
-                    <Ionicons name={reviewIcon} size={22} color="#FFFFFF" />
-                </TouchableOpacity>
-            </View>
+            {/* Background Gradient */}
+            <LinearGradient
+                colors={['#1a1f24', '#181c20', '#111111']}
+                locations={[0, 0.35, 1]}
+                style={styles.topGlow}
+            />
 
-            <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
-                showsVerticalScrollIndicator={false}
-            >
-                {/* Meal Title Section */}
-                <View style={styles.mealTitleSection}>
-                    <Text style={styles.mealName}>{mealName}</Text>
-                    <Text style={styles.timestamp}>{formatTimestamp()}</Text>
+            <SafeAreaView edges={['top']} style={styles.safeArea}>
+                {/* Header */}
+                <View style={styles.header}>
+                    <LiquidGlassIconButton size={44} onPress={onClose}>
+                        <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
+                    </LiquidGlassIconButton>
+                    <Text style={styles.headerTitle}>{headerTitle}</Text>
+                    <LiquidGlassIconButton size={44} onPress={onReview}>
+                        <Ionicons name={reviewIcon} size={20} color={Colors.textPrimary} />
+                    </LiquidGlassIconButton>
                 </View>
 
-                {/* Photo */}
-                <View style={styles.photoContainer}>
-                    <Image
-                        source={{ uri: imageUri }}
-                        style={styles.photo}
-                        resizeMode="cover"
-                    />
-                </View>
+                <ScrollView
+                    style={styles.scrollView}
+                    contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
+                    showsVerticalScrollIndicator={false}
+                >
+                    {/* Meal Title Section */}
+                    <View style={styles.mealTitleSection}>
+                        <Text style={styles.mealName}>{mealName}</Text>
+                        <Text style={styles.timestamp}>{formatTimestamp()}</Text>
+                    </View>
 
-                {/* Horizontal Macro Bar */}
-                <View style={styles.macroBar}>
-                    <View style={styles.macroColumn}>
-                        <Text style={styles.macroLabel}>CARBS</Text>
-                        <Text style={styles.macroValue}>{Math.round(totals.carbs)}g</Text>
-                    </View>
-                    <View style={styles.macroDivider} />
-                    <View style={styles.macroColumn}>
-                        <Text style={styles.macroLabel}>PROTEIN</Text>
-                        <Text style={styles.macroValue}>{Math.round(totals.protein)}g</Text>
-                    </View>
-                    <View style={styles.macroDivider} />
-                    <View style={styles.macroColumn}>
-                        <Text style={styles.macroLabel}>FIBER</Text>
-                        <Text style={styles.macroValue}>{Math.round(totals.fiber)}g</Text>
-                    </View>
-                    <View style={styles.macroDivider} />
-                    <View style={styles.macroColumn}>
-                        <Text style={styles.macroLabel}>FAT</Text>
-                        <Text style={styles.macroValue}>{Math.round(totals.fat)}g</Text>
-                    </View>
-                </View>
-
-                {/* Food Items List */}
-                <View style={styles.itemsSection}>
-                    {items.map((item, index) => (
-                        <View key={index} style={styles.foodItem}>
-                            <View style={styles.foodItemLeft}>
-                                <Text style={styles.foodItemName}>{item.display_name}</Text>
-                                <Text style={styles.foodItemBrand}>{item.brand || 'Generic'}</Text>
-                            </View>
-                            <Text style={styles.foodItemServing}>{formatServing(item)}</Text>
+                    {/* Photo - only show if imageUri exists */}
+                    {imageUri ? (
+                        <View style={styles.photoContainer}>
+                            <Image
+                                source={{ uri: imageUri }}
+                                style={styles.photo}
+                                resizeMode="cover"
+                            />
                         </View>
-                    ))}
-                    <TouchableOpacity>
-                        <Text style={styles.dataSourceLink}>Food Data Source</Text>
-                    </TouchableOpacity>
-                </View>
+                    ) : null}
 
-                {/* Metabolic Score */}
-                <View style={styles.scoreSection}>
-                    <Text style={styles.scoreLabel}>Metabolic Score</Text>
-                    <View style={styles.scoreBadge}>
-                        <Text style={styles.scoreValue}>{metabolicScore}</Text>
-                    </View>
-                </View>
-
-                {/* Drivers Section */}
-                <View style={styles.driversSection}>
-                    <Text style={styles.sectionTitle}>Drivers:</Text>
-                    {drivers.map((driver, index) => (
-                        <View key={index} style={styles.driverItem}>
-                            <View style={styles.driverBullet} />
-                            <Text style={styles.driverText}>{driver}</Text>
+                    {/* Horizontal Macro Bar */}
+                    <View style={styles.macroBar}>
+                        <View style={styles.macroColumn}>
+                            <Text style={styles.macroLabel}>CALORIES</Text>
+                            <Text style={styles.macroValue}>{Math.round(totals.calories)}</Text>
                         </View>
-                    ))}
-                </View>
+                        <View style={styles.macroDivider} />
+                        <View style={styles.macroColumn}>
+                            <Text style={styles.macroLabel}>CARBS</Text>
+                            <Text style={styles.macroValue}>{Math.round(totals.carbs)}g</Text>
+                        </View>
+                        <View style={styles.macroDivider} />
+                        <View style={styles.macroColumn}>
+                            <Text style={styles.macroLabel}>PROTEIN</Text>
+                            <Text style={styles.macroValue}>{Math.round(totals.protein)}g</Text>
+                        </View>
+                        <View style={styles.macroDivider} />
+                        <View style={styles.macroColumn}>
+                            <Text style={styles.macroLabel}>FIBER</Text>
+                            <Text style={styles.macroValue}>{Math.round(totals.fiber)}g</Text>
+                        </View>
+                        <View style={styles.macroDivider} />
+                        <View style={styles.macroColumn}>
+                            <Text style={styles.macroLabel}>FAT</Text>
+                            <Text style={styles.macroValue}>{Math.round(totals.fat)}g</Text>
+                        </View>
+                    </View>
 
-                {/* Adjustments Section */}
-                <View style={styles.adjustmentsSection}>
-                    <Text style={styles.sectionTitle}>Try these adjustments:</Text>
-                    {adjustments.slice(0, 3).map((adjustment, index) => (
-                        <View key={index} style={styles.adjustmentCard}>
-                            <View style={styles.adjustmentHeader}>
-                                <Text style={styles.adjustmentTitle}>{adjustment.title}</Text>
-                                <View style={styles.adjustmentRiskBadge}>
-                                    <Text style={styles.adjustmentRisk}>{adjustment.risk}</Text>
+                    {/* Food Items List */}
+                    <View style={styles.itemsSection}>
+                        {items.map((item, index) => (
+                            <View key={index} style={styles.foodItem}>
+                                <View style={styles.foodItemLeft}>
+                                    <Text style={styles.foodItemName}>{item.display_name}</Text>
+                                    <Text style={styles.foodItemBrand}>{item.brand || 'Generic'}</Text>
                                 </View>
+                                <Text style={styles.foodItemServing}>{formatServing(item)}</Text>
                             </View>
-                            <Text style={styles.adjustmentDesc}>{adjustment.description}</Text>
-                        </View>
-                    ))}
-                </View>
-
-                {/* Personalized Tip Card */}
-                <View style={styles.tipCard}>
-                    <View style={styles.tipIcon}>
-                        <Ionicons name="bulb" size={20} color="#000000" />
+                        ))}
                     </View>
-                    <Text style={styles.tipText}>
-                        {totals.carbs > 40
-                            ? 'Consider pairing high-carb meals with protein to stabilize your glucose response.'
-                            : 'Great job! This meal has a balanced composition for steady energy.'}
-                    </Text>
-                </View>
-            </ScrollView>
 
-            {/* Bottom Button */}
-            <View style={[styles.bottomContainer, { paddingBottom: insets.bottom + 16 }]}>
-                <TouchableOpacity style={styles.logButton} onPress={onSave}>
-                    <Text style={styles.logButtonText}>{primaryActionLabel}</Text>
-                </TouchableOpacity>
-            </View>
+                    {/* AI Insights Section */}
+                    {isLoadingInsights ? (
+                        <View style={styles.loadingContainer}>
+                            <Animated.Image
+                                source={require('@/assets/images/mascots/gluco_app_mascott/gluco_mascott_cook.png')}
+                                style={[styles.loadingMascot, mascotStyle]}
+                                resizeMode="contain"
+                            />
+                            <Text style={styles.loadingText}>Analyzing meal...</Text>
+                        </View>
+                    ) : (
+                        <>
+                            {/* Metabolic Score */}
+                            <View style={styles.scoreSection}>
+                                <View style={styles.scoreLabelContainer}>
+                                    <Text style={styles.scoreLabel}>Metabolic Score</Text>
+                                </View>
+                                <AnimatedScoreBadge score={wellnessScore} />
+                            </View>
+
+                            {/* Drivers Section */}
+                            <View style={styles.driversSection}>
+                                <Text style={styles.sectionTitle}>What's driving this score:</Text>
+                                {drivers.map((driver, index) => (
+                                    <View key={index} style={styles.driverItem}>
+                                        <View style={styles.driverBullet} />
+                                        <Text style={styles.driverText}>{driver.text}</Text>
+                                    </View>
+                                ))}
+                            </View>
+
+                            {/* Adjustments Section */}
+                            <View style={styles.adjustmentsSection}>
+                                <Text style={styles.sectionTitle}>Personalized suggestions:</Text>
+                                {adjustmentTips.map((tip, index) => (
+                                    <View key={index} style={styles.adjustmentCard}>
+                                        <View style={styles.adjustmentHeader}>
+                                            <Text style={styles.adjustmentTitle}>{tip.title}</Text>
+                                            <View style={[styles.benefitBadge, { backgroundColor: getBenefitColor(tip.benefit_level) + '20' }]}>
+                                                <Text style={[styles.benefitText, { color: getBenefitColor(tip.benefit_level) }]}>
+                                                    {getBenefitLabel(tip.benefit_level)}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                        <Text style={styles.adjustmentDesc}>{tip.detail}</Text>
+                                    </View>
+                                ))}
+                            </View>
+                        </>
+                    )}
+                </ScrollView>
+
+                {/* Bottom Button */}
+                <View style={[styles.bottomContainer, { paddingBottom: insets.bottom + 16 }]}>
+                    <AnimatedPressable style={styles.logButton} onPress={onSave}>
+                        <Text style={styles.logButtonText}>{primaryActionLabel}</Text>
+                    </AnimatedPressable>
+                </View>
+            </SafeAreaView>
         </View>
     );
 }
@@ -272,25 +514,44 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#111111',
     },
+    topGlow: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 280,
+    },
+    safeArea: {
+        flex: 1,
+    },
     header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
+        height: 72,
         paddingHorizontal: 16,
-        paddingBottom: 16,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
     },
     headerButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 48,
+        height: 48,
+        borderRadius: 33,
         justifyContent: 'center',
         alignItems: 'center',
+        backgroundColor: 'rgba(63,66,67,0.3)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.25,
+        shadowRadius: 2,
+    },
+    headerButtonPressed: {
+        opacity: 0.7,
+        transform: [{ scale: 0.97 }],
     },
     headerTitle: {
-        fontFamily: fonts.semiBold,
-        fontSize: 14,
-        letterSpacing: 1.5,
-        color: '#FFFFFF',
+        fontFamily: fonts.bold,
+        fontSize: 18,
+        letterSpacing: 1,
+        color: Colors.textPrimary,
     },
     scrollView: {
         flex: 1,
@@ -383,37 +644,56 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: Colors.textSecondary,
     },
-    dataSourceLink: {
-        fontFamily: fonts.regular,
-        fontSize: 13,
-        color: Colors.textMuted,
-        marginTop: 12,
+    loadingContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 40,
+        gap: 16,
+    },
+    loadingMascot: {
+        width: 120,
+        height: 120,
+    },
+    loadingText: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: Colors.textSecondary,
     },
     scoreSection: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         marginBottom: 24,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        borderRadius: 16,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+    },
+    scoreLabelContainer: {
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        gap: 4,
     },
     scoreLabel: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
+        fontFamily: fonts.bold,
+        fontSize: 20,
         color: '#FFFFFF',
     },
-    scoreBadge: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        borderWidth: 3,
-        borderColor: '#D4AF37',
+    circularProgress: {
+        width: 60,
+        height: 60,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    },
+    scoreTextContainer: {
+        position: 'absolute',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     scoreValue: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: '#D4AF37',
     },
     driversSection: {
         marginBottom: 24,
@@ -433,7 +713,7 @@ const styles = StyleSheet.create({
         width: 6,
         height: 6,
         borderRadius: 3,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: Colors.textSecondary,
         marginTop: 6,
         marginRight: 10,
     },
@@ -467,13 +747,15 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         flex: 1,
     },
-    adjustmentRiskBadge: {
+    benefitBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
         marginLeft: 8,
     },
-    adjustmentRisk: {
+    benefitText: {
         fontFamily: fonts.medium,
-        fontSize: 13,
-        color: '#34C759',
+        fontSize: 11,
     },
     adjustmentDesc: {
         fontFamily: fonts.regular,
@@ -482,7 +764,6 @@ const styles = StyleSheet.create({
         lineHeight: 18,
     },
     tipCard: {
-        backgroundColor: 'rgba(212, 175, 55, 0.15)',
         borderRadius: 12,
         padding: 16,
         flexDirection: 'row',
@@ -494,7 +775,6 @@ const styles = StyleSheet.create({
         width: 32,
         height: 32,
         borderRadius: 16,
-        backgroundColor: '#D4AF37',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -517,7 +797,9 @@ const styles = StyleSheet.create({
         borderTopColor: 'rgba(255, 255, 255, 0.05)',
     },
     logButton: {
-        backgroundColor: '#2A2D30',
+        backgroundColor: '#285E2A',
+        borderWidth: 1,
+        borderColor: '#448D47',
         borderRadius: 30,
         paddingVertical: 16,
         alignItems: 'center',
