@@ -5,6 +5,8 @@ Record manual glucose readings, normalize units, and show trends in the Today ex
 
 ## Entry Points
 - `app/log-glucose.tsx` for manual logging and context selection.
+- `app/(tabs)/log.tsx` → "Log Glucose" quick action button.
+- `app/(tabs)/index.tsx` → FAB menu → "Log Glucose".
 - Today tab (`app/(tabs)/index.tsx`) for trend display.
 
 ## Flow Summary

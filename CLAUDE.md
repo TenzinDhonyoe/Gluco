@@ -27,7 +27,10 @@ eas build --platform ios --profile production    # App Store release
 
 ### Navigation & Routing
 - **Expo Router** with file-based routing in `app/`
-- Tab navigation in `app/(tabs)/` for main screens (Today, Insights, Log)
+- Tab navigation in `app/(tabs)/` for main screens:
+  - **Today** (`index.tsx`) - Dashboard with glucose trends, metabolic score, insights
+  - **Log** (`log.tsx`) - Quick actions and recent logs
+  - **Insights** (`insights.tsx`) - Three sub-tabs: Actions, Progress, Experiments
 - Auth gate in `app/index.tsx` routes based on session state
 
 ### State Management
@@ -68,7 +71,7 @@ Multi-stage pipeline in `lib/foodSearch/`:
 - `context/` - React Context providers
 - `constants/` - Colors, theme, config
 - `supabase/functions/` - Edge functions
-- `docs/features/` - Feature documentation (13 files)
+- `docs/features/` - Feature documentation (14 files)
 
 ## Important Patterns
 
@@ -92,6 +95,8 @@ Multi-stage pipeline in `lib/foodSearch/`:
 Detailed documentation in `/docs/features/`:
 - `auth-and-onboarding.md` - Auth flow, 5-step onboarding
 - `meal-logging.md`, `meal-scanner.md` - Meal capture paths
+- `insights-and-home.md` - Today dashboard, Insights tab with 3 sub-tabs
+- `actions-and-care-pathways.md` - Targeted actions and 7-day wellness plans
 - `ai-and-ml.md` - AI safety, metabolic scoring (important for AI context)
 - `backend-and-data.md` - Supabase architecture, tables, edge functions
 - `experiments.md` - A/B experiment framework

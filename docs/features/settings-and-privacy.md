@@ -7,6 +7,8 @@ Manage profile preferences, glucose display settings, AI consent, and account-le
 - `app/settings.tsx` (settings hub)
 - `app/customization.tsx` (glucose unit + target range)
 - `app/account-privacy.tsx` (privacy, AI consent, export, delete)
+- `app/data-sources.tsx` (HealthKit connection)
+- `app/notification-settings.tsx` (notification preferences)
 - `app/privacy-intro.tsx` (consent notice before onboarding)
 
 ## Flow Summary
@@ -23,6 +25,15 @@ Manage profile preferences, glucose display settings, AI consent, and account-le
   - Exports user data to a JSON payload (`exportUserData`) and shares it.
   - Resets personalization (`resetUserLearning`) when requested.
   - Deletes account and all data via the `delete-account` edge function, then signs out.
+- **Data Sources**
+  - Displays Apple HealthKit connection status.
+  - "Connect to Apple Health" button triggers HealthKit permission request.
+  - Shows authorization status for each data type.
+- **Notification Settings**
+  - Toggle for post-meal reminders.
+  - Toggle for action completion reminders.
+  - Toggle for experiment notifications.
+  - Toggle for daily summaries.
 
 ## Data + State
 - Preferences are stored in the `profiles` table.
@@ -35,6 +46,9 @@ Manage profile preferences, glucose display settings, AI consent, and account-le
 - `app/settings.tsx`
 - `app/customization.tsx`
 - `app/account-privacy.tsx`
+- `app/data-sources.tsx`
+- `app/notification-settings.tsx`
 - `app/privacy-intro.tsx`
 - `constants/legal.ts`
 - `lib/supabase.ts`
+- `lib/healthkit.ts`

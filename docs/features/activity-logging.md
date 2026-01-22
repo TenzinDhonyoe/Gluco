@@ -5,6 +5,8 @@ Capture workouts and optionally analyze their impact on glucose and energy.
 
 ## Entry Points
 - `app/log-activity.tsx` for manual activity logging.
+- `app/(tabs)/log.tsx` → "Log Activity" quick action button.
+- `app/(tabs)/index.tsx` → FAB menu → "Log Activity".
 - `app/check-exercise-impact.tsx` for analysis and recommendations from free-text input.
 
 ## Flow Summary

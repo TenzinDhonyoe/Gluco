@@ -6,6 +6,7 @@ Capture meals through text, search, label scans, or photos. Then guide the user 
 ## Entry Points
 - `app/meal-scanner.tsx` (camera-first meal logging with multiple input options)
 - `app/(tabs)/log.tsx` → "Log Meal" quick action button (navigates to meal-scanner)
+- `app/(tabs)/index.tsx` → FAB menu → "Log Meal" (navigates to meal-scanner)
 - `app/log-meal.tsx` (text + photo logging fallback)
 - `app/log-meal-items.tsx` (search, favorites, recents, manual entry - add items to existing meal)
 - `app/log-meal-review.tsx` (final review + save to backend)
