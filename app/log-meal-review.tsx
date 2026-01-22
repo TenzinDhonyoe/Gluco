@@ -527,8 +527,8 @@ export default function LogMealReviewScreen() {
     );
 
     // Use overrides if provided, otherwise use calculated values
-    const parseOverride = (val: string | null, fallback: number) => {
-      if (val === null || val.trim() === '') return fallback;
+    const parseOverride = (val: string | null | undefined, fallback: number) => {
+      if (val === null || val === undefined || val.trim() === '') return fallback;
       const parsed = parseFloat(val);
       return isNaN(parsed) ? fallback : parsed;
     };
@@ -539,7 +539,7 @@ export default function LogMealReviewScreen() {
       protein: Math.round(parseOverride(macroOverrides.protein, totals.protein * servings)),
       fat: Math.round(parseOverride(macroOverrides.fat, totals.fat * servings)),
       fibre: Math.round(parseOverride(macroOverrides.fibre, totals.fibre * servings)),
-      hasData: totals.hasData || Object.values(macroOverrides).some(v => v !== null && v.trim() !== ''),
+      hasData: totals.hasData || Object.values(macroOverrides).some(v => v !== null && v !== undefined && (typeof v === 'string' ? v.trim() !== '' : true)),
     };
   }, [items, servings, macroOverrides]);
 

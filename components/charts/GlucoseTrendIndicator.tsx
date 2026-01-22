@@ -67,19 +67,18 @@ export function GlucoseTrendIndicator({
         }
     }, [status]);
 
-    // Animation Shared Value
-    const animatedAngle = useSharedValue(needleAngle);
+    // Animation Shared Value - initialize to starting position
+    const animatedAngle = useSharedValue(-70);
 
     useEffect(() => {
-        // Animate to new angle whenever it changes
-        if (showNeedle) {
-            // Fast, snappy animation for responsive feel when switching time frames
-            animatedAngle.value = withTiming(needleAngle, {
-                duration: 150,
-                easing: Easing.linear, // Minimal easing for speed
-            });
-        }
-    }, [needleAngle, showNeedle]);
+        // Always animate to the correct angle based on current status
+        // This ensures the needle position matches the status even after rapid changes
+        const targetAngle = showNeedle ? needleAngle : -70;
+        animatedAngle.value = withTiming(targetAngle, {
+            duration: 300,
+            easing: Easing.out(Easing.cubic),
+        });
+    }, [status, needleAngle, showNeedle]);
 
     // Dimensions
     const strokeWidth = 15;

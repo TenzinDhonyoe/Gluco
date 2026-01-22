@@ -1204,27 +1204,37 @@ export default function InsightsScreen() {
                 </View>
 
                 {/* Blurred Header */}
-                <BlurView
-                    intensity={80}
-                    tint="dark"
-                    experimentalBlurMethod="dimezisBlurView"
-                    style={[styles.blurHeader, { paddingTop: insets.top }]}
-                >
-                    <View style={styles.header}>
-                        <Text style={styles.headerTitle}>INSIGHTS</Text>
-                    </View>
-                    <View style={styles.segmentedControlContainer}>
-                        <SegmentedControl
-                            options={[
-                                { label: 'ACTIONS', value: 'actions' },
-                                { label: 'PROGRESS', value: 'progress' },
-                                { label: 'EXPERIMENTS', value: 'experiments' },
-                            ]}
-                            value={activeTab}
-                            onChange={setActiveTab}
-                        />
-                    </View>
-                </BlurView>
+                <View style={styles.blurHeaderContainer}>
+                    <BlurView
+                        intensity={80}
+                        tint="dark"
+                        experimentalBlurMethod="dimezisBlurView"
+                        style={styles.blurHeader}
+                    >
+                        <View style={{ paddingTop: insets.top }}>
+                            <View style={styles.header}>
+                                <Text style={styles.headerTitle}>INSIGHTS</Text>
+                            </View>
+                            <View style={styles.segmentedControlContainer}>
+                                <SegmentedControl
+                                    options={[
+                                        { label: 'ACTIONS', value: 'actions' },
+                                        { label: 'PROGRESS', value: 'progress' },
+                                        { label: 'EXPERIMENTS', value: 'experiments' },
+                                    ]}
+                                    value={activeTab}
+                                    onChange={setActiveTab}
+                                />
+                            </View>
+                        </View>
+                    </BlurView>
+                    {/* Gradient fade edge - Apple Health style */}
+                    <LinearGradient
+                        colors={['rgba(22, 22, 24, 1)', 'rgba(17, 17, 17, 0)']}
+                        style={styles.headerFadeEdge}
+                        pointerEvents="none"
+                    />
+                </View>
             </View>
         </AnimatedScreen>
     );
@@ -1238,12 +1248,21 @@ const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
     },
-    blurHeader: {
+    blurHeaderContainer: {
         position: 'absolute',
         top: 0,
         left: 0,
         right: 0,
         zIndex: 100,
+    },
+    blurHeader: {
+        overflow: 'hidden',
+    },
+    headerFadeEdge: {
+        height: 32,
+        marginTop: 0,
+        borderBottomLeftRadius: 24,
+        borderBottomRightRadius: 24,
     },
     header: {
         flexDirection: 'row',
@@ -1302,6 +1321,17 @@ const styles = StyleSheet.create({
     },
     sectionBlock: {
         gap: 12,
+    },
+    actionTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
+        color: '#FFFFFF',
+        marginBottom: 4,
+    },
+    actionMeta: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: '#A0A0A0',
     },
     actionCard: {
         backgroundColor: '#1A1A1E',

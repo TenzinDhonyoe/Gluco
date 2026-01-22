@@ -21,6 +21,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
     Dimensions,
     Image,
+    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -42,11 +43,17 @@ import { SelectedItem } from './FoodSearchResultsView';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const PHOTO_HEIGHT = SCREEN_WIDTH * 0.55;
 
+// Suggestion type for tracking
+export interface CheckedSuggestion {
+    title: string;
+    action_type: string;
+}
+
 interface AnalysisResultsViewProps {
     imageUri?: string;
     items: SelectedItem[];
     onReview: () => void;
-    onSave: () => void;
+    onSave: (checkedSuggestions: CheckedSuggestion[]) => void;
     onClose: () => void;
     headerTitle?: string;
     primaryActionLabel?: string;
@@ -193,6 +200,7 @@ export default function AnalysisResultsView({
     const { user } = useAuth();
     const [isLoadingInsights, setIsLoadingInsights] = useState(true);
     const [insights, setInsights] = useState<PremealResult | null>(null);
+    const [checkedSuggestions, setCheckedSuggestions] = useState<Set<string>>(new Set());
 
     // Mascot animation
     const mascotScale = useSharedValue(1);
@@ -378,9 +386,7 @@ export default function AnalysisResultsView({
                         <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
                     </LiquidGlassIconButton>
                     <Text style={styles.headerTitle}>{headerTitle}</Text>
-                    <LiquidGlassIconButton size={44} onPress={onReview}>
-                        <Ionicons name={reviewIcon} size={20} color={Colors.textPrimary} />
-                    </LiquidGlassIconButton>
+                    <View style={{ width: 44 }} />
                 </View>
 
                 <ScrollView
@@ -408,28 +414,33 @@ export default function AnalysisResultsView({
                     {/* Horizontal Macro Bar */}
                     <View style={styles.macroBar}>
                         <View style={styles.macroColumn}>
-                            <Text style={styles.macroLabel}>CALORIES</Text>
+                            <Text style={[styles.macroLabel, { color: '#FF9500' }]}>CALORIES</Text>
                             <Text style={styles.macroValue}>{Math.round(totals.calories)}</Text>
+                            <Text style={styles.macroDV}>{Math.round((totals.calories / 2000) * 100)}%</Text>
                         </View>
                         <View style={styles.macroDivider} />
                         <View style={styles.macroColumn}>
-                            <Text style={styles.macroLabel}>CARBS</Text>
+                            <Text style={[styles.macroLabel, { color: '#FFD60A' }]}>CARBS</Text>
                             <Text style={styles.macroValue}>{Math.round(totals.carbs)}g</Text>
+                            <Text style={styles.macroDV}>{Math.round((totals.carbs / 275) * 100)}%</Text>
                         </View>
                         <View style={styles.macroDivider} />
                         <View style={styles.macroColumn}>
-                            <Text style={styles.macroLabel}>PROTEIN</Text>
+                            <Text style={[styles.macroLabel, { color: '#FF6B6B' }]}>PROTEIN</Text>
                             <Text style={styles.macroValue}>{Math.round(totals.protein)}g</Text>
+                            <Text style={styles.macroDV}>{Math.round((totals.protein / 50) * 100)}%</Text>
                         </View>
                         <View style={styles.macroDivider} />
                         <View style={styles.macroColumn}>
-                            <Text style={styles.macroLabel}>FIBER</Text>
+                            <Text style={[styles.macroLabel, { color: '#34C759' }]}>FIBER</Text>
                             <Text style={styles.macroValue}>{Math.round(totals.fiber)}g</Text>
+                            <Text style={styles.macroDV}>{Math.round((totals.fiber / 28) * 100)}%</Text>
                         </View>
                         <View style={styles.macroDivider} />
                         <View style={styles.macroColumn}>
-                            <Text style={styles.macroLabel}>FAT</Text>
+                            <Text style={[styles.macroLabel, { color: '#BF5AF2' }]}>FAT</Text>
                             <Text style={styles.macroValue}>{Math.round(totals.fat)}g</Text>
+                            <Text style={styles.macroDV}>{Math.round((totals.fat / 78) * 100)}%</Text>
                         </View>
                     </View>
 
@@ -480,29 +491,62 @@ export default function AnalysisResultsView({
                             {/* Adjustments Section */}
                             <View style={styles.adjustmentsSection}>
                                 <Text style={styles.sectionTitle}>Personalized suggestions:</Text>
-                                {adjustmentTips.map((tip, index) => (
-                                    <View key={index} style={styles.adjustmentCard}>
-                                        <View style={styles.adjustmentHeader}>
-                                            <Text style={styles.adjustmentTitle}>{tip.title}</Text>
-                                            <View style={[styles.benefitBadge, { backgroundColor: getBenefitColor(tip.benefit_level) + '20' }]}>
-                                                <Text style={[styles.benefitText, { color: getBenefitColor(tip.benefit_level) }]}>
-                                                    {getBenefitLabel(tip.benefit_level)}
-                                                </Text>
+                                {adjustmentTips.map((tip, index) => {
+                                    const uniqueId = `${index}_${tip.action_type}`;
+                                    const isChecked = checkedSuggestions.has(uniqueId);
+                                    return (
+                                        <Pressable
+                                            key={index}
+                                            style={[styles.adjustmentCard, isChecked && styles.adjustmentCardChecked]}
+                                            onPress={() => {
+                                                setCheckedSuggestions(prev => {
+                                                    const newSet = new Set(prev);
+                                                    if (newSet.has(uniqueId)) {
+                                                        newSet.delete(uniqueId);
+                                                    } else {
+                                                        newSet.add(uniqueId);
+                                                    }
+                                                    return newSet;
+                                                });
+                                            }}
+                                        >
+                                            <View style={styles.adjustmentHeader}>
+                                                <View style={styles.adjustmentTitleRow}>
+                                                    <View style={[styles.checkbox, isChecked && styles.checkboxChecked]}>
+                                                        {isChecked && <Ionicons name="checkmark" size={14} color="#111111" />}
+                                                    </View>
+                                                    <Text style={[styles.adjustmentTitle, isChecked && styles.adjustmentTitleChecked]}>{tip.title}</Text>
+                                                </View>
+                                                <View style={[styles.benefitBadge, { backgroundColor: getBenefitColor(tip.benefit_level) + '20' }]}>
+                                                    <Text style={[styles.benefitText, { color: getBenefitColor(tip.benefit_level) }]}>
+                                                        {getBenefitLabel(tip.benefit_level)}
+                                                    </Text>
+                                                </View>
                                             </View>
-                                        </View>
-                                        <Text style={styles.adjustmentDesc}>{tip.detail}</Text>
-                                    </View>
-                                ))}
+                                            <Text style={[styles.adjustmentDesc, isChecked && styles.adjustmentDescChecked]}>{tip.detail}</Text>
+                                        </Pressable>
+                                    );
+                                })}
                             </View>
                         </>
                     )}
                 </ScrollView>
 
-                {/* Bottom Button */}
+                {/* Bottom Buttons */}
                 <View style={[styles.bottomContainer, { paddingBottom: insets.bottom + 16 }]}>
-                    <AnimatedPressable style={styles.logButton} onPress={onSave}>
-                        <Text style={styles.logButtonText}>{primaryActionLabel}</Text>
-                    </AnimatedPressable>
+                    <View style={styles.bottomButtonRow}>
+                        <AnimatedPressable style={styles.editButton} onPress={onReview}>
+                            <Text style={styles.editButtonText}>Edit</Text>
+                        </AnimatedPressable>
+                        <AnimatedPressable style={styles.logButton} onPress={() => {
+                            const selectedSuggestions = adjustmentTips
+                                .filter((tip, index) => checkedSuggestions.has(`${index}_${tip.action_type}`))
+                                .map(tip => ({ title: tip.title, action_type: tip.action_type }));
+                            onSave(selectedSuggestions);
+                        }}>
+                            <Text style={styles.logButtonText}>{primaryActionLabel}</Text>
+                        </AnimatedPressable>
+                    </View>
                 </View>
             </SafeAreaView>
         </View>
@@ -591,6 +635,8 @@ const styles = StyleSheet.create({
         paddingVertical: 16,
         paddingHorizontal: 8,
         marginBottom: 24,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.08)',
     },
     macroColumn: {
         flex: 1,
@@ -612,6 +658,12 @@ const styles = StyleSheet.create({
         fontFamily: fonts.semiBold,
         fontSize: 18,
         color: '#FFFFFF',
+    },
+    macroDV: {
+        fontFamily: fonts.regular,
+        fontSize: 10,
+        color: '#888888',
+        marginTop: 2,
     },
     itemsSection: {
         marginBottom: 24,
@@ -762,6 +814,37 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: Colors.textSecondary,
         lineHeight: 18,
+        marginLeft: 30,
+    },
+    adjustmentDescChecked: {
+        color: 'rgba(255, 255, 255, 0.5)',
+    },
+    adjustmentCardChecked: {
+        borderColor: Colors.success,
+        borderWidth: 1,
+        backgroundColor: 'rgba(40, 94, 42, 0.15)',
+    },
+    adjustmentTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    adjustmentTitleChecked: {
+        color: 'rgba(255, 255, 255, 0.7)',
+    },
+    checkbox: {
+        width: 22,
+        height: 22,
+        borderRadius: 6,
+        borderWidth: 2,
+        borderColor: 'rgba(255, 255, 255, 0.3)',
+        marginRight: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    checkboxChecked: {
+        backgroundColor: Colors.success,
+        borderColor: Colors.success,
     },
     tipCard: {
         borderRadius: 12,
@@ -796,7 +879,27 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: 'rgba(255, 255, 255, 0.05)',
     },
+    bottomButtonRow: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    editButton: {
+        flex: 1,
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.2)',
+        borderRadius: 30,
+        paddingVertical: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    editButtonText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
+        color: '#FFFFFF',
+    },
     logButton: {
+        flex: 2,
         backgroundColor: '#285E2A',
         borderWidth: 1,
         borderColor: '#448D47',

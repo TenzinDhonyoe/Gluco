@@ -1109,10 +1109,23 @@ export default function TodayScreen() {
     });
 
 
-    // Process meal reviews - show completed ones
+    // Process meal reviews - only show meals that:
+    // 1. Are at least 2 hours old (to give time for glucose response)
+    // 2. Don't have a check-in yet
     const displayMeals = useMemo(() => {
         if (!user?.id) return [];
-        return recentMeals || [];
+        const now = new Date();
+        const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+
+        return (recentMeals || []).filter(meal => {
+            const mealTime = new Date(meal.logged_at);
+            const hasCheckin = meal.meal_checkins && meal.meal_checkins.length > 0;
+            const isOldEnough = mealTime <= twoHoursAgo;
+
+            // Show meals that are ready for check-in (old enough and no check-in yet)
+            // OR meals that already have a check-in (for review)
+            return isOldEnough || hasCheckin;
+        });
     }, [user?.id, recentMeals]);
 
     const handleMealPress = (meal: MealWithCheckin) => {
@@ -1297,35 +1310,45 @@ export default function TodayScreen() {
                 </ScrollView>
 
                 {/* Blurred Header - positioned absolutely over content */}
-                <BlurView
-                    intensity={80}
-                    tint="dark"
-                    experimentalBlurMethod="dimezisBlurView"
-                    style={[styles.blurHeader, { paddingTop: insets.top }]}
-                >
-                    <View style={styles.header}>
-                        <LiquidGlassIconButton size={44} onPress={() => router.push('/settings')}>
-                            <Text style={styles.avatarText}>{getInitials()}</Text>
-                        </LiquidGlassIconButton>
-                        <Text style={styles.headerTitle}>GLUCO</Text>
-                        <LiquidGlassIconButton size={44} onPress={() => router.push('/notifications-list')}>
-                            <Ionicons name="notifications-outline" size={22} color="#E7E8E9" />
-                        </LiquidGlassIconButton>
-                    </View>
-                    {/* Sticky Range Picker */}
-                    <View style={styles.stickyPickerContainer}>
-                        <SegmentedControl<RangeKey>
-                            value={range}
-                            onChange={handleRangeChange}
-                            options={[
-                                { value: '7d', label: '7d' },
-                                { value: '14d', label: '14d' },
-                                { value: '30d', label: '30d' },
-                                { value: '90d', label: '90d' },
-                            ]}
-                        />
-                    </View>
-                </BlurView>
+                <View style={styles.blurHeaderContainer}>
+                    <BlurView
+                        intensity={80}
+                        tint="dark"
+                        experimentalBlurMethod="dimezisBlurView"
+                        style={styles.blurHeader}
+                    >
+                        <View style={{ paddingTop: insets.top }}>
+                            <View style={styles.header}>
+                                <LiquidGlassIconButton size={44} onPress={() => router.push('/settings')}>
+                                    <Text style={styles.avatarText}>{getInitials()}</Text>
+                                </LiquidGlassIconButton>
+                                <Text style={styles.headerTitle}>GLUCO</Text>
+                                <LiquidGlassIconButton size={44} onPress={() => router.push('/notifications-list')}>
+                                    <Ionicons name="notifications-outline" size={22} color="#E7E8E9" />
+                                </LiquidGlassIconButton>
+                            </View>
+                            {/* Sticky Range Picker */}
+                            <View style={styles.stickyPickerContainer}>
+                                <SegmentedControl<RangeKey>
+                                    value={range}
+                                    onChange={handleRangeChange}
+                                    options={[
+                                        { value: '7d', label: '7d' },
+                                        { value: '14d', label: '14d' },
+                                        { value: '30d', label: '30d' },
+                                        { value: '90d', label: '90d' },
+                                    ]}
+                                />
+                            </View>
+                        </View>
+                    </BlurView>
+                    {/* Gradient fade edge - Apple Health style */}
+                    <LinearGradient
+                        colors={['rgba(22, 22, 24, 1)', 'rgba(17, 17, 17, 0)']}
+                        style={styles.headerFadeEdge}
+                        pointerEvents="none"
+                    />
+                </View>
 
                 {/* Sync Banner - shows below header when syncing */}
                 <SyncBanner
@@ -1406,16 +1429,21 @@ const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
     },
-    blurHeader: {
+    blurHeaderContainer: {
         position: 'absolute',
         top: 0,
         left: 0,
         right: 0,
         zIndex: 100,
-        borderBottomLeftRadius: 40,
-        borderBottomRightRadius: 40,
+    },
+    blurHeader: {
         overflow: 'hidden',
-        paddingBottom: 0,
+    },
+    headerFadeEdge: {
+        height: 32,
+        marginTop: 0,
+        borderBottomLeftRadius: 24,
+        borderBottomRightRadius: 24,
     },
     header: {
         flexDirection: 'row',

@@ -10,12 +10,16 @@ import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { rankResults } from '@/lib/foodSearch';
 import { LabelScanResult, parseLabelFromImage } from '@/lib/labelScan';
+import { schedulePostMealReviewNotification } from '@/lib/notifications';
 import {
+    addMealItems,
     AnalyzedItem,
+    createMeal,
+    CreateMealItemInput,
     invokeMealPhotoAnalyze,
     NormalizedFood,
     searchFoodsWithVariants,
-    uploadMealPhoto,
+    uploadMealPhoto
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, FlashMode, useCameraPermissions } from 'expo-camera';
@@ -660,25 +664,86 @@ export default function MealScannerScreen() {
         setEditMacrosOpen(true);
     }, [analysisResult]);
 
-    const handleAnalysisSave = useCallback(async () => {
+    const handleAnalysisSave = useCallback(async (checkedSuggestions: { title: string; action_type: string }[]) => {
         if (!analysisResult || !user) return;
-        // Quick save - go directly to review and auto-confirm
-        router.push({
-            pathname: '/log-meal-review',
-            params: {
-                items: JSON.stringify(analysisResult.items),
-                mealName: '',
-                mealNotes: '',
-                imageUri: analysisResult.imageUri,
-                photoPath: analysisResult.photoPath,
-                mealTime: new Date().toISOString(),
-                macroOverrides: JSON.stringify(macroOverrides),
-                autoSave: 'false', // Let them review one last time or auto-save if preferred
-            },
-        });
-        setAnalysisResult(null);
-        setCapturedImageUri(null);
-    }, [analysisResult, user]);
+
+        try {
+            // Upload photo if needed
+            let photoUrl: string | null = analysisResult.photoPath || null;
+            if (!photoUrl && analysisResult.imageUri) {
+                photoUrl = await uploadMealPhoto(user.id, analysisResult.imageUri);
+            }
+
+            // Generate auto meal name from items
+            const autoMealName = analysisResult.items
+                .slice(0, 2)
+                .map((item) => item.display_name?.trim())
+                .filter(Boolean)
+                .join(', ') || 'Meal';
+
+            // Generate notes from checked suggestions
+            const suggestionNotes = checkedSuggestions.length > 0
+                ? `Committed to: ${checkedSuggestions.map(s => s.title).join(', ')}`
+                : null;
+
+            // Create the meal
+            const meal = await createMeal(user.id, {
+                name: autoMealName,
+                meal_type: 'snack', // Default to snack, could be made dynamic
+                logged_at: new Date().toISOString(),
+                photo_path: photoUrl,
+                notes: suggestionNotes,
+            });
+
+            if (!meal) {
+                Alert.alert('Error', 'Failed to save meal.');
+                return;
+            }
+
+            // Create meal items with macro overrides applied
+            const mealItems: CreateMealItemInput[] = analysisResult.items.map((item) => ({
+                provider: item.provider || 'analyzed',
+                external_id: item.external_id || `analyzed_${Date.now()}_${Math.random()}`,
+                display_name: item.display_name,
+                brand: item.brand,
+                quantity: item.quantity || 1,
+                unit: 'serving',
+                serving_size: item.serving_size,
+                serving_unit: item.serving_unit,
+                nutrients: {
+                    calories_kcal: macroOverrides.calories ?? item.calories_kcal,
+                    carbs_g: macroOverrides.carbs ?? item.carbs_g,
+                    protein_g: macroOverrides.protein ?? item.protein_g,
+                    fat_g: macroOverrides.fat ?? item.fat_g,
+                    fibre_g: macroOverrides.fibre ?? item.fibre_g,
+                    sugar_g: item.sugar_g,
+                    sodium_mg: item.sodium_mg,
+                },
+            }));
+
+            await addMealItems(user.id, meal.id, mealItems);
+
+            // Schedule post-meal check-in notification (2 hours from now)
+            const checkInTime = new Date(Date.now() + 2 * 60 * 60 * 1000);
+            await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime);
+
+            // Clear state and navigate back
+            setAnalysisResult(null);
+            setCapturedImageUri(null);
+            setMacroOverrides({ calories: undefined, carbs: undefined, protein: undefined, fibre: undefined, fat: undefined });
+
+            const successMsg = checkedSuggestions.length > 0
+                ? `${autoMealName} has been logged! Remember: ${checkedSuggestions[0].title}`
+                : `${autoMealName} has been logged successfully!`;
+
+            Alert.alert('Meal Logged', successMsg, [
+                { text: 'OK', onPress: () => router.dismissTo('/(tabs)') }
+            ]);
+        } catch (error) {
+            console.error('Save meal error:', error);
+            Alert.alert('Error', 'Failed to save meal. Please try again.');
+        }
+    }, [analysisResult, user, macroOverrides]);
 
     const handleAnalysisClose = useCallback(() => {
         setAnalysisResult(null);

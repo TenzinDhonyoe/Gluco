@@ -533,26 +533,36 @@ export default function LogScreen() {
                 </Animated.ScrollView>
 
                 {/* Blurred Header */}
-                <BlurView
-                    intensity={80}
-                    tint="dark"
-                    experimentalBlurMethod="dimezisBlurView"
-                    style={[styles.blurHeader, { paddingTop: insets.top }]}
-                >
-                    <View style={styles.header}>
-                        {/* Large title on the left - fades out on scroll */}
-                        <Animated.Text style={[styles.headerTitle, { opacity: largeTitleOpacity }]}>
-                            LOGS
-                        </Animated.Text>
-                        {/* Small centered title - fades in and slides down on scroll */}
-                        <Animated.Text style={[styles.headerTitleSmall, {
-                            opacity: smallTitleOpacity,
-                            transform: [{ translateY: smallTitleTranslateY }]
-                        }]}>
-                            LOGS
-                        </Animated.Text>
-                    </View>
-                </BlurView>
+                <View style={styles.blurHeaderContainer}>
+                    <BlurView
+                        intensity={80}
+                        tint="dark"
+                        experimentalBlurMethod="dimezisBlurView"
+                        style={styles.blurHeader}
+                    >
+                        <View style={{ paddingTop: insets.top }}>
+                            <View style={styles.header}>
+                                {/* Large title on the left - fades out on scroll */}
+                                <Animated.Text style={[styles.headerTitle, { opacity: largeTitleOpacity }]}>
+                                    LOGS
+                                </Animated.Text>
+                                {/* Small centered title - fades in and slides down on scroll */}
+                                <Animated.Text style={[styles.headerTitleSmall, {
+                                    opacity: smallTitleOpacity,
+                                    transform: [{ translateY: smallTitleTranslateY }]
+                                }]}>
+                                    LOGS
+                                </Animated.Text>
+                            </View>
+                        </View>
+                    </BlurView>
+                    {/* Gradient fade edge - Apple Health style */}
+                    <LinearGradient
+                        colors={['rgba(22, 22, 24, 1)', 'rgba(17, 17, 17, 0)']}
+                        style={styles.headerFadeEdge}
+                        pointerEvents="none"
+                    />
+                </View>
 
                 {/* shadcn-inspired Filter Modal */}
                 <Modal
@@ -633,12 +643,19 @@ const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
     },
-    blurHeader: {
+    blurHeaderContainer: {
         position: 'absolute',
         top: 0,
         left: 0,
         right: 0,
         zIndex: 100,
+    },
+    blurHeader: {
+        overflow: 'hidden',
+    },
+    headerFadeEdge: {
+        height: 32,
+        marginTop: 0,
     },
     header: {
         flexDirection: 'row',
