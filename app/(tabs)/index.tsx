@@ -22,11 +22,10 @@ import { getMetabolicWeeklyScores, GlucoseLog, invokeMetabolicScore, MealWithChe
 import { getDateRange, getRangeDays, RangeKey } from '@/lib/utils/dateRanges';
 import { GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
-import { BlurView } from 'expo-blur';
+import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useCallback, useMemo, useState, useTransition } from 'react';
+import React, { useCallback, useMemo, useRef, useState, useTransition } from 'react';
 import {
     Animated,
     Dimensions,
@@ -987,6 +986,9 @@ export default function TodayScreen() {
     const [scoresLoading, setScoresLoading] = useState(true);
     const overlayOpacity = React.useRef(new Animated.Value(0)).current;
     const fabRef = React.useRef<AnimatedFABRef>(null);
+    const scrollViewRef = useRef<ScrollView>(null);
+
+    useScrollToTop(scrollViewRef);
 
     // Use transition for non-blocking range changes
     const [isPending, startTransition] = useTransition();
@@ -1156,7 +1158,32 @@ export default function TodayScreen() {
         }).start();
     };
 
-    const HEADER_HEIGHT = 120 + insets.top;
+    // Animation Values
+    const scrollY = useRef(new Animated.Value(0)).current;
+
+    // Header Content Height (Profile, Title, etc.) - same as styles.header height
+    const HEADER_CONTENT_HEIGHT = 72;
+
+    // Animate the entire header container up to hide the top row
+    const headerTranslateY = scrollY.interpolate({
+        inputRange: [0, HEADER_CONTENT_HEIGHT],
+        outputRange: [0, -HEADER_CONTENT_HEIGHT],
+        extrapolate: 'clamp'
+    });
+
+    // Fade out the top row (Profile, Title) faster than it scrolls
+    const headerOpacity = scrollY.interpolate({
+        inputRange: [0, HEADER_CONTENT_HEIGHT * 0.6],
+        outputRange: [1, 0],
+        extrapolate: 'clamp'
+    });
+
+    // Header height calculation:
+    // Status Bar Spacer: insets.top
+    // Header Content: 72
+    // Picker: ~32 + 12 margin = 44
+    // Total = insets.top + 72 + 44 = insets.top + 116
+    const HEADER_HEIGHT = insets.top + 116;
 
     return (
         <AnimatedScreen>
@@ -1168,226 +1195,228 @@ export default function TodayScreen() {
                     style={styles.backgroundGradient}
                 />
 
-                {/* ScrollView - content scrolls behind header */}
-                <ScrollView
-                    style={styles.scrollView}
-                    contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 8 }]}
-                    showsVerticalScrollIndicator={false}
-                    refreshControl={
-                        <RefreshControl
-                            refreshing={isRefreshing}
-                            onRefresh={onRefresh}
-                            tintColor={Colors.textSecondary}
-                            progressViewOffset={HEADER_HEIGHT}
-                        />
-                    }
+                {/* Fixed Header - Animated to slide up */}
+                <Animated.View
+                    style={[
+                        styles.headerContainer,
+                        {
+                            paddingTop: insets.top,
+                            transform: [{ translateY: headerTranslateY }]
+                        }
+                    ]}
+                    pointerEvents="box-none"
                 >
-                    {/* Glucose Trends - only show for glucose tracking users */}
-                    {showGlucoseUI && (
-                        <View style={styles.trendsSection}>
-                            <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} glucoseUnit={glucoseUnit} />
-                        </View>
-                    )}
+                    {/* Header Content - Fades out */}
+                    <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
+                        <LiquidGlassIconButton size={44} onPress={() => router.push('/settings')}>
+                            <Text style={styles.avatarText}>{getInitials()}</Text>
+                        </LiquidGlassIconButton>
+                        <Text style={styles.headerTitle}>GLUCO</Text>
+                        <LiquidGlassIconButton size={44} onPress={() => router.push('/notifications-list')}>
+                            <Ionicons name="notifications-outline" size={22} color="#E7E8E9" />
+                        </LiquidGlassIconButton>
+                    </Animated.View>
 
-                    {/* Active Experiment Widget */}
-                    <ActiveExperimentWidget />
-
-                    {/* Metabolic Score Card - Full width prominent card */}
-                    <MetabolicScoreCard weeklyScores={weeklyScores} currentScore={currentScore} isLoading={scoresLoading} />
-
-                    {/* Stats Grid */}
-                    <View style={styles.statsGrid}>
-                        <View style={styles.statsRow}>
-                            {showWearableStats ? (
-                                <>
-                                    <StepsStatCard
-                                        avgSteps={dailyContext.avgSteps}
-                                        isAuthorized={dailyContext.isAuthorized}
-                                        isAvailable={dailyContext.isAvailable}
-                                        range={range}
-                                    />
-                                    <ActivityStatCard
-                                        range={range}
-                                        activityLogs={activityLogs}
-                                        healthKitMinutes={dailyContext.avgActiveMinutes}
-                                        isHealthKitAuthorized={dailyContext.isAuthorized}
-                                        isHealthKitAvailable={dailyContext.isAvailable}
-                                    />
-                                </>
-                            ) : showGlucoseUI ? (
-                                <>
-                                    <DaysInRangeCard range={range} glucoseLogs={glucoseLogs} />
-                                    <FibreStatCard range={range} fibreSummary={fibreSummary} />
-                                </>
-                            ) : (
-                                <>
-                                    <FibreStatCard range={range} fibreSummary={fibreSummary} />
-                                    <ActivityStatCard
-                                        range={range}
-                                        activityLogs={activityLogs}
-                                        healthKitMinutes={dailyContext.avgActiveMinutes}
-                                        isHealthKitAuthorized={dailyContext.isAuthorized}
-                                        isHealthKitAvailable={dailyContext.isAvailable}
-                                    />
-                                </>
-                            )}
-                        </View>
-                        <View style={styles.statsRow}>
-                            {showWearableStats ? (
-                                <>
-                                    <SleepStatCard range={range} sleepData={sleepData} />
-                                    <FibreStatCard range={range} fibreSummary={fibreSummary} />
-                                </>
-                            ) : showGlucoseUI ? (
-                                <>
-                                    <ActivityStatCard
-                                        range={range}
-                                        activityLogs={activityLogs}
-                                        healthKitMinutes={dailyContext.avgActiveMinutes}
-                                        isHealthKitAuthorized={dailyContext.isAuthorized}
-                                        isHealthKitAvailable={dailyContext.isAvailable}
-                                    />
-                                    <SleepStatCard range={range} sleepData={sleepData} />
-                                </>
-                            ) : (
-                                <>
-                                    <SleepStatCard range={range} sleepData={sleepData} />
-                                    <StatCard
-                                        icon={<Image source={Images.mascots.cook} style={{ width: 32, height: 32, resizeMode: 'contain' }} />}
-                                        iconColor="#4CAF50"
-                                        title="Meals"
-                                        value="--"
-                                        description="Logged this week"
-                                    />
-                                </>
-                            )}
-                        </View>
-                    </View>
-
-                    {/* Connect Apple Health CTA - show for wearables mode if not authorized */}
-                    {showWearableStats && !dailyContext.isAuthorized && dailyContext.isAvailable && (
-                        <ConnectHealthCTA
-                            onConnected={() => {
-                                dailyContext.sync();
-                                refetchSleep();
-                            }}
-                        />
-                    )}
-
-                    {/* Personal Insights Carousel (includes Tip Cards) */}
-                    <PersonalInsightsCarousel
-                        insights={personalInsights}
-                        isLoading={insightsLoading}
-                        onMealPress={() => setSpikeSheetVisible(true)}
-                        onExercisePress={() => setExerciseSheetVisible(true)}
-                    />
-
-                    {/* Today's Meals Section */}
-                    <View style={styles.mealSection}>
-                        <Text style={styles.mealSectionTitle}>Meal Check-ins</Text>
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={styles.mealCardsContainer}
-                        >
-                            {displayMeals.length > 0 ? (
-                                displayMeals.map((meal) => (
-                                    <MealCheckinCard
-                                        key={meal.id}
-                                        meal={meal}
-                                        onPress={() => handleMealPress(meal)}
-                                    />
-                                ))
-                            ) : (
-                                <View style={styles.noMealsCard}>
-                                    <Image source={Images.mascots.cook} style={{ width: 60, height: 60, resizeMode: 'contain', marginBottom: 8 }} />
-                                    <Text style={styles.noMealsText}>No meal reviews yet</Text>
-                                    <Text style={styles.noMealsSubtext}>Log a meal to see your glucose response</Text>
-                                </View>
-                            )}
-                        </ScrollView>
-                    </View>
-                </ScrollView>
-
-                {/* Blurred Header - positioned absolutely over content */}
-                <View style={styles.blurHeaderContainer}>
-                    <BlurView
-                        intensity={80}
-                        tint="dark"
-                        experimentalBlurMethod="dimezisBlurView"
-                        style={styles.blurHeader}
-                    >
-                        <View style={{ paddingTop: insets.top }}>
-                            <View style={styles.header}>
-                                <LiquidGlassIconButton size={44} onPress={() => router.push('/settings')}>
-                                    <Text style={styles.avatarText}>{getInitials()}</Text>
-                                </LiquidGlassIconButton>
-                                <Text style={styles.headerTitle}>GLUCO</Text>
-                                <LiquidGlassIconButton size={44} onPress={() => router.push('/notifications-list')}>
-                                    <Ionicons name="notifications-outline" size={22} color="#E7E8E9" />
-                                </LiquidGlassIconButton>
-                            </View>
-                            {/* Sticky Range Picker */}
-                            <View style={styles.stickyPickerContainer}>
-                                <SegmentedControl<RangeKey>
-                                    value={range}
-                                    onChange={handleRangeChange}
-                                    options={[
-                                        { value: '7d', label: '7d' },
-                                        { value: '14d', label: '14d' },
-                                        { value: '30d', label: '30d' },
-                                        { value: '90d', label: '90d' },
-                                    ]}
-                                />
-                            </View>
-                        </View>
-                    </BlurView>
-                    {/* Gradient fade edge - Apple Health style */}
-                    <LinearGradient
-                        colors={['rgba(22, 22, 24, 1)', 'rgba(17, 17, 17, 0)']}
-                        style={styles.headerFadeEdge}
-                        pointerEvents="none"
+                {/* Sticky Picker inside fixed header */}
+                <View style={styles.pickerContainer}>
+                    <SegmentedControl<RangeKey>
+                        value={range}
+                        onChange={handleRangeChange}
+                        options={[
+                            { value: '7d', label: '7d' },
+                            { value: '14d', label: '14d' },
+                            { value: '30d', label: '30d' },
+                            { value: '90d', label: '90d' },
+                        ]}
                     />
                 </View>
+            </Animated.View>
 
-                {/* Sync Banner - shows below header when syncing */}
-                <SyncBanner
-                    isSyncing={dailyContext.isSyncing || isLoading || isRefreshing}
-                    topOffset={HEADER_HEIGHT}
-                />
-
-                {/* Dark Overlay when FAB is open */}
-                {isFabOpen && (
-                    <Animated.View
-                        style={[
-                            styles.fabOverlay,
-                            { opacity: overlayOpacity }
-                        ]}
-                    >
-                        <Pressable
-                            style={StyleSheet.absoluteFill}
-                            onPress={() => fabRef.current?.close()}
-                        />
-                    </Animated.View>
+            {/* ScrollView - content flows normally */}
+            <Animated.ScrollView
+                ref={scrollViewRef}
+                style={styles.scrollView}
+                contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 24 }]}
+                showsVerticalScrollIndicator={false}
+                onScroll={Animated.event(
+                    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                    { useNativeDriver: true }
+                )}
+                scrollEventThrottle={16}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={isRefreshing}
+                        onRefresh={onRefresh}
+                        tintColor={Colors.textSecondary}
+                    />
+                }
+            >
+                {/* Glucose Trends - only show for glucose tracking users */}
+                {showGlucoseUI && (
+                    <View style={styles.trendsSection}>
+                        <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} glucoseUnit={glucoseUnit} />
+                    </View>
                 )}
 
-                {/* Floating Action Button with Menu */}
-                <View style={styles.fabContainer}>
-                    <AnimatedFAB
-                        ref={fabRef}
-                        size={56}
-                        onPress={handleFabOpenChange}
-                        onLogMeal={() => {
-                            router.push({ pathname: '/meal-scanner' } as any);
-                        }}
-                        onLogActivity={() => {
-                            router.push({ pathname: '/log-activity' } as any);
-                        }}
-                        onLogGlucose={() => {
-                            router.push({ pathname: '/log-glucose' } as any);
+                {/* Active Experiment Widget */}
+                <ActiveExperimentWidget />
+
+                {/* Metabolic Score Card - Full width prominent card */}
+                <MetabolicScoreCard weeklyScores={weeklyScores} currentScore={currentScore} isLoading={scoresLoading} />
+
+                {/* Stats Grid */}
+                <View style={styles.statsGrid}>
+                    <View style={styles.statsRow}>
+                        {showWearableStats ? (
+                            <>
+                                <StepsStatCard
+                                    avgSteps={dailyContext.avgSteps}
+                                    isAuthorized={dailyContext.isAuthorized}
+                                    isAvailable={dailyContext.isAvailable}
+                                    range={range}
+                                />
+                                <ActivityStatCard
+                                    range={range}
+                                    activityLogs={activityLogs}
+                                    healthKitMinutes={dailyContext.avgActiveMinutes}
+                                    isHealthKitAuthorized={dailyContext.isAuthorized}
+                                    isHealthKitAvailable={dailyContext.isAvailable}
+                                />
+                            </>
+                        ) : showGlucoseUI ? (
+                            <>
+                                <DaysInRangeCard range={range} glucoseLogs={glucoseLogs} />
+                                <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                            </>
+                        ) : (
+                            <>
+                                <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                <ActivityStatCard
+                                    range={range}
+                                    activityLogs={activityLogs}
+                                    healthKitMinutes={dailyContext.avgActiveMinutes}
+                                    isHealthKitAuthorized={dailyContext.isAuthorized}
+                                    isHealthKitAvailable={dailyContext.isAvailable}
+                                />
+                            </>
+                        )}
+                    </View>
+                    <View style={styles.statsRow}>
+                        {showWearableStats ? (
+                            <>
+                                <SleepStatCard range={range} sleepData={sleepData} />
+                                <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                            </>
+                        ) : showGlucoseUI ? (
+                            <>
+                                <ActivityStatCard
+                                    range={range}
+                                    activityLogs={activityLogs}
+                                    healthKitMinutes={dailyContext.avgActiveMinutes}
+                                    isHealthKitAuthorized={dailyContext.isAuthorized}
+                                    isHealthKitAvailable={dailyContext.isAvailable}
+                                />
+                                <SleepStatCard range={range} sleepData={sleepData} />
+                            </>
+                        ) : (
+                            <>
+                                <SleepStatCard range={range} sleepData={sleepData} />
+                                <StatCard
+                                    icon={<Image source={Images.mascots.cook} style={{ width: 32, height: 32, resizeMode: 'contain' }} />}
+                                    iconColor="#4CAF50"
+                                    title="Meals"
+                                    value="--"
+                                    description="Logged this week"
+                                />
+                            </>
+                        )}
+                    </View>
+                </View>
+
+                {/* Connect Apple Health CTA - show for wearables mode if not authorized */}
+                {showWearableStats && !dailyContext.isAuthorized && dailyContext.isAvailable && (
+                    <ConnectHealthCTA
+                        onConnected={() => {
+                            dailyContext.sync();
+                            refetchSleep();
                         }}
                     />
+                )}
+
+                {/* Personal Insights Carousel (includes Tip Cards) */}
+                <PersonalInsightsCarousel
+                    insights={personalInsights}
+                    isLoading={insightsLoading}
+                    onMealPress={() => setSpikeSheetVisible(true)}
+                    onExercisePress={() => setExerciseSheetVisible(true)}
+                />
+
+                {/* Today's Meals Section */}
+                <View style={styles.mealSection}>
+                    <Text style={styles.mealSectionTitle}>Meal Check-ins</Text>
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.mealCardsContainer}
+                    >
+                        {displayMeals.length > 0 ? (
+                            displayMeals.map((meal) => (
+                                <MealCheckinCard
+                                    key={meal.id}
+                                    meal={meal}
+                                    onPress={() => handleMealPress(meal)}
+                                />
+                            ))
+                        ) : (
+                            <View style={styles.noMealsCard}>
+                                <Image source={Images.mascots.cook} style={{ width: 60, height: 60, resizeMode: 'contain', marginBottom: 8 }} />
+                                <Text style={styles.noMealsText}>No meal reviews yet</Text>
+                                <Text style={styles.noMealsSubtext}>Log a meal to see your glucose response</Text>
+                            </View>
+                        )}
+                    </ScrollView>
                 </View>
+            </Animated.ScrollView>
+
+
+
+            {/* Sync Banner - shows below header when syncing */}
+            <SyncBanner
+                isSyncing={dailyContext.isSyncing || isLoading || isRefreshing}
+                topOffset={HEADER_HEIGHT}
+            />
+
+            {/* Dark Overlay when FAB is open */}
+            {isFabOpen && (
+                <Animated.View
+                    style={[
+                        styles.fabOverlay,
+                        { opacity: overlayOpacity }
+                    ]}
+                >
+                    <Pressable
+                        style={StyleSheet.absoluteFill}
+                        onPress={() => fabRef.current?.close()}
+                    />
+                </Animated.View>
+            )}
+
+            {/* Floating Action Button with Menu */}
+            <View style={styles.fabContainer}>
+                <AnimatedFAB
+                    ref={fabRef}
+                    size={56}
+                    onPress={handleFabOpenChange}
+                    onLogMeal={() => {
+                        router.push({ pathname: '/meal-scanner' } as any);
+                    }}
+                    onLogActivity={() => {
+                        router.push({ pathname: '/log-activity' } as any);
+                    }}
+                    onLogGlucose={() => {
+                        router.push({ pathname: '/log-glucose' } as any);
+                    }}
+                />
             </View>
 
             {/* Meal Response Input Sheet */}
@@ -1410,6 +1439,7 @@ export default function TodayScreen() {
                     router.push({ pathname: '/check-exercise-impact', params: { initialText: text } } as any);
                 }}
             />
+        </View>
         </AnimatedScreen >
     );
 }
@@ -1429,30 +1459,26 @@ const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
     },
-    blurHeaderContainer: {
-        position: 'absolute',
+    headerContainer: {
+        // backgroundColor removed to allow gradient
+        zIndex: 10,
+        position: 'absolute', // Fixed at top
         top: 0,
         left: 0,
         right: 0,
-        zIndex: 100,
-    },
-    blurHeader: {
-        overflow: 'hidden',
-    },
-    headerFadeEdge: {
-        height: 32,
-        marginTop: 0,
-        borderBottomLeftRadius: 24,
-        borderBottomRightRadius: 24,
     },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 16,
-        paddingVertical: 12,
-        backgroundColor: 'transparent',
+        height: 72, // Match notifications header height
     },
+    pickerContainer: {
+        marginHorizontal: 16,
+        marginBottom: 12, // Reduced from 24
+    },
+
     avatarButton: {
         width: 48,
         height: 48,
@@ -1497,7 +1523,7 @@ const styles = StyleSheet.create({
         paddingBottom: Platform.OS === 'ios' ? 170 : 150,
     },
     trendsSection: {
-        marginTop: 16,
+        marginTop: 0,
         marginBottom: 16,
     },
     stickyPickerContainer: {

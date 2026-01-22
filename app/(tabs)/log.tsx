@@ -9,7 +9,6 @@ import { ActivityLog, getActivityLogs, getGlucoseLogs, getMeals, GlucoseLog, Mea
 import { formatGlucoseWithUnit, GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
@@ -534,12 +533,7 @@ export default function LogScreen() {
 
                 {/* Blurred Header */}
                 <View style={styles.blurHeaderContainer}>
-                    <BlurView
-                        intensity={80}
-                        tint="dark"
-                        experimentalBlurMethod="dimezisBlurView"
-                        style={styles.blurHeader}
-                    >
+                    <View style={styles.headerBackground}>
                         <View style={{ paddingTop: insets.top }}>
                             <View style={styles.header}>
                                 {/* Large title on the left - fades out on scroll */}
@@ -555,13 +549,7 @@ export default function LogScreen() {
                                 </Animated.Text>
                             </View>
                         </View>
-                    </BlurView>
-                    {/* Gradient fade edge - Apple Health style */}
-                    <LinearGradient
-                        colors={['rgba(22, 22, 24, 1)', 'rgba(17, 17, 17, 0)']}
-                        style={styles.headerFadeEdge}
-                        pointerEvents="none"
-                    />
+                    </View>
                 </View>
 
                 {/* shadcn-inspired Filter Modal */}
@@ -650,12 +638,8 @@ const styles = StyleSheet.create({
         right: 0,
         zIndex: 100,
     },
-    blurHeader: {
-        overflow: 'hidden',
-    },
-    headerFadeEdge: {
-        height: 32,
-        marginTop: 0,
+    headerBackground: {
+        backgroundColor: 'transparent',
     },
     header: {
         flexDirection: 'row',

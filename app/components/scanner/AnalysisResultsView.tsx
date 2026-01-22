@@ -4,7 +4,6 @@
  */
 
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
-import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -16,7 +15,6 @@ import {
     PremealResult,
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
     Dimensions,
@@ -373,18 +371,21 @@ export default function AnalysisResultsView({
     return (
         <View style={styles.container}>
             {/* Background Gradient */}
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.35, 1]}
-                style={styles.topGlow}
-            />
+
 
             <SafeAreaView edges={['top']} style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <LiquidGlassIconButton size={44} onPress={onClose}>
-                        <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                    </LiquidGlassIconButton>
+                    <Pressable
+                        onPress={onClose}
+                        style={({ pressed }) => [
+                            styles.backButton,
+                            pressed && { opacity: 0.7 }
+                        ]}
+                        hitSlop={8}
+                    >
+                        <Ionicons name="chevron-back" size={28} color={Colors.textPrimary} />
+                    </Pressable>
                     <Text style={styles.headerTitle}>{headerTitle}</Text>
                     <View style={{ width: 44 }} />
                 </View>
@@ -558,39 +559,25 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#111111',
     },
-    topGlow: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
-    },
+
     safeArea: {
         flex: 1,
     },
     header: {
-        height: 72,
+        height: 60,
         paddingHorizontal: 16,
+        paddingTop: 8,
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
     },
-    headerButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
+    backButton: {
+        width: 40,
+        height: 40,
         justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: 'rgba(63,66,67,0.3)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
+        alignItems: 'flex-start',
     },
-    headerButtonPressed: {
-        opacity: 0.7,
-        transform: [{ scale: 0.97 }],
-    },
+
     headerTitle: {
         fontFamily: fonts.bold,
         fontSize: 18,
