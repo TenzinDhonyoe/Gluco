@@ -3,9 +3,10 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { isAiEnabled } from '../_shared/ai.ts';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { sanitizeText } from '../_shared/safety.ts';
+import { callGenAI } from '../_shared/genai.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -48,7 +49,7 @@ interface UserPatterns {
     spikeCount: number;
     spikeContexts: Record<string, number>; // e.g., { breakfast: 5, lunch: 3 }
     timeOfDaySpikes: Record<string, number>; // e.g., { morning: 4, evening: 6 }
-    
+
     // Meal patterns
     totalMeals: number;
     mealTypes: Record<string, number>; // e.g., { breakfast: 10, lunch: 8 }
@@ -57,12 +58,12 @@ interface UserPatterns {
     riceOccurrences: number;
     oatmealOccurrences: number;
     eggOccurrences: number;
-    
+
     // Activity patterns
     totalActivityMinutes: number;
     postMealWalks: number;
     activeDays: number;
-    
+
     // Timing patterns
     avgDinnerHour: number | null;
     lateNightMeals: number;
@@ -228,7 +229,7 @@ async function analyzeUserPatterns(supabase: any, userId: string): Promise<UserP
         const walkActivities = activityLogs.filter((a: any) =>
             a.activity_name.toLowerCase().includes('walk')
         );
-        
+
         if (meals && meals.length > 0 && walkActivities.length > 0) {
             walkActivities.forEach((walk: any) => {
                 const walkTime = new Date(walk.logged_at).getTime();
@@ -246,7 +247,7 @@ async function analyzeUserPatterns(supabase: any, userId: string): Promise<UserP
     if (meals && meals.length > 0) {
         const daysWithMeals = new Set<string>();
         const daysWithBreakfast = new Set<string>();
-        
+
         meals.forEach((meal: any) => {
             const day = new Date(meal.logged_at).toDateString();
             daysWithMeals.add(day);
@@ -254,7 +255,7 @@ async function analyzeUserPatterns(supabase: any, userId: string): Promise<UserP
                 daysWithBreakfast.add(day);
             }
         });
-        
+
         patterns.breakfastSkipDays = daysWithMeals.size - daysWithBreakfast.size;
     }
 
@@ -412,14 +413,19 @@ async function enhanceWithGemini(
     suggestions: SuggestedExperiment[],
     patterns: UserPatterns
 ): Promise<SuggestedExperiment[]> {
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
-    if (!apiKey || suggestions.length === 0) {
+    if (suggestions.length === 0) {
         return suggestions;
     }
 
     const topSuggestions = suggestions.slice(0, 3);
 
     const prompt = `You are a wellness coach helping someone choose their next experiment. Based on their patterns, enhance the reasons for these top experiment suggestions.
+
+IMPORTANT GUIDELINES:
+- Focus on behavioral changes like meal timing, composition, and activity
+- Do NOT provide medical advice or suggest medication changes
+- Keep suggestions practical and achievable
+- Use encouraging, wellness-focused language
 
 USER'S 30-DAY PATTERNS:
 - Average glucose: ${patterns.avgGlucose ?? 'N/A'} mmol/L
@@ -447,35 +453,17 @@ Return ONLY valid JSON:
 }`;
 
     try {
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.3,
-                        maxOutputTokens: 600,
-                        responseMimeType: 'application/json',
-                    },
-                }),
-            }
-        );
-
-        if (!response.ok) {
-            console.error('Gemini API error:', response.status);
-            return suggestions;
-        }
-
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        const text = await callGenAI(prompt, {
+            temperature: 0.3,
+            maxOutputTokens: 600,
+            jsonOutput: true,
+        });
 
         if (!text) return suggestions;
 
         const parsed = JSON.parse(text);
         const enhancedMap = new Map<string, string[]>();
-        
+
         (parsed.enhanced || []).forEach((e: any) => {
             const safeReasons = (e.reasons || []).filter((reason: string) => sanitizeText(reason) !== null);
             enhancedMap.set(e.slug, safeReasons);
@@ -490,7 +478,7 @@ Return ONLY valid JSON:
             return s;
         });
     } catch (error) {
-        console.error('Gemini enhancement failed:', error);
+        console.error('Vertex AI enhancement failed:', error);
         return suggestions;
     }
 }

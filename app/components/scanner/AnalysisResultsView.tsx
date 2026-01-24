@@ -15,10 +15,13 @@ import {
     PremealResult,
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Dimensions,
     Image,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -26,7 +29,12 @@ import {
     View
 } from 'react-native';
 import Animated, {
+    FadeIn,
+    FadeInDown,
+    FadeOut,
+    FadeOutUp,
     interpolateColor,
+    Layout,
     useAnimatedStyle,
     useSharedValue,
     withRepeat,
@@ -47,6 +55,9 @@ export interface CheckedSuggestion {
     action_type: string;
 }
 
+// Action state for each suggestion
+type SuggestionAction = 'none' | 'try' | 'skip';
+
 interface AnalysisResultsViewProps {
     imageUri?: string;
     items: SelectedItem[];
@@ -63,6 +74,10 @@ interface AnalysisResultsViewProps {
         fat?: number;
         fibre?: number;
     };
+    /** Optional component to render for followup questions */
+    followupComponent?: React.ReactNode;
+    /** Optional warning message about photo quality */
+    photoQualityWarning?: string;
 }
 
 // Format serving size for display
@@ -95,22 +110,28 @@ function getScoreColor(score: number): string {
     return Colors.error; // Red
 }
 
-// Get benefit badge color
-function getBenefitColor(level: 'low' | 'medium' | 'high'): string {
-    switch (level) {
-        case 'high': return Colors.success;
-        case 'medium': return Colors.warning;
-        case 'low': return Colors.primary;
-    }
+// Get outcome text for action types
+function getOutcomeText(actionType: string): string {
+    const outcomes: Record<string, string> = {
+        'add_fiber': 'Helps slow glucose absorption',
+        'add_protein': 'Supports steadier energy levels',
+        'post_meal_walk': 'Helps reduce glucose spikes',
+        'meal_pairing': 'Balances your meal response',
+        'portion_control': 'Helps moderate glucose response',
+        'timing': 'Optimizes your metabolic timing',
+    };
+    return outcomes[actionType] || 'May improve your response';
 }
 
-// Get benefit label
-function getBenefitLabel(level: 'low' | 'medium' | 'high'): string {
-    switch (level) {
-        case 'high': return 'High Impact';
-        case 'medium': return 'Medium Impact';
-        case 'low': return 'Low Impact';
-    }
+// Get time context for action types
+function getTimeContext(actionType: string): string | null {
+    const contexts: Record<string, string> = {
+        'post_meal_walk': 'In the next 30 minutes',
+        'add_fiber': 'Before you eat',
+        'add_protein': 'With this meal',
+        'meal_pairing': 'With this meal',
+    };
+    return contexts[actionType] || null;
 }
 
 // Circular Progress Score Component
@@ -193,12 +214,32 @@ export default function AnalysisResultsView({
     primaryActionLabel = 'Log this meal',
     reviewIcon = 'create-outline',
     macroOverrides,
+    followupComponent,
+    photoQualityWarning,
 }: AnalysisResultsViewProps) {
     const insets = useSafeAreaInsets();
     const { user } = useAuth();
+    const scrollViewRef = useRef<ScrollView>(null);
     const [isLoadingInsights, setIsLoadingInsights] = useState(true);
     const [insights, setInsights] = useState<PremealResult | null>(null);
-    const [checkedSuggestions, setCheckedSuggestions] = useState<Set<string>>(new Set());
+    const [suggestionActions, setSuggestionActions] = useState<Record<string, SuggestionAction>>({});
+    const [showMoreOptions, setShowMoreOptions] = useState(false);
+    const currentScrollY = useRef(0);
+
+    // Scroll down a bit when more options is expanded
+    const handleMoreOptionsPress = useCallback(() => {
+        const newState = !showMoreOptions;
+        setShowMoreOptions(newState);
+        if (newState && scrollViewRef.current) {
+            // Delay to let the animation start, then scroll down by 200px
+            setTimeout(() => {
+                scrollViewRef.current?.scrollTo({
+                    y: currentScrollY.current + 200,
+                    animated: true
+                });
+            }, 150);
+        }
+    }, [showMoreOptions]);
 
     // Mascot animation
     const mascotScale = useSharedValue(1);
@@ -357,6 +398,17 @@ export default function AnalysisResultsView({
         return fallbackTips.slice(0, 3);
     }, [insights, totals]);
 
+    // Sort tips by benefit level (high first) and split into primary/secondary
+    const sortedTips = useMemo(() => {
+        const levelOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+        return [...adjustmentTips].sort((a, b) =>
+            (levelOrder[a.benefit_level] ?? 2) - (levelOrder[b.benefit_level] ?? 2)
+        );
+    }, [adjustmentTips]);
+
+    const primaryTip = sortedTips[0] || null;
+    const secondaryTips = sortedTips.slice(1);
+
     // Personalized tip based on score
     const personalizedTip = useMemo(() => {
         if (wellnessScore >= 70) {
@@ -391,9 +443,12 @@ export default function AnalysisResultsView({
                 </View>
 
                 <ScrollView
+                    ref={scrollViewRef}
                     style={styles.scrollView}
                     contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
                     showsVerticalScrollIndicator={false}
+                    onScroll={(e) => { currentScrollY.current = e.nativeEvent.contentOffset.y; }}
+                    scrollEventThrottle={16}
                 >
                     {/* Meal Title Section */}
                     <View style={styles.mealTitleSection}>
@@ -411,6 +466,14 @@ export default function AnalysisResultsView({
                             />
                         </View>
                     ) : null}
+
+                    {/* Photo Quality Warning */}
+                    {photoQualityWarning && (
+                        <View style={styles.qualityWarning}>
+                            <Ionicons name="warning-outline" size={16} color="#FF9500" />
+                            <Text style={styles.qualityWarningText}>{photoQualityWarning}</Text>
+                        </View>
+                    )}
 
                     {/* Horizontal Macro Bar */}
                     <View style={styles.macroBar}>
@@ -458,6 +521,9 @@ export default function AnalysisResultsView({
                         ))}
                     </View>
 
+                    {/* Followup Questions (if any) */}
+                    {followupComponent}
+
                     {/* AI Insights Section */}
                     {isLoadingInsights ? (
                         <View style={styles.loadingContainer}>
@@ -489,46 +555,215 @@ export default function AnalysisResultsView({
                                 ))}
                             </View>
 
-                            {/* Adjustments Section */}
-                            <View style={styles.adjustmentsSection}>
-                                <Text style={styles.sectionTitle}>Personalized suggestions:</Text>
-                                {adjustmentTips.map((tip, index) => {
-                                    const uniqueId = `${index}_${tip.action_type}`;
-                                    const isChecked = checkedSuggestions.has(uniqueId);
-                                    return (
-                                        <Pressable
-                                            key={index}
-                                            style={[styles.adjustmentCard, isChecked && styles.adjustmentCardChecked]}
-                                            onPress={() => {
-                                                setCheckedSuggestions(prev => {
-                                                    const newSet = new Set(prev);
-                                                    if (newSet.has(uniqueId)) {
-                                                        newSet.delete(uniqueId);
-                                                    } else {
-                                                        newSet.add(uniqueId);
+                            {/* Suggestions Section - Low Pressure Design */}
+                            {primaryTip && (
+                                <View style={styles.adjustmentsSection}>
+                                    {/* Header Row with Title and More Options */}
+                                    <View style={styles.suggestionsHeaderRow}>
+                                        <Text style={styles.sectionTitle}>Try this:</Text>
+
+                                        {/* See More Options Toggle - Liquid Glass Pill (inline) */}
+                                        {secondaryTips.length > 0 && (
+                                            <Pressable
+                                                style={({ pressed }) => [
+                                                    styles.seeMoreToggle,
+                                                    pressed && styles.seeMoreTogglePressed
+                                                ]}
+                                                onPressIn={() => {
+                                                    if (Platform.OS === 'ios') {
+                                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                                     }
-                                                    return newSet;
-                                                });
-                                            }}
-                                        >
-                                            <View style={styles.adjustmentHeader}>
-                                                <View style={styles.adjustmentTitleRow}>
-                                                    <View style={[styles.checkbox, isChecked && styles.checkboxChecked]}>
-                                                        {isChecked && <Ionicons name="checkmark" size={14} color="#111111" />}
-                                                    </View>
-                                                    <Text style={[styles.adjustmentTitle, isChecked && styles.adjustmentTitleChecked]}>{tip.title}</Text>
-                                                </View>
-                                                <View style={[styles.benefitBadge, { backgroundColor: getBenefitColor(tip.benefit_level) + '20' }]}>
-                                                    <Text style={[styles.benefitText, { color: getBenefitColor(tip.benefit_level) }]}>
-                                                        {getBenefitLabel(tip.benefit_level)}
+                                                }}
+                                                onPress={handleMoreOptionsPress}
+                                            >
+                                                <LinearGradient
+                                                    colors={['rgba(60, 65, 70, 0.95)', 'rgba(45, 48, 52, 0.95)']}
+                                                    style={styles.seeMoreGradient}
+                                                />
+                                                <View style={styles.seeMoreContent}>
+                                                    <Text style={styles.seeMoreText}>
+                                                        {showMoreOptions ? 'Hide' : `+${secondaryTips.length} more`}
                                                     </Text>
+                                                    <Ionicons
+                                                        name={showMoreOptions ? 'chevron-up' : 'chevron-down'}
+                                                        size={14}
+                                                        color="#FFFFFF"
+                                                    />
                                                 </View>
-                                            </View>
-                                            <Text style={[styles.adjustmentDesc, isChecked && styles.adjustmentDescChecked]}>{tip.detail}</Text>
-                                        </Pressable>
-                                    );
-                                })}
-                            </View>
+                                            </Pressable>
+                                        )}
+                                    </View>
+
+                                    {/* Primary Suggestion Card */}
+                                    {(() => {
+                                        const uniqueId = `0_${primaryTip.action_type}`;
+                                        const action = suggestionActions[uniqueId] || 'none';
+                                        const timeContext = getTimeContext(primaryTip.action_type);
+                                        const outcomeText = getOutcomeText(primaryTip.action_type);
+
+                                        if (action === 'skip') {
+                                            return null; // Hide skipped primary card
+                                        }
+
+                                        return (
+                                            <Animated.View
+                                                layout={Layout.duration(200)}
+                                                style={[
+                                                    styles.suggestionCard,
+                                                    action === 'try' && styles.suggestionCardSelected
+                                                ]}
+                                            >
+                                                {action === 'none' ? (
+                                                    <Animated.View
+                                                        key="none-state"
+                                                        entering={FadeIn.duration(200)}
+                                                        exiting={FadeOut.duration(150)}
+                                                    >
+                                                        {timeContext && (
+                                                            <Text style={styles.timeContextLabel}>{timeContext.toUpperCase()}</Text>
+                                                        )}
+                                                        <Text style={styles.suggestionTitle}>{primaryTip.title}</Text>
+                                                        <Text style={styles.suggestionDetail}>{primaryTip.detail}</Text>
+                                                        <Text style={styles.outcomeText}>{outcomeText}</Text>
+
+                                                        <View style={styles.actionButtonRow}>
+                                                            <Pressable
+                                                                style={styles.tryButton}
+                                                                onPress={() => setSuggestionActions(prev => ({ ...prev, [uniqueId]: 'try' }))}
+                                                            >
+                                                                <Text style={styles.tryButtonText}>I'll try this</Text>
+                                                            </Pressable>
+                                                            <Pressable
+                                                                style={styles.skipButton}
+                                                                onPress={() => setSuggestionActions(prev => ({ ...prev, [uniqueId]: 'skip' }))}
+                                                            >
+                                                                <Text style={styles.skipButtonText}>Not today</Text>
+                                                                <Ionicons name="chevron-forward" size={14} color={Colors.textSecondary} />
+                                                            </Pressable>
+                                                        </View>
+                                                    </Animated.View>
+                                                ) : (
+                                                    <Animated.View
+                                                        key="try-state"
+                                                        entering={FadeIn.duration(200).delay(100)}
+                                                        exiting={FadeOut.duration(150)}
+                                                    >
+                                                        <View style={styles.selectedHeader}>
+                                                            <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
+                                                            <Text style={styles.suggestionTitleSelected}>{primaryTip.title}</Text>
+                                                        </View>
+
+                                                        <View style={styles.selectedActionRow}>
+                                                            <View style={styles.addedBadge}>
+                                                                <Ionicons name="checkmark" size={12} color={Colors.success} />
+                                                                <Text style={styles.addedText}>Added</Text>
+                                                            </View>
+                                                            <Pressable
+                                                                style={styles.undoButton}
+                                                                onPress={() => setSuggestionActions(prev => ({ ...prev, [uniqueId]: 'none' }))}
+                                                            >
+                                                                <Text style={styles.undoButtonText}>Undo</Text>
+                                                            </Pressable>
+                                                        </View>
+                                                        <Text style={styles.reassuranceText}>You can change this anytime</Text>
+                                                    </Animated.View>
+                                                )}
+                                            </Animated.View>
+                                        );
+                                    })()}
+
+                                    {/* Secondary Suggestions (Collapsible) - Animated */}
+                                    {showMoreOptions && (
+                                        <Animated.View
+                                            entering={FadeInDown.duration(300).springify().damping(18)}
+                                            exiting={FadeOutUp.duration(200)}
+                                        >
+                                            {secondaryTips.map((tip, index) => {
+                                                const uniqueId = `${index + 1}_${tip.action_type}`;
+                                                const action = suggestionActions[uniqueId] || 'none';
+                                                const timeContext = getTimeContext(tip.action_type);
+                                                const outcomeText = getOutcomeText(tip.action_type);
+
+                                                if (action === 'skip') {
+                                                    return null;
+                                                }
+
+                                                return (
+                                                    <Animated.View
+                                                        key={uniqueId}
+                                                        entering={FadeInDown.delay(index * 60).duration(250).springify().damping(18)}
+                                                    >
+                                                        <Animated.View
+                                                            layout={Layout.duration(200)}
+                                                            style={[
+                                                                styles.suggestionCard,
+                                                                styles.secondarySuggestionCard,
+                                                                action === 'try' && styles.suggestionCardSelected
+                                                            ]}
+                                                        >
+                                                            {action === 'none' ? (
+                                                                <Animated.View
+                                                                    key="none-state"
+                                                                    entering={FadeIn.duration(200)}
+                                                                    exiting={FadeOut.duration(150)}
+                                                                >
+                                                                    {timeContext && (
+                                                                        <Text style={styles.timeContextLabel}>{timeContext.toUpperCase()}</Text>
+                                                                    )}
+                                                                    <Text style={styles.suggestionTitle}>{tip.title}</Text>
+                                                                    <Text style={styles.suggestionDetailCompact}>{tip.detail}</Text>
+                                                                    <Text style={styles.outcomeText}>{outcomeText}</Text>
+
+                                                                    <View style={styles.actionButtonRow}>
+                                                                        <Pressable
+                                                                            style={styles.tryButton}
+                                                                            onPress={() => setSuggestionActions(prev => ({ ...prev, [uniqueId]: 'try' }))}
+                                                                        >
+                                                                            <Text style={styles.tryButtonText}>I'll try this</Text>
+                                                                        </Pressable>
+                                                                        <Pressable
+                                                                            style={styles.skipButton}
+                                                                            onPress={() => setSuggestionActions(prev => ({ ...prev, [uniqueId]: 'skip' }))}
+                                                                        >
+                                                                            <Text style={styles.skipButtonText}>Not today</Text>
+                                                                            <Ionicons name="chevron-forward" size={14} color={Colors.textSecondary} />
+                                                                        </Pressable>
+                                                                    </View>
+                                                                </Animated.View>
+                                                            ) : (
+                                                                <Animated.View
+                                                                    key="try-state"
+                                                                    entering={FadeIn.duration(200).delay(100)}
+                                                                    exiting={FadeOut.duration(150)}
+                                                                >
+                                                                    <View style={styles.selectedHeader}>
+                                                                        <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
+                                                                        <Text style={styles.suggestionTitleSelected}>{tip.title}</Text>
+                                                                    </View>
+
+                                                                    <View style={styles.selectedActionRow}>
+                                                                        <View style={styles.addedBadge}>
+                                                                            <Ionicons name="checkmark" size={12} color={Colors.success} />
+                                                                            <Text style={styles.addedText}>Added</Text>
+                                                                        </View>
+                                                                        <Pressable
+                                                                            style={styles.undoButton}
+                                                                            onPress={() => setSuggestionActions(prev => ({ ...prev, [uniqueId]: 'none' }))}
+                                                                        >
+                                                                            <Text style={styles.undoButtonText}>Undo</Text>
+                                                                        </Pressable>
+                                                                    </View>
+                                                                    <Text style={styles.reassuranceText}>You can change this anytime</Text>
+                                                                </Animated.View>
+                                                            )}
+                                                        </Animated.View>
+                                                    </Animated.View>
+                                                );
+                                            })}
+                                        </Animated.View>
+                                    )}
+                                </View>
+                            )}
                         </>
                     )}
                 </ScrollView>
@@ -540,8 +775,8 @@ export default function AnalysisResultsView({
                             <Text style={styles.editButtonText}>Edit</Text>
                         </AnimatedPressable>
                         <AnimatedPressable style={styles.logButton} onPress={() => {
-                            const selectedSuggestions = adjustmentTips
-                                .filter((tip, index) => checkedSuggestions.has(`${index}_${tip.action_type}`))
+                            const selectedSuggestions = sortedTips
+                                .filter((tip, index) => suggestionActions[`${index}_${tip.action_type}`] === 'try')
                                 .map(tip => ({ title: tip.title, action_type: tip.action_type }));
                             onSave(selectedSuggestions);
                         }}>
@@ -612,6 +847,24 @@ const styles = StyleSheet.create({
     photo: {
         width: '100%',
         height: PHOTO_HEIGHT,
+    },
+    qualityWarning: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 149, 0, 0.15)',
+        borderRadius: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        marginBottom: 16,
+        gap: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 149, 0, 0.3)',
+    },
+    qualityWarningText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: '#FF9500',
+        flex: 1,
     },
     macroBar: {
         flexDirection: 'row',
@@ -737,11 +990,16 @@ const styles = StyleSheet.create({
     driversSection: {
         marginBottom: 24,
     },
+    suggestionsHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+    },
     sectionTitle: {
         fontFamily: fonts.medium,
         fontSize: 14,
         color: '#FFFFFF',
-        marginBottom: 12,
     },
     driverItem: {
         flexDirection: 'row',
@@ -766,72 +1024,165 @@ const styles = StyleSheet.create({
     adjustmentsSection: {
         marginBottom: 24,
     },
-    adjustmentCard: {
-        backgroundColor: 'rgba(255, 255, 255, 0.03)',
-        borderRadius: 12,
+    // New suggestion card styles
+    suggestionCard: {
+        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+        borderRadius: 16,
+        padding: 20,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+    },
+    suggestionCardSelected: {
+        borderColor: Colors.success,
+        borderLeftWidth: 3,
+        backgroundColor: 'rgba(40, 94, 42, 0.12)',
+    },
+    secondarySuggestionCard: {
         padding: 16,
         marginBottom: 10,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.05)',
     },
-    adjustmentHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
+    timeContextLabel: {
+        fontFamily: fonts.bold,
+        fontSize: 11,
+        letterSpacing: 1,
+        color: Colors.primary,
+        marginBottom: 8,
+    },
+    suggestionTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 17,
+        color: '#FFFFFF',
         marginBottom: 6,
     },
-    adjustmentTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 15,
+    suggestionTitleSelected: {
+        fontFamily: fonts.semiBold,
+        fontSize: 17,
         color: '#FFFFFF',
-        flex: 1,
-    },
-    benefitBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 8,
         marginLeft: 8,
     },
-    benefitText: {
-        fontFamily: fonts.medium,
-        fontSize: 11,
+    suggestionDetail: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: Colors.textSecondary,
+        lineHeight: 20,
+        marginBottom: 12,
     },
-    adjustmentDesc: {
+    suggestionDetailCompact: {
         fontFamily: fonts.regular,
         fontSize: 13,
         color: Colors.textSecondary,
         lineHeight: 18,
-        marginLeft: 30,
+        marginBottom: 10,
     },
-    adjustmentDescChecked: {
+    outcomeText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        fontStyle: 'italic',
         color: 'rgba(255, 255, 255, 0.5)',
+        marginBottom: 16,
     },
-    adjustmentCardChecked: {
-        borderColor: Colors.success,
-        borderWidth: 1,
-        backgroundColor: 'rgba(40, 94, 42, 0.15)',
-    },
-    adjustmentTitleRow: {
+    actionButtonRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        flex: 1,
+        gap: 12,
     },
-    adjustmentTitleChecked: {
-        color: 'rgba(255, 255, 255, 0.7)',
+    tryButton: {
+        backgroundColor: Colors.buttonSecondary,
+        borderWidth: 1,
+        borderColor: Colors.buttonSecondaryBorder,
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        borderRadius: 24,
     },
-    checkbox: {
-        width: 22,
-        height: 22,
-        borderRadius: 6,
-        borderWidth: 2,
-        borderColor: 'rgba(255, 255, 255, 0.3)',
-        marginRight: 10,
-        justifyContent: 'center',
+    tryButtonText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: '#FFFFFF',
+    },
+    skipButton: {
+        flexDirection: 'row',
         alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        gap: 4,
     },
-    checkboxChecked: {
-        backgroundColor: Colors.success,
-        borderColor: Colors.success,
+    skipButtonText: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: Colors.textSecondary,
+    },
+    selectedHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    selectedActionRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 8,
+    },
+    addedBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(40, 94, 42, 0.3)',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 16,
+        gap: 4,
+    },
+    addedText: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: Colors.success,
+    },
+    undoButton: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+    },
+    undoButtonText: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: Colors.textSecondary,
+    },
+    reassuranceText: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: 'rgba(255, 255, 255, 0.4)',
+    },
+    seeMoreToggle: {
+        borderRadius: 100,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.12)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    seeMoreTogglePressed: {
+        opacity: 0.85,
+        transform: [{ scale: 0.97 }],
+    },
+    seeMoreGradient: {
+        ...StyleSheet.absoluteFillObject,
+        borderRadius: 100,
+    },
+    seeMoreContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+        gap: 4,
+    },
+    seeMoreText: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: '#FFFFFF',
+        letterSpacing: 0.2,
     },
     tipCard: {
         borderRadius: 12,

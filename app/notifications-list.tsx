@@ -37,7 +37,14 @@ export default function NotificationsListScreen() {
         startDate.setDate(startDate.getDate() - 7);
 
         const data = await getMealsWithCheckinsByDateRange(user.id, startDate, endDate);
-        setMeals(data);
+        const nowMs = Date.now();
+        const oneHourAgoMs = nowMs - 60 * 60 * 1000;
+        const readyMeals = data.filter(meal => {
+            const loggedAtMs = new Date(meal.logged_at).getTime();
+            return Number.isFinite(loggedAtMs) && loggedAtMs <= oneHourAgoMs;
+        });
+
+        setMeals(readyMeals);
         setLoading(false);
     }, [user?.id]);
 

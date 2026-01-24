@@ -18,8 +18,10 @@ Primary entry point from the FAB button with 5 input modes:
 
 1. **Scan Food** (camera AI):
    - Capture photo → upload → AI analysis → match to database
-   - Shows `AnalysisResultsView` with detected items and macros
-   - User can "Review" (edit items) or "Save" (quick save)
+   - Shows `AnalysisResultsView` with detected items, macros, and personalized suggestions
+   - **Low-anxiety suggestions**: Single primary tip with "I'll try this" / "Not today" buttons
+   - Secondary tips hidden behind "See more options" toggle
+   - User can "Edit" (adjust items) or "Log this meal" (save with selected suggestions)
 
 2. **Nutrition Label** (OCR):
    - Capture label photo with targeting frame
@@ -56,7 +58,7 @@ All paths converge at `log-meal-review.tsx` for final save.
 - Macro summary bubble (expandable)
 - Pre-meal check button (AI insights)
 - Save: `createMeal()` + `addMealItems()` + optional `createGlucoseLog()`
-- Post-meal notification scheduled 2 hours after meal time
+- Post-meal notification scheduled 1 hour after meal time
 
 ### Text-first meal logging (`app/log-meal.tsx`)
 Fallback flow for text-based meal descriptions:
@@ -66,12 +68,23 @@ Fallback flow for text-based meal descriptions:
 - Drafts persisted in `AsyncStorage`
 
 ## Data Model
-- `meals`: meal metadata and timestamps
+- `meals`: meal metadata and timestamps (notes field stores committed suggestions)
 - `meal_items`: normalized foods + nutrient payloads
 - `premeal_checks`: stored pre-meal analysis results
 - `post_meal_reviews`: review feedback, optional glucose data
 - `meal_checkins`: quick check-in results
 - `favorite_foods`, `recent_foods`: food shortcuts for search
+
+## Personalized Suggestions Flow
+When a meal is analyzed, the `premeal-analyze` edge function returns adjustment tips with benefit levels. The UI presents these as low-commitment micro-actions:
+
+1. **Primary tip** shown prominently (highest benefit_level)
+2. **Secondary tips** available via "See more options"
+3. User taps "I'll try this" → suggestion marked for tracking
+4. User taps "Not today" → suggestion dismissed without guilt
+5. Selected suggestions saved to `meals.notes` as "Committed to: [titles]"
+
+See `docs/features/meal-scanner.md` for detailed UI specifications.
 
 ## Item Source Tracking
 Items are tracked with a `source` field to differentiate origin:

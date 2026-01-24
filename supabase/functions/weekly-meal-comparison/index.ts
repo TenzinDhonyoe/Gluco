@@ -3,9 +3,10 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { isAiEnabled } from '../_shared/ai.ts';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { sanitizeText } from '../_shared/safety.ts';
+import { callGenAI } from '../_shared/genai.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -92,13 +93,6 @@ async function generateDriversWithGemini(
     highest: MealReview | null,
     lowest: MealReview | null
 ): Promise<DriversResponse> {
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
-
-    if (!apiKey) {
-        console.log('GEMINI_API_KEY not configured, using fallback drivers');
-        return generateFallbackDrivers(highest, lowest);
-    }
-
     const highestSummary = highest ? formatMealSummary(highest, 'HIGHEST RESPONSE MEAL') : 'No high response meal data';
     const lowestSummary = lowest ? formatMealSummary(lowest, 'LOWEST RESPONSE MEAL') : 'No low response meal data';
 
@@ -109,6 +103,8 @@ IMPORTANT: Use behavioral, wellness-focused language. Do NOT imply diagnosis, de
 ${highestSummary}
 
 ${lowestSummary}
+
+CRITICAL: Only reference numbers and foods that were provided in the meal data above. Do not invent or assume additional details.
 
 For each meal, provide 2-3 bullet-point drivers (short phrases, not sentences). Focus on:
 - Composition (carbs, fibre, protein ratios)
@@ -129,32 +125,13 @@ Return ONLY valid JSON in this exact format:
 }`;
 
     try {
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.4,
-                        maxOutputTokens: 500,
-                        responseMimeType: 'application/json',
-                    },
-                }),
-            }
-        );
-
-        if (!response.ok) {
-            console.error('Gemini API error:', response.status, await response.text());
-            return generateFallbackDrivers(highest, lowest);
-        }
-
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        const text = await callGenAI(prompt, {
+            temperature: 0.4,
+            maxOutputTokens: 500,
+            jsonOutput: true,
+        });
 
         if (!text) {
-            console.error('No text in Gemini response');
             return generateFallbackDrivers(highest, lowest);
         }
 
@@ -162,7 +139,7 @@ Return ONLY valid JSON in this exact format:
 
         // Validate structure
         if (!parsed.highest?.drivers || !parsed.lowest?.drivers) {
-            console.error('Invalid response structure from Gemini');
+            console.error('Invalid response structure from Vertex AI');
             return generateFallbackDrivers(highest, lowest);
         }
 
@@ -182,7 +159,7 @@ Return ONLY valid JSON in this exact format:
             lowest: { drivers: safeLowest },
         };
     } catch (error) {
-        console.error('Gemini call failed:', error);
+        console.error('Vertex AI call failed:', error);
         return generateFallbackDrivers(highest, lowest);
     }
 }

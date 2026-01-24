@@ -12,6 +12,9 @@ import { generateInsights, InsightData, PersonalInsight, TrackingMode } from '@/
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+// Session-based dismissed insights (resets on app restart)
+let sessionDismissedIds: Set<string> = new Set();
+
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const CACHE_VERSION = 'v7'; // Bumped to invalidate after adding action metadata
 
@@ -31,8 +34,11 @@ interface UsePersonalInsightsParams {
 
 interface UsePersonalInsightsResult {
     insights: PersonalInsight[];
+    primaryInsight: PersonalInsight | null;
+    secondaryInsights: PersonalInsight[];
     loading: boolean;
     source: 'cache' | 'llm' | 'fallback' | 'none';
+    dismissInsight: (id: string) => void;
 }
 
 export function usePersonalInsights({
@@ -45,6 +51,9 @@ export function usePersonalInsights({
     const [insights, setInsights] = useState<PersonalInsight[]>([]);
     const [loading, setLoading] = useState(true);
     const [source, setSource] = useState<'cache' | 'llm' | 'fallback' | 'none'>('none');
+
+    // Track dismissed insights for this session (triggers re-render when updated)
+    const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => sessionDismissedIds);
 
     // Refs to prevent parallel fetches and stale updates
     const inFlightRef = useRef(false);
@@ -137,5 +146,30 @@ export function usePersonalInsights({
         };
     }, [cacheKey, enabled, fetchInsights]);
 
-    return { insights, loading, source };
+    // Dismiss an insight for this session
+    const dismissInsight = useCallback((id: string) => {
+        sessionDismissedIds = new Set([...sessionDismissedIds, id]);
+        setDismissedIds(new Set(sessionDismissedIds));
+    }, []);
+
+    // Filter out dismissed insights
+    const activeInsights = useMemo(() =>
+        insights.filter(i => !dismissedIds.has(i.id)),
+        [insights, dismissedIds]
+    );
+
+    // Primary insight is the first active one (highest priority)
+    const primaryInsight = activeInsights[0] || null;
+
+    // Secondary insights are the rest
+    const secondaryInsights = activeInsights.slice(1);
+
+    return {
+        insights: activeInsights,
+        primaryInsight,
+        secondaryInsights,
+        loading,
+        source,
+        dismissInsight,
+    };
 }

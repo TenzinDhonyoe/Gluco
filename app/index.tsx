@@ -10,8 +10,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
     Dimensions,
+    Image,
     Linking,
     SafeAreaView,
     StyleSheet,
@@ -30,6 +30,7 @@ export const PAYWALL_SEEN_KEY = 'paywall_seen';
 // Feature flag: Set to true to enable paywall after onboarding
 // Currently disabled for beta - all users get full access
 export const PAYWALL_ENABLED = false;
+const SPLASH_LOGO = require('../assets/images/mascots/gluco_app_mascott/gluco_splash.png');
 
 export default function WelcomeScreen() {
     const { user, profile, loading } = useAuth();
@@ -140,7 +141,7 @@ export default function WelcomeScreen() {
     if (loading || isCheckingAuth) {
         return (
             <View style={[styles.container, styles.loadingContainer]}>
-                <ActivityIndicator size="large" color={Colors.buttonPrimary} />
+                <Image source={SPLASH_LOGO} style={styles.loadingLogo} />
             </View>
         );
     }
@@ -201,6 +202,12 @@ const styles = StyleSheet.create({
     loadingContainer: {
         justifyContent: 'center',
         alignItems: 'center',
+        backgroundColor: '#151718',
+    },
+    loadingLogo: {
+        width: 200,
+        height: 200,
+        resizeMode: 'contain',
     },
     backgroundVideo: {
         position: 'absolute',

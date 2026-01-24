@@ -1,6 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { GoogleGenAI } from 'npm:@google/genai@1.38.0';
 import { requireUser } from '../_shared/auth.ts';
+import { enforceNutrientLimits, NUTRIENT_LIMITS } from '../_shared/nutrition-validation.ts';
 // Note: AI enabled check removed - label scanning is available to all users
 
 /**
@@ -137,6 +139,14 @@ IMPORTANT RULES:
 5. Return null for any value you cannot find or are uncertain about
 6. Include warnings for any ambiguity
 
+CALORIE SANITY CHECK:
+- If a value seems impossibly high (e.g., >2500 calories per serving), double-check the serving size
+- A single serving is typically:
+  - Drinks: 240-500ml (100-400 calories)
+  - Snacks: 30-50g (100-250 calories)
+  - Meals/Entrees: 200-400g (300-800 calories)
+- If calories > 1000 per serving, add a warning about unusual serving size
+
 Return a JSON object with this EXACT structure:
 {
   "display_name": "Product name from the label",
@@ -163,105 +173,19 @@ Return a JSON object with this EXACT structure:
 
 ONLY return valid JSON. No markdown, no explanations.`;
 
-const VERTEX_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
-const DEFAULT_VERTEX_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = 'gemini-2.5-flash';
 
-interface ServiceAccountKey {
-    client_email: string;
-    private_key: string;
-    token_uri?: string;
-}
+let aiClient: GoogleGenAI | null = null;
 
-function base64UrlEncode(input: Uint8Array): string {
-    let binary = '';
-    const chunkSize = 0x8000;
-    for (let i = 0; i < input.length; i += chunkSize) {
-        binary += String.fromCharCode(...input.subarray(i, i + chunkSize));
+function getGenAIClient(): GoogleGenAI {
+    if (!aiClient) {
+        const apiKey = Deno.env.get('GEMINI_API_KEY');
+        if (!apiKey) {
+            throw new Error('GEMINI_API_KEY environment variable is not set');
+        }
+        aiClient = new GoogleGenAI({ apiKey });
     }
-    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function pemToArrayBuffer(pem: string): ArrayBuffer {
-    const cleaned = pem
-        .replace('-----BEGIN PRIVATE KEY-----', '')
-        .replace('-----END PRIVATE KEY-----', '')
-        .replace(/\s+/g, '');
-    const binary = atob(cleaned);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
-}
-
-async function getAccessToken(): Promise<{ token: string; model: string; projectId: string; region: string }> {
-    const raw = Deno.env.get('VERTEX_AI_SERVICE_ACCOUNT_JSON');
-    const projectId = Deno.env.get('VERTEX_AI_PROJECT_ID');
-    const region = Deno.env.get('VERTEX_AI_REGION');
-    const model = Deno.env.get('VERTEX_AI_MODEL') || DEFAULT_VERTEX_MODEL;
-
-    if (!raw) throw new Error('VERTEX_AI_SERVICE_ACCOUNT_JSON not set');
-    if (!projectId) throw new Error('VERTEX_AI_PROJECT_ID not set');
-    if (!region) throw new Error('VERTEX_AI_REGION not set');
-
-    const key = JSON.parse(raw) as ServiceAccountKey;
-    const tokenUri = key.token_uri || 'https://oauth2.googleapis.com/token';
-    const now = Math.floor(Date.now() / 1000);
-
-    const header = { alg: 'RS256', typ: 'JWT' };
-    const claims = {
-        iss: key.client_email,
-        sub: key.client_email,
-        aud: tokenUri,
-        iat: now,
-        exp: now + 3600,
-        scope: VERTEX_SCOPE,
-    };
-
-    const headerBytes = new TextEncoder().encode(JSON.stringify(header));
-    const claimsBytes = new TextEncoder().encode(JSON.stringify(claims));
-    const headerEncoded = base64UrlEncode(headerBytes);
-    const claimsEncoded = base64UrlEncode(claimsBytes);
-    const toSign = `${headerEncoded}.${claimsEncoded}`;
-
-    const keyData = pemToArrayBuffer(key.private_key);
-    const cryptoKey = await crypto.subtle.importKey(
-        'pkcs8',
-        keyData,
-        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-        false,
-        ['sign']
-    );
-    const signature = await crypto.subtle.sign(
-        'RSASSA-PKCS1-v1_5',
-        cryptoKey,
-        new TextEncoder().encode(toSign)
-    );
-    const signatureEncoded = base64UrlEncode(new Uint8Array(signature));
-    const jwt = `${toSign}.${signatureEncoded}`;
-
-    const body = new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion: jwt,
-    });
-
-    const res = await fetch(tokenUri, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-    });
-
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Failed to get access token: ${text}`);
-    }
-
-    const data = await res.json();
-    if (!data?.access_token) {
-        throw new Error('Access token missing from response');
-    }
-
-    return { token: data.access_token as string, model, projectId, region };
+    return aiClient;
 }
 
 Deno.serve(async (req) => {
@@ -288,21 +212,17 @@ Deno.serve(async (req) => {
 
         // Note: AI enabled check removed - label scanning is available to all users
 
-        const { token, model, projectId, region } = await getAccessToken();
+        const ai = getGenAIClient();
+        const model = Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL;
 
         const dataUriMatch = image_base64.match(/^data:(image\/\w+);base64,(.+)$/);
         const mimeType = dataUriMatch?.[1] || 'image/jpeg';
         const cleanBase64 = dataUriMatch?.[2] || image_base64;
 
-        const endpoint = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
-
-        const vertexResponse = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify({
+        let textContent: string;
+        try {
+            const response = await ai.models.generateContent({
+                model,
                 contents: [{
                     role: 'user',
                     parts: [
@@ -315,47 +235,27 @@ Deno.serve(async (req) => {
                         },
                     ],
                 }],
-                generationConfig: {
+                config: {
                     temperature: 0.1,
                     topP: 0.8,
                     topK: 10,
                     maxOutputTokens: 1024,
                     responseMimeType: 'application/json',
                 },
-                safetySettings: [
-                    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-                ],
-            }),
-        });
+            });
 
-        if (!vertexResponse.ok) {
-            const errorText = await vertexResponse.text();
-            console.error('Vertex AI error:', vertexResponse.status, errorText);
-
-            const details = vertexResponse.status === 429
-                ? 'Rate limited, please try again'
-                : vertexResponse.status === 404
-                    ? 'Model not found in this region'
-                    : 'Vision service unavailable';
+            textContent = response.text || '';
+        } catch (error) {
+            console.error('Gen AI error:', error);
 
             return new Response(
                 JSON.stringify({
                     error: 'Failed to analyze label',
-                    details,
+                    details: 'Vision service unavailable, please try again',
                 }),
                 { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
         }
-
-        const vertexData = await vertexResponse.json();
-        const parts = vertexData?.candidates?.[0]?.content?.parts || [];
-        const textContent = parts
-            .map((part: { text?: string }) => part?.text)
-            .filter(Boolean)
-            .join('\n');
 
         if (!textContent) {
             console.error('No text content in Gemini response');
@@ -383,9 +283,45 @@ Deno.serve(async (req) => {
             );
         }
 
+        // Parse raw values first
+        const rawPerServing = {
+            calories: parseNumber(parsed.per_serving?.calories),
+            carbs_g: parseNumber(parsed.per_serving?.carbs_g),
+            fibre_g: parseNumber(parsed.per_serving?.fibre_g),
+            sugars_g: parseNumber(parsed.per_serving?.sugars_g),
+            protein_g: parseNumber(parsed.per_serving?.protein_g),
+            fat_g: parseNumber(parsed.per_serving?.fat_g),
+            sat_fat_g: parseNumber(parsed.per_serving?.sat_fat_g),
+            sodium_mg: parseNumber(parsed.per_serving?.sodium_mg),
+        };
+
+        // Apply nutrient limits to prevent extreme values from label parsing
+        const productName = parsed.display_name || 'Unknown Product';
+        const enforced = enforceNutrientLimits(
+            productName,
+            {
+                calories: rawPerServing.calories,
+                carbs_g: rawPerServing.carbs_g,
+                protein_g: rawPerServing.protein_g,
+                fat_g: rawPerServing.fat_g,
+                fibre_g: rawPerServing.fibre_g,
+                sugar_g: rawPerServing.sugars_g,
+                sodium_mg: rawPerServing.sodium_mg,
+            },
+            1 // quantity = 1 for per-serving values
+        );
+
+        // Add warning if values were clamped
+        const enforcementWarnings: string[] = [];
+        if (enforced._wasClamped) {
+            enforcementWarnings.push(
+                `Nutrient values were adjusted to safe limits (original calories: ${enforced._originalCalories}, reason: ${enforced._clampReason || 'limit exceeded'})`
+            );
+        }
+
         // Validate and sanitize response
         const result: ParsedLabel = {
-            display_name: parsed.display_name || 'Unknown Product',
+            display_name: productName,
             brand: parsed.brand || undefined,
             serving: {
                 amount: parseNumber(parsed.serving?.amount),
@@ -393,19 +329,22 @@ Deno.serve(async (req) => {
                 description: parsed.serving?.description || undefined,
             },
             per_serving: {
-                calories: parseNumber(parsed.per_serving?.calories),
-                carbs_g: parseNumber(parsed.per_serving?.carbs_g),
-                fibre_g: parseNumber(parsed.per_serving?.fibre_g),
-                sugars_g: parseNumber(parsed.per_serving?.sugars_g),
-                protein_g: parseNumber(parsed.per_serving?.protein_g),
-                fat_g: parseNumber(parsed.per_serving?.fat_g),
-                sat_fat_g: parseNumber(parsed.per_serving?.sat_fat_g),
-                sodium_mg: parseNumber(parsed.per_serving?.sodium_mg),
+                calories: enforced.calories,
+                carbs_g: enforced.carbs_g,
+                fibre_g: enforced.fibre_g,
+                sugars_g: enforced.sugar_g,
+                protein_g: enforced.protein_g,
+                fat_g: enforced.fat_g,
+                sat_fat_g: rawPerServing.sat_fat_g !== null
+                    ? clampNumber(rawPerServing.sat_fat_g, 0, NUTRIENT_LIMITS.fat.max)
+                    : null,
+                sodium_mg: enforced.sodium_mg,
             },
             confidence: clampNumber(parseNumber(parsed.confidence) ?? 50, 0, 100),
             warnings: [
                 ...(Array.isArray(parsed.warnings) ? parsed.warnings : []),
                 ...parseWarnings,
+                ...enforcementWarnings,
             ],
             raw_extracted: parsed.raw_extracted && typeof parsed.raw_extracted === 'object'
                 ? parsed.raw_extracted

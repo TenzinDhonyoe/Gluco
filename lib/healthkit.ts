@@ -42,6 +42,17 @@ function getAppleHealthKit() {
     return AppleHealthKit;
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function getDateRangeDays(startDate: Date, endDate: Date): number {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    start.setHours(0, 0, 0, 0);
+    end.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((end.getTime() - start.getTime()) / MS_PER_DAY);
+    return Math.max(1, diffDays);
+}
+
 /**
  * Initialize HealthKit with sleep analysis permissions
  * Must be called before fetching any health data
@@ -356,14 +367,13 @@ async function getAppleExerciseTime(
                         return;
                     }
 
+                    const rangeDays = getDateRangeDays(startDate, endDate);
                     const totalMinutes = results.reduce((sum, sample) => sum + sample.value, 0);
-                    const uniqueDays = new Set(results.map(s => new Date(s.startDate).toDateString()));
-                    const days = uniqueDays.size;
-                    const avgMinutesPerDay = days > 0 ? Math.round(totalMinutes / days) : 0;
+                    const avgMinutesPerDay = rangeDays > 0 ? Math.round(totalMinutes / rangeDays) : 0;
 
                     resolve({
                         totalMinutes,
-                        days,
+                        days: rangeDays,
                         avgMinutesPerDay,
                         source: 'apple_exercise_time',
                     });
@@ -401,21 +411,19 @@ async function getWorkoutsDuration(
                     }
 
                     let totalMinutes = 0;
-                    const uniqueDays = new Set<string>();
+                    const rangeDays = getDateRangeDays(startDate, endDate);
 
                     results.forEach((workout) => {
                         const start = new Date(workout.start).getTime();
                         const end = new Date(workout.end).getTime();
                         totalMinutes += (end - start) / 60000;
-                        uniqueDays.add(new Date(workout.start).toDateString());
                     });
 
-                    const days = uniqueDays.size;
-                    const avgMinutesPerDay = days > 0 ? Math.round(totalMinutes / days) : 0;
+                    const avgMinutesPerDay = rangeDays > 0 ? Math.round(totalMinutes / rangeDays) : 0;
 
                     resolve({
                         totalMinutes: Math.round(totalMinutes),
-                        days,
+                        days: rangeDays,
                         avgMinutesPerDay,
                         source: 'workouts',
                     });

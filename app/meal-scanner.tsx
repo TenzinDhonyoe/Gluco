@@ -9,8 +9,15 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { rankResults } from '@/lib/foodSearch';
-import { LabelScanResult, parseLabelFromImage } from '@/lib/labelScan';
+import { parseLabelFromImage } from '@/lib/labelScan';
 import { schedulePostMealReviewNotification } from '@/lib/notifications';
+import {
+    analyzeMealPhotoWithRetry,
+    FollowupQuestion,
+    FollowupResponse,
+    MealsFromPhotoResponse,
+    toSelectedItems,
+} from '@/lib/photoAnalysis';
 import {
     addMealItems,
     AnalyzedItem,
@@ -51,8 +58,9 @@ import ReanimatedAnimated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AnalysisResultsView from './components/scanner/AnalysisResultsView';
+import FollowupQuestionView from './components/scanner/FollowupQuestionView';
 import FoodSearchResultsView, { SelectedItem } from './components/scanner/FoodSearchResultsView';
-import LabelScanResultsView from './components/scanner/LabelScanResultsView';
+// LabelScanResultsView removed - now using AnalysisResultsView for consistency
 import ManualAddView from './components/scanner/ManualAddView';
 import ScanningOverlay from './components/scanner/ScanningOverlay';
 
@@ -353,13 +361,17 @@ export default function MealScannerScreen() {
     const [scannerState, setScannerState] = useState<ScannerState>('ready');
     const [flashMode, setFlashMode] = useState<FlashMode>('off');
     const [analysisStep, setAnalysisStep] = useState<string | null>(null);
-    const [labelScanResult, setLabelScanResult] = useState<LabelScanResult | null>(null);
+    // labelScanResult state removed - now using analysisResult for label scans too
     const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null);
     const [analysisResult, setAnalysisResult] = useState<{
         items: SelectedMealItem[];
         imageUri?: string;
         photoPath?: string;
+        followups?: FollowupQuestion[];
+        photoQuality?: MealsFromPhotoResponse['photo_quality'];
     } | null>(null);
+    const [pendingFollowups, setPendingFollowups] = useState<FollowupQuestion[]>([]);
+    const [followupResponses, setFollowupResponses] = useState<FollowupResponse[]>([]);
     const [labelSubMode, setLabelSubMode] = useState<'barcode' | 'label'>('label');
     const [isCartModalOpen, setIsCartModalOpen] = useState(false);
 
@@ -384,7 +396,7 @@ export default function MealScannerScreen() {
     const previousModeRef = useRef<ScanMode>('scan_food');
 
     // Derived state
-    const showCaptureControls = !labelScanResult && (scanMode === 'scan_food' || scanMode === 'nutrition_label');
+    const showCaptureControls = !analysisResult && (scanMode === 'scan_food' || scanMode === 'nutrition_label');
 
     const handleBack = useCallback(() => {
         router.back();
@@ -394,7 +406,7 @@ export default function MealScannerScreen() {
         setFlashMode(prev => prev === 'off' ? 'on' : 'off');
     }, []);
 
-    const analyzeImage = useCallback(async (imageUri: string) => {
+    const analyzeImage = useCallback(async (imageUri: string, existingFollowupResponses?: FollowupResponse[]) => {
         if (!user) {
             router.push('/signin');
             return;
@@ -413,6 +425,60 @@ export default function MealScannerScreen() {
             }
 
             setAnalysisStep('Analyzing photo...');
+
+            // Try the new endpoint first (FatSecret + USDA pipeline)
+            const newResult = await analyzeMealPhotoWithRetry(user.id, photoPath, {
+                followupResponses: existingFollowupResponses,
+            });
+
+            if (newResult.success) {
+                const { data } = newResult;
+
+                if (data.status === 'complete' || data.status === 'needs_followup') {
+                    // Convert new API items to SelectedMealItem format
+                    // Map nutrition_source to provider type for backward compatibility
+                    const convertedItems: SelectedMealItem[] = toSelectedItems(data.items).map(item => ({
+                        ...item,
+                        // Map nutrition source to compatible provider type
+                        provider: (item.provider === 'usda_fdc' ? 'fdc' : item.provider === 'fatsecret' ? 'fdc' : 'fdc') as 'fdc' | 'off',
+                        source: 'matched' as const,
+                        originalText: 'photo',
+                    }));
+
+                    // Show photo quality warning if needed
+                    if (data.photo_quality?.is_blurry || data.photo_quality?.lighting_issue) {
+                        console.log('[analyzeImage] Photo quality issues detected:', data.photo_quality);
+                    }
+
+                    // Show analysis results view
+                    setAnalysisResult({
+                        items: convertedItems,
+                        imageUri: imageUri,
+                        photoPath: photoPath,
+                        followups: data.followups,
+                        photoQuality: data.photo_quality,
+                    });
+
+                    // Store any pending followups
+                    if (data.status === 'needs_followup' && data.followups?.length) {
+                        setPendingFollowups(data.followups);
+                    } else {
+                        setPendingFollowups([]);
+                    }
+
+                    setScannerState('ready');
+                    setAnalysisStep(null);
+                    return;
+                } else if (data.status === 'failed') {
+                    // New endpoint returned failed, fall through to legacy
+                    console.log('[analyzeImage] New endpoint returned failed status, trying legacy...');
+                }
+            } else {
+                console.log('[analyzeImage] New endpoint error, trying legacy:', newResult.error);
+            }
+
+            // Fallback to legacy endpoint
+            setAnalysisStep('Analyzing photo (fallback)...');
             const analysis = await invokeMealPhotoAnalyze(
                 user.id,
                 null,
@@ -456,7 +522,6 @@ export default function MealScannerScreen() {
                 setAnalysisStep(null);
             } else {
                 // Analysis returned but no items detected - offer options
-                const disclaimer = analysis?.disclaimer || '';
                 Alert.alert(
                     'No Food Detected',
                     'Could not identify food items in this photo. Try taking a clearer picture with better lighting, or add items manually.',
@@ -542,7 +607,7 @@ export default function MealScannerScreen() {
         // Update mode to trigger state change
         // Clear results when switching modes
         if (mode !== scanMode) {
-            setLabelScanResult(null);
+            setAnalysisResult(null);
             setScannerState('ready');
         }
 
@@ -570,8 +635,31 @@ export default function MealScannerScreen() {
             // parseLabelFromImage expects base64 usually
             const result = await parseLabelFromImage(base64 || imageUri, { aiEnabled: profile?.ai_enabled ?? false });
 
-            if (result.success && result.parsed) {
-                setLabelScanResult(result);
+            if (result.success && result.food) {
+                // Convert label result to analysis result format for consistent UX
+                const labelItem: SelectedMealItem = {
+                    provider: 'fdc', // Use 'fdc' for type compatibility (label data is similar)
+                    external_id: `label-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+                    display_name: result.food.display_name || result.parsed?.display_name || 'Scanned Item',
+                    brand: result.food.brand || result.parsed?.brand || 'From label',
+                    serving_size: result.parsed?.serving?.amount ?? null,
+                    serving_unit: result.parsed?.serving?.unit || 'serving',
+                    calories_kcal: result.food.calories_kcal ?? result.parsed?.per_serving?.calories ?? null,
+                    carbs_g: result.food.carbs_g ?? result.parsed?.per_serving?.carbs_g ?? null,
+                    protein_g: result.food.protein_g ?? result.parsed?.per_serving?.protein_g ?? null,
+                    fat_g: result.food.fat_g ?? result.parsed?.per_serving?.fat_g ?? null,
+                    fibre_g: result.food.fibre_g ?? result.parsed?.per_serving?.fibre_g ?? null,
+                    sugar_g: result.food.sugar_g ?? result.parsed?.per_serving?.sugars_g ?? null,
+                    sodium_mg: result.food.sodium_mg ?? result.parsed?.per_serving?.sodium_mg ?? null,
+                    quantity: 1,
+                    source: 'matched',
+                    originalText: 'label',
+                };
+                setAnalysisResult({
+                    items: [labelItem],
+                    imageUri: undefined,
+                    photoPath: undefined,
+                });
             } else {
                 Alert.alert('Scan Failed', result.error || 'Could not read label');
             }
@@ -628,22 +716,7 @@ export default function MealScannerScreen() {
         });
     }, []);
 
-    const handleLabelConfirm = useCallback(() => {
-        if (!labelScanResult?.food) return;
-        // Navigate to review
-        router.push({
-            pathname: '/log-meal-review',
-            params: {
-                items: JSON.stringify([{ ...labelScanResult.food, quantity: 1 }]),
-                mealTime: new Date().toISOString(),
-            },
-        });
-    }, [labelScanResult]);
-
-    const handleLabelRetake = useCallback(() => {
-        setLabelScanResult(null);
-        setScannerState('ready');
-    }, []);
+    // handleLabelConfirm and handleLabelRetake removed - label scanning now uses AnalysisResultsView
 
     const handleManualAddSave = useCallback((item: SelectedItem) => {
         // Show AnalysisResultsView with manual item
@@ -723,8 +796,8 @@ export default function MealScannerScreen() {
 
             await addMealItems(user.id, meal.id, mealItems);
 
-            // Schedule post-meal check-in notification (2 hours from now)
-            const checkInTime = new Date(Date.now() + 2 * 60 * 60 * 1000);
+            // Schedule post-meal check-in notification (1 hour from now)
+            const checkInTime = new Date(Date.now() + 60 * 60 * 1000);
             await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime);
 
             // Clear state and navigate back
@@ -748,6 +821,24 @@ export default function MealScannerScreen() {
     const handleAnalysisClose = useCallback(() => {
         setAnalysisResult(null);
         setCapturedImageUri(null);
+        setPendingFollowups([]);
+        setFollowupResponses([]);
+    }, []);
+
+    // Handle followup question completion
+    const handleFollowupComplete = useCallback(async (responses: FollowupResponse[]) => {
+        if (!analysisResult?.photoPath || !capturedImageUri) return;
+
+        setFollowupResponses(responses);
+        setPendingFollowups([]);
+
+        // Re-analyze with followup responses to get updated items
+        await analyzeImage(capturedImageUri, responses);
+    }, [analysisResult?.photoPath, capturedImageUri, analyzeImage]);
+
+    // Handle skipping followups
+    const handleFollowupSkip = useCallback(() => {
+        setPendingFollowups([]);
     }, []);
 
     // Loading permission state
@@ -836,15 +927,7 @@ export default function MealScannerScreen() {
                 </View>
 
                 {/* Overlays - Absolute Fill */}
-                {labelScanResult && (
-                    <View style={styles.overlayContainer}>
-                        <LabelScanResultsView
-                            scanResult={labelScanResult}
-                            onConfirm={handleLabelConfirm}
-                            onRetake={handleLabelRetake}
-                        />
-                    </View>
-                )}
+                {/* LabelScanResultsView removed - label scans now use AnalysisResultsView below */}
 
                 {/* 2. Food Search View */}
                 {scanMode === 'food_database' && (
@@ -869,7 +952,7 @@ export default function MealScannerScreen() {
                 )}
 
                 {/* Targeting Frame - Only show if NO results and NOT searching */}
-                {!labelScanResult && scanMode !== 'food_database' && scanMode !== 'manual_add' && scanMode !== 'photo_album' ? (
+                {!analysisResult && scanMode !== 'food_database' && scanMode !== 'manual_add' && scanMode !== 'photo_album' ? (
                     <View style={styles.frameContainer}>
                         <View style={[
                             styles.targetFrame,
@@ -951,6 +1034,21 @@ export default function MealScannerScreen() {
                         onSave={handleAnalysisSave}
                         onClose={handleAnalysisClose}
                         macroOverrides={macroOverrides}
+                        followupComponent={pendingFollowups.length > 0 ? (
+                            <FollowupQuestionView
+                                questions={pendingFollowups}
+                                onComplete={handleFollowupComplete}
+                                onSkip={handleFollowupSkip}
+                                title="Quick Confirmation"
+                            />
+                        ) : undefined}
+                        photoQualityWarning={
+                            analysisResult.photoQuality?.is_blurry
+                                ? 'Photo appears blurry. Results may be less accurate.'
+                                : analysisResult.photoQuality?.lighting_issue
+                                    ? 'Poor lighting detected. Results may be less accurate.'
+                                    : undefined
+                        }
                     />
                 </View>
             )}

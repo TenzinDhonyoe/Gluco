@@ -3,9 +3,10 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { isAiEnabled } from '../_shared/ai.ts';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { sanitizeText } from '../_shared/safety.ts';
+import { callGenAI } from '../_shared/genai.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -147,12 +148,6 @@ async function generateAdjustmentsWithGemini(
     mealType: string,
     context: UserContext
 ): Promise<MealAdjustment[]> {
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
-    if (!apiKey) {
-        console.log('GEMINI_API_KEY not configured, using fallback');
-        return generateFallbackAdjustments(mealItems, context);
-    }
-
     // Calculate meal totals
     const totals = mealItems.reduce((acc, item) => ({
         calories: acc.calories + ((item.calories_kcal ?? 0) * item.quantity),
@@ -185,10 +180,11 @@ IMPORTANT RULES:
 1. Suggest SPECIFIC food swaps or additions based on the actual items in this meal
 2. Focus on practical changes (not complete meal replacements)
 3. Prioritize: fiber additions, sugar reduction, protein balance, portion adjustments
-4. Express impact as risk reduction percentage (e.g., "-12% Risk") or benefit (e.g., "+15% Energy")
-5. Keep descriptions to 1-2 sentences explaining the benefit
-6. Use wellness language, avoid medical/clinical terms
-7. If the meal is already well-balanced, suggest smaller optimizations
+4. Express impact as a benefit description (e.g., "Steadier energy", "Better satiety", "Improved balance")
+5. Impact percentages should reflect actual nutritional changes, not arbitrary numbers
+6. Keep descriptions to 1-2 sentences explaining the benefit
+7. Use wellness language, avoid medical/clinical terms
+8. If the meal is already well-balanced, suggest smaller optimizations
 
 Return ONLY valid JSON:
 {
@@ -203,29 +199,11 @@ Return ONLY valid JSON:
 }`;
 
     try {
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.5,
-                        maxOutputTokens: 600,
-                        responseMimeType: 'application/json',
-                    },
-                }),
-            }
-        );
-
-        if (!response.ok) {
-            console.error('Gemini API error:', response.status);
-            return generateFallbackAdjustments(mealItems, context);
-        }
-
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        const text = await callGenAI(prompt, {
+            temperature: 0.5,
+            maxOutputTokens: 600,
+            jsonOutput: true,
+        });
 
         if (!text) {
             return generateFallbackAdjustments(mealItems, context);
@@ -240,7 +218,7 @@ Return ONLY valid JSON:
             priority: adj.priority || 'medium',
         }));
     } catch (error) {
-        console.error('Gemini call failed:', error);
+        console.error('Vertex AI call failed:', error);
         return generateFallbackAdjustments(mealItems, context);
     }
 }

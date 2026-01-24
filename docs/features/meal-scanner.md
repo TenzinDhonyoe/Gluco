@@ -63,8 +63,102 @@ interface SelectedMealItem extends NormalizedFood {
 - `app/components/scanner/FoodSearchResultsView.tsx` - Search with cart modal, favorites/recents tabs
 - `app/components/scanner/LabelScanResultsView.tsx` - OCR results with confidence display
 - `app/components/scanner/ManualAddView.tsx` - Form for custom food entry
-- `app/components/scanner/AnalysisResultsView.tsx` - AI analysis preview with macros
+- `app/components/scanner/AnalysisResultsView.tsx` - AI analysis preview with macros and low-anxiety suggestions
 - `app/components/scanner/ScanningOverlay.tsx` - Animated scanning indicator
+
+---
+
+## Analysis Results View - Personalized Suggestions
+
+### Overview
+The `AnalysisResultsView` component displays meal analysis results including detected items, macros, metabolic score, and personalized adjustment suggestions. The suggestions UI is designed to reduce user anxiety and commitment pressure.
+
+### Low-Anxiety Suggestion Design
+
+The suggestions section uses a "micro-commitment" approach instead of traditional checkboxes:
+
+#### Key Design Principles
+1. **Single Primary Focus**: Only ONE suggestion is prominently displayed by default (highest benefit_level)
+2. **Micro-Commitment Buttons**: "I'll try this" / "Not today" instead of permanent checkboxes
+3. **Outcome-Focused Language**: Shows benefits like "Helps reduce glucose spikes" instead of vague "High Impact" badges
+4. **Time Context**: Displays when to act (e.g., "In the next 30 minutes")
+5. **Reversible Feedback**: Selected state shows "Added. You can change this anytime" with easy undo
+
+#### Suggestion States
+```typescript
+type SuggestionAction = 'none' | 'try' | 'skip';
+```
+
+| State | UI Behavior |
+|-------|-------------|
+| `none` | Default card with action buttons |
+| `try` | Green selected state with "Added" badge and Undo button |
+| `skip` | Card is hidden from view |
+
+#### UI Components
+
+**Default State Card:**
+```
+┌──────────────────────────────────────────────┐
+│  IN THE NEXT 30 MINUTES                      │  ← Time context (uppercase)
+│                                              │
+│  Take a 10-minute walk                       │  ← Suggestion title
+│  Moving after eating helps your body         │  ← Detail text
+│  process glucose more effectively.           │
+│                                              │
+│  Helps reduce glucose spikes                 │  ← Outcome text (italic)
+│                                              │
+│  [I'll try this]  [Not today →]              │  ← Action buttons
+└──────────────────────────────────────────────┘
+```
+
+**Selected State Card:**
+```
+┌──────────────────────────────────────────────┐
+│  ✓  Take a 10-minute walk                    │  ← Checkmark + title
+│                                              │
+│  [✓ Added]  [Undo]                           │  ← Badge + undo button
+│  You can change this anytime                 │  ← Reassurance text
+└──────────────────────────────────────────────┘
+```
+
+#### Helper Functions
+
+```typescript
+// Maps action_type to user-friendly outcome text
+function getOutcomeText(actionType: string): string {
+    const outcomes: Record<string, string> = {
+        'add_fiber': 'Helps slow glucose absorption',
+        'add_protein': 'Supports steadier energy levels',
+        'post_meal_walk': 'Helps reduce glucose spikes',
+        'meal_pairing': 'Balances your meal response',
+    };
+    return outcomes[actionType] || 'May improve your response';
+}
+
+// Maps action_type to time context label
+function getTimeContext(actionType: string): string | null {
+    const contexts: Record<string, string> = {
+        'post_meal_walk': 'In the next 30 minutes',
+        'add_fiber': 'Before you eat',
+        'add_protein': 'With this meal',
+    };
+    return contexts[actionType] || null;
+}
+```
+
+#### Suggestion Sorting
+Tips are sorted by `benefit_level` (high → medium → low) and split:
+- `primaryTip`: First (highest priority) tip shown prominently
+- `secondaryTips`: Remaining tips hidden behind "See more options" toggle
+
+#### Data Flow
+1. `premeal-analyze` edge function returns `adjustment_tips[]` with `benefit_level`
+2. Tips are sorted by benefit level
+3. Primary tip displayed prominently; secondary tips collapsible
+4. User actions stored in `suggestionActions` record
+5. On save, only `'try'` actions are passed to `onSave()` callback
+6. Saved suggestions recorded in meal notes as "Committed to: [titles]"
 
 ## Backend Functions
 - `uploadMealPhoto()` - Upload image to Supabase storage

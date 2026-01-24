@@ -4,6 +4,7 @@ import { AnimatedScreen } from '@/components/animations/animated-screen';
 import { MealCheckinCard } from '@/components/cards/MealCheckinCard';
 import { PersonalInsightsCarousel } from '@/components/carousels/PersonalInsightsCarousel';
 import { GlucoseTrendIndicator, type TrendStatus } from '@/components/charts/GlucoseTrendIndicator';
+import { MetabolicScoreRing } from '@/components/charts/MetabolicScoreRing';
 import { SegmentedControl } from '@/components/controls/segmented-control';
 import { ActiveExperimentWidget } from '@/components/experiments/ActiveExperimentWidget';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
@@ -43,95 +44,15 @@ import {
     View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle, G, Line } from 'react-native-svg';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const TARGET_MIN_MMOL = 3.9;
 const TARGET_MAX_MMOL = 10.0;
 
-const MetabolicScoreRing = ({
-    size = 48,
-    score = null,
-    scoreColor = Colors.textSecondary
-}: {
-    size?: number;
-    score?: number | null;
-    scoreColor?: string;
-}) => {
-    const strokeWidth = 4;
-    const radius = (size - strokeWidth) / 2;
-    const center = size / 2;
-    const innerRadius = radius - 6;
 
-    // Generate tick marks
-    const ticks = useMemo(() => {
-        const items = [];
-        const totalTicks = 60;
-        const activeTicks = score !== null ? Math.round((score / 100) * totalTicks) : 0;
 
-        for (let i = 0; i < totalTicks; i++) {
-            // Start from bottom (90 degrees + offset) or top?
-            // Standard gauge often starts from 135deg to 45deg, but this circle looks full 360 or close to it.
-            // The image shows a full circle. Let's assume 0 is top or standard 360.
-            // Svg rotation: 0 is Right, 90 is Down.
-            // Let's make index 0 be the top (270 deg).
-            const angle = (i * 6 - 90) * (Math.PI / 180);
-
-            const x1 = center + (radius) * Math.cos(angle);
-            const y1 = center + (radius) * Math.sin(angle);
-            const x2 = center + (radius - 3) * Math.cos(angle);
-            const y2 = center + (radius - 3) * Math.sin(angle);
-
-            const isActive = score !== null && i < activeTicks;
-            const tickColor = isActive ? scoreColor : "rgba(255,255,255,0.15)";
-            const tickOpacity = isActive ? 1 : 0.6;
-
-            items.push(
-                <Line
-                    key={i}
-                    x1={x1}
-                    y1={y1}
-                    x2={x2}
-                    y2={y2}
-                    stroke={tickColor}
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    opacity={tickOpacity}
-                />
-            );
-        }
-        return items;
-    }, [center, radius, score, scoreColor]);
-
-    return (
-        <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-            <Svg width={size} height={size}>
-                {/* Tick marks ring */}
-                <G>{ticks}</G>
-
-                {/* Inner solid ring */}
-                <Circle
-                    cx={center}
-                    cy={center}
-                    r={innerRadius}
-                    stroke="rgba(255,255,255,0.1)"
-                    strokeWidth={strokeWidth}
-                    fill="none"
-                />
-            </Svg>
-            <View style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center' }]}>
-                {score !== null ? (
-                    <Text style={{ fontFamily: fonts.bold, fontSize: size * 0.32, color: '#FFFFFF' }}>
-                        {Math.round(score)}
-                    </Text>
-                ) : (
-                    <Ionicons name="lock-closed" size={size * 0.35} color="rgba(255,255,255,0.7)" />
-                )}
-            </View>
-        </View>
-    );
-};
+const getRangeLabel = (range: RangeKey) => `Avg over ${getRangeDays(range)} days`;
 
 // Determine trend status based on average glucose
 function getTrendStatus(avg: number, hasData: boolean, min: number = TARGET_MIN_MMOL, max: number = TARGET_MAX_MMOL): TrendStatus {
@@ -302,6 +223,7 @@ const ActivityStatCard = React.memo(({
     const showHealthKit = isHealthKitAuthorized && isHealthKitAvailable;
     const avgMinutes = showHealthKit ? (healthKitMinutes ?? 0) : manualAvgMinutes;
     const hasData = avgMinutes > 0;
+    const rangeLabel = useMemo(() => getRangeLabel(range), [range]);
 
     // Display value formatting
     const displayValue = hasData ? Math.round(avgMinutes).toString() : '-';
@@ -338,7 +260,7 @@ const ActivityStatCard = React.memo(({
         >
             <View style={styles.statHeader}>
                 <Image source={Images.mascots.exercise} style={{ width: 40, height: 40, resizeMode: 'contain' }} />
-                <Text style={[styles.statTitle, { color: Colors.activity }]}>ACTIVITY</Text>
+                <Text style={[styles.statTitle, { color: Colors.activity }]}>ACTIVE MINS</Text>
             </View>
             <View style={styles.statValueContainer}>
                 <Text style={styles.statValue}>{displayValue}</Text>
@@ -347,7 +269,10 @@ const ActivityStatCard = React.memo(({
             {isHealthKitAvailable && !isHealthKitAuthorized ? (
                 <Text style={styles.statDescription}>Tap to connect</Text>
             ) : (
-                <StatusPill color={statusColor} label={statusLabel} />
+                <>
+                    <Text style={styles.statMeta}>{rangeLabel}</Text>
+                    <StatusPill color={statusColor} label={statusLabel} />
+                </>
             )}
         </AnimatedPressable>
     );
@@ -521,6 +446,7 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
         : '—';
 
     const hasData = isAuthorized && avgSteps !== null && avgSteps > 0;
+    const rangeLabel = useMemo(() => getRangeLabel(range), [range]);
 
     // Dynamic thresholds for steps (Sedentary < 5k, Low Active 5k-10k, Active > 10k)
     let statusColor = Colors.textTertiary;
@@ -557,12 +483,15 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
             </View>
             <View style={styles.statValueContainer}>
                 <Text style={styles.statValue}>{displayValue}</Text>
-                <Text style={styles.statUnit}>/day</Text>
+                <Text style={styles.statUnit}>steps/day</Text>
             </View>
             {isAvailable && !isAuthorized ? (
                 <Text style={styles.statDescription}>Tap to connect</Text>
             ) : (
-                <StatusPill color={statusColor} label={statusLabel} />
+                <>
+                    <Text style={styles.statMeta}>{rangeLabel}</Text>
+                    <StatusPill color={statusColor} label={statusLabel} />
+                </>
             )}
         </AnimatedPressable>
     );
@@ -575,29 +504,17 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
     isLoading: boolean;
 }) => {
     // Get latest score and compute velocity
-    const { latestScore, velocity, trend } = useMemo(() => {
+    const { latestScore } = useMemo(() => {
         const validScores = weeklyScores.filter(s => s.score7d !== null);
 
         // Use currentScore from edge function if available, otherwise use latest from weekly scores
         const latest = currentScore ?? validScores[0]?.score7d ?? null;
 
         if (latest === null) {
-            return { latestScore: null, velocity: null, trend: 'neutral' as const };
+            return { latestScore: null };
         }
 
-        // Compute velocity from last 4 weeks
-        const recentScores = validScores.slice(0, 4).reverse();
-        let vel = null;
-        let trendDir: 'up' | 'down' | 'neutral' = 'neutral';
-
-        if (recentScores.length >= 2) {
-            const first = recentScores[0].score7d as number;
-            const last = recentScores[recentScores.length - 1].score7d as number;
-            vel = (last - first) / (recentScores.length - 1);
-            trendDir = vel > 0.5 ? 'up' : vel < -0.5 ? 'down' : 'neutral';
-        }
-
-        return { latestScore: latest, velocity: vel, trend: trendDir };
+        return { latestScore: latest };
     }, [weeklyScores, currentScore]);
 
     const hasScore = latestScore !== null && !isLoading;
@@ -614,17 +531,7 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
         return 'Needs focus';
     };
 
-    const getTrendIcon = () => {
-        if (trend === 'up') return 'trending-up';
-        if (trend === 'down') return 'trending-down';
-        return null;
-    };
 
-    const getTrendColor = () => {
-        if (trend === 'up') return Colors.success;
-        if (trend === 'down') return Colors.error;
-        return Colors.textTertiary;
-    };
 
     // Empty/setup state - compact and instructional
     if (!hasScore) {
@@ -644,7 +551,7 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
     // Data exists - show score with appropriate prominence
     const scoreColor = getScoreColor(latestScore);
     const scoreLabel = getScoreLabel(latestScore);
-    const trendIcon = getTrendIcon();
+
     const progressPercent = Math.min(100, Math.max(0, latestScore));
 
     return (
@@ -662,14 +569,7 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
                                 {scoreLabel}
                             </Text>
                         </View>
-                        {velocity !== null && trendIcon && (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                                <Ionicons name={trendIcon} size={12} color={getTrendColor()} />
-                                <Text style={{ fontFamily: fonts.medium, fontSize: 11, color: getTrendColor() }}>
-                                    {velocity > 0 ? '+' : ''}{velocity.toFixed(1)}/wk
-                                </Text>
-                            </View>
-                        )}
+
                     </View>
                     <Text style={[styles.metabolicScoreDescription, { marginTop: 4, opacity: 0.7 }]}>
                         From sleep, activity, and glucose
@@ -827,6 +727,13 @@ const spikeSheetStyles = StyleSheet.create({
         borderRadius: 2,
         alignSelf: 'center',
         marginBottom: 20,
+    },
+    mealSectionTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 18,
+        color: Colors.textPrimary,
+        marginBottom: 12,
+        paddingHorizontal: 16,
     },
     title: {
         fontFamily: fonts.semiBold,
@@ -1102,7 +1009,13 @@ export default function TodayScreen() {
     }, [glucoseLogs, recentMeals, sleepData?.avgHoursPerNight, dailyContext.avgSteps, dailyContext.avgActiveMinutes, fibreSummary?.avgPerDay, targetMin, targetMax]);
 
     // LLM-powered personal insights with stable hook (no infinite loops)
-    const { insights: personalInsights, loading: insightsLoading } = usePersonalInsights({
+    const {
+        insights: personalInsights,
+        primaryInsight,
+        secondaryInsights,
+        dismissInsight,
+        loading: insightsLoading
+    } = usePersonalInsights({
         userId: user?.id,
         trackingMode,
         rangeKey: '7d',
@@ -1111,22 +1024,15 @@ export default function TodayScreen() {
     });
 
 
-    // Process meal reviews - only show meals that:
-    // 1. Are at least 2 hours old (to give time for glucose response)
-    // 2. Don't have a check-in yet
+    // Process meal reviews - only show meals once the 1-hour timer has passed.
     const displayMeals = useMemo(() => {
         if (!user?.id) return [];
-        const now = new Date();
-        const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+        const nowMs = Date.now();
+        const oneHourAgoMs = nowMs - 60 * 60 * 1000;
 
         return (recentMeals || []).filter(meal => {
-            const mealTime = new Date(meal.logged_at);
-            const hasCheckin = meal.meal_checkins && meal.meal_checkins.length > 0;
-            const isOldEnough = mealTime <= twoHoursAgo;
-
-            // Show meals that are ready for check-in (old enough and no check-in yet)
-            // OR meals that already have a check-in (for review)
-            return isOldEnough || hasCheckin;
+            const mealTimeMs = new Date(meal.logged_at).getTime();
+            return Number.isFinite(mealTimeMs) && mealTimeMs <= oneHourAgoMs;
         });
     }, [user?.id, recentMeals]);
 
@@ -1217,229 +1123,232 @@ export default function TodayScreen() {
                         </LiquidGlassIconButton>
                     </Animated.View>
 
-                {/* Sticky Picker inside fixed header */}
-                <View style={styles.pickerContainer}>
-                    <SegmentedControl<RangeKey>
-                        value={range}
-                        onChange={handleRangeChange}
-                        options={[
-                            { value: '7d', label: '7d' },
-                            { value: '14d', label: '14d' },
-                            { value: '30d', label: '30d' },
-                            { value: '90d', label: '90d' },
-                        ]}
-                    />
-                </View>
-            </Animated.View>
-
-            {/* ScrollView - content flows normally */}
-            <Animated.ScrollView
-                ref={scrollViewRef}
-                style={styles.scrollView}
-                contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 24 }]}
-                showsVerticalScrollIndicator={false}
-                onScroll={Animated.event(
-                    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-                    { useNativeDriver: true }
-                )}
-                scrollEventThrottle={16}
-                refreshControl={
-                    <RefreshControl
-                        refreshing={isRefreshing}
-                        onRefresh={onRefresh}
-                        tintColor={Colors.textSecondary}
-                    />
-                }
-            >
-                {/* Glucose Trends - only show for glucose tracking users */}
-                {showGlucoseUI && (
-                    <View style={styles.trendsSection}>
-                        <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} glucoseUnit={glucoseUnit} />
+                    {/* Sticky Picker inside fixed header */}
+                    <View style={styles.pickerContainer}>
+                        <SegmentedControl<RangeKey>
+                            value={range}
+                            onChange={handleRangeChange}
+                            options={[
+                                { value: '7d', label: '7d' },
+                                { value: '14d', label: '14d' },
+                                { value: '30d', label: '30d' },
+                                { value: '90d', label: '90d' },
+                            ]}
+                        />
                     </View>
-                )}
+                </Animated.View>
 
-                {/* Active Experiment Widget */}
-                <ActiveExperimentWidget />
+                {/* ScrollView - content flows normally */}
+                <Animated.ScrollView
+                    ref={scrollViewRef}
+                    style={styles.scrollView}
+                    contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 24 }]}
+                    showsVerticalScrollIndicator={false}
+                    onScroll={Animated.event(
+                        [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                        { useNativeDriver: true }
+                    )}
+                    scrollEventThrottle={16}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={isRefreshing}
+                            onRefresh={onRefresh}
+                            tintColor={Colors.textSecondary}
+                        />
+                    }
+                >
+                    {/* Glucose Trends - only show for glucose tracking users */}
+                    {showGlucoseUI && (
+                        <View style={styles.trendsSection}>
+                            <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} glucoseUnit={glucoseUnit} />
+                        </View>
+                    )}
 
-                {/* Metabolic Score Card - Full width prominent card */}
-                <MetabolicScoreCard weeklyScores={weeklyScores} currentScore={currentScore} isLoading={scoresLoading} />
+                    {/* Active Experiment Widget */}
+                    <ActiveExperimentWidget />
 
-                {/* Stats Grid */}
-                <View style={styles.statsGrid}>
-                    <View style={styles.statsRow}>
-                        {showWearableStats ? (
-                            <>
-                                <StepsStatCard
-                                    avgSteps={dailyContext.avgSteps}
-                                    isAuthorized={dailyContext.isAuthorized}
-                                    isAvailable={dailyContext.isAvailable}
-                                    range={range}
-                                />
-                                <ActivityStatCard
-                                    range={range}
-                                    activityLogs={activityLogs}
-                                    healthKitMinutes={dailyContext.avgActiveMinutes}
-                                    isHealthKitAuthorized={dailyContext.isAuthorized}
-                                    isHealthKitAvailable={dailyContext.isAvailable}
-                                />
-                            </>
-                        ) : showGlucoseUI ? (
-                            <>
-                                <DaysInRangeCard range={range} glucoseLogs={glucoseLogs} />
-                                <FibreStatCard range={range} fibreSummary={fibreSummary} />
-                            </>
-                        ) : (
-                            <>
-                                <FibreStatCard range={range} fibreSummary={fibreSummary} />
-                                <ActivityStatCard
-                                    range={range}
-                                    activityLogs={activityLogs}
-                                    healthKitMinutes={dailyContext.avgActiveMinutes}
-                                    isHealthKitAuthorized={dailyContext.isAuthorized}
-                                    isHealthKitAvailable={dailyContext.isAvailable}
-                                />
-                            </>
-                        )}
+                    {/* Metabolic Score Card - Full width prominent card */}
+                    <MetabolicScoreCard weeklyScores={weeklyScores} currentScore={currentScore} isLoading={scoresLoading} />
+
+                    {/* Stats Grid */}
+                    <View style={styles.statsGrid}>
+                        <View style={styles.statsRow}>
+                            {showWearableStats ? (
+                                <>
+                                    <StepsStatCard
+                                        avgSteps={dailyContext.avgSteps}
+                                        isAuthorized={dailyContext.isAuthorized}
+                                        isAvailable={dailyContext.isAvailable}
+                                        range={range}
+                                    />
+                                    <ActivityStatCard
+                                        range={range}
+                                        activityLogs={activityLogs}
+                                        healthKitMinutes={dailyContext.avgActiveMinutes}
+                                        isHealthKitAuthorized={dailyContext.isAuthorized}
+                                        isHealthKitAvailable={dailyContext.isAvailable}
+                                    />
+                                </>
+                            ) : showGlucoseUI ? (
+                                <>
+                                    <DaysInRangeCard range={range} glucoseLogs={glucoseLogs} />
+                                    <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                </>
+                            ) : (
+                                <>
+                                    <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                    <ActivityStatCard
+                                        range={range}
+                                        activityLogs={activityLogs}
+                                        healthKitMinutes={dailyContext.avgActiveMinutes}
+                                        isHealthKitAuthorized={dailyContext.isAuthorized}
+                                        isHealthKitAvailable={dailyContext.isAvailable}
+                                    />
+                                </>
+                            )}
+                        </View>
+                        <View style={styles.statsRow}>
+                            {showWearableStats ? (
+                                <>
+                                    <SleepStatCard range={range} sleepData={sleepData} />
+                                    <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                </>
+                            ) : showGlucoseUI ? (
+                                <>
+                                    <ActivityStatCard
+                                        range={range}
+                                        activityLogs={activityLogs}
+                                        healthKitMinutes={dailyContext.avgActiveMinutes}
+                                        isHealthKitAuthorized={dailyContext.isAuthorized}
+                                        isHealthKitAvailable={dailyContext.isAvailable}
+                                    />
+                                    <SleepStatCard range={range} sleepData={sleepData} />
+                                </>
+                            ) : (
+                                <>
+                                    <SleepStatCard range={range} sleepData={sleepData} />
+                                    <StatCard
+                                        icon={<Image source={Images.mascots.cook} style={{ width: 32, height: 32, resizeMode: 'contain' }} />}
+                                        iconColor="#4CAF50"
+                                        title="Meals"
+                                        value="--"
+                                        description="Logged this week"
+                                    />
+                                </>
+                            )}
+                        </View>
                     </View>
-                    <View style={styles.statsRow}>
-                        {showWearableStats ? (
-                            <>
-                                <SleepStatCard range={range} sleepData={sleepData} />
-                                <FibreStatCard range={range} fibreSummary={fibreSummary} />
-                            </>
-                        ) : showGlucoseUI ? (
-                            <>
-                                <ActivityStatCard
-                                    range={range}
-                                    activityLogs={activityLogs}
-                                    healthKitMinutes={dailyContext.avgActiveMinutes}
-                                    isHealthKitAuthorized={dailyContext.isAuthorized}
-                                    isHealthKitAvailable={dailyContext.isAvailable}
-                                />
-                                <SleepStatCard range={range} sleepData={sleepData} />
-                            </>
-                        ) : (
-                            <>
-                                <SleepStatCard range={range} sleepData={sleepData} />
-                                <StatCard
-                                    icon={<Image source={Images.mascots.cook} style={{ width: 32, height: 32, resizeMode: 'contain' }} />}
-                                    iconColor="#4CAF50"
-                                    title="Meals"
-                                    value="--"
-                                    description="Logged this week"
-                                />
-                            </>
-                        )}
-                    </View>
-                </View>
 
-                {/* Connect Apple Health CTA - show for wearables mode if not authorized */}
-                {showWearableStats && !dailyContext.isAuthorized && dailyContext.isAvailable && (
-                    <ConnectHealthCTA
-                        onConnected={() => {
-                            dailyContext.sync();
-                            refetchSleep();
-                        }}
+                    {/* Connect Apple Health CTA - show for wearables mode if not authorized */}
+                    {showWearableStats && !dailyContext.isAuthorized && dailyContext.isAvailable && (
+                        <ConnectHealthCTA
+                            onConnected={() => {
+                                dailyContext.sync();
+                                refetchSleep();
+                            }}
+                        />
+                    )}
+
+                    {/* Personal Insights - Best Next Step Card */}
+                    <PersonalInsightsCarousel
+                        insights={personalInsights}
+                        primaryInsight={primaryInsight}
+                        secondaryInsights={secondaryInsights}
+                        onDismiss={dismissInsight}
+                        isLoading={insightsLoading}
+                        onMealPress={() => setSpikeSheetVisible(true)}
+                        onExercisePress={() => setExerciseSheetVisible(true)}
                     />
-                )}
 
-                {/* Personal Insights Carousel (includes Tip Cards) */}
-                <PersonalInsightsCarousel
-                    insights={personalInsights}
-                    isLoading={insightsLoading}
-                    onMealPress={() => setSpikeSheetVisible(true)}
-                    onExercisePress={() => setExerciseSheetVisible(true)}
+                    {/* Today's Meals Section */}
+                    <View style={styles.mealSection}>
+                        <Text style={styles.mealSectionTitle}>MEAL CHECK-INS</Text>
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.mealCardsContainer}
+                        >
+                            {displayMeals.length > 0 ? (
+                                displayMeals.map((meal) => (
+                                    <MealCheckinCard
+                                        key={meal.id}
+                                        meal={meal}
+                                        onPress={() => handleMealPress(meal)}
+                                    />
+                                ))
+                            ) : (
+                                <View style={styles.noMealsCard}>
+                                    <Image source={Images.mascots.cook} style={{ width: 60, height: 60, resizeMode: 'contain', marginBottom: 8 }} />
+                                    <Text style={styles.noMealsText}>No meal reviews yet</Text>
+                                    <Text style={styles.noMealsSubtext}>Log a meal to see your glucose response</Text>
+                                </View>
+                            )}
+                        </ScrollView>
+                    </View>
+                </Animated.ScrollView>
+
+
+
+                {/* Sync Banner - shows below header when syncing */}
+                <SyncBanner
+                    isSyncing={dailyContext.isSyncing || isLoading || isRefreshing}
+                    topOffset={HEADER_HEIGHT}
                 />
 
-                {/* Today's Meals Section */}
-                <View style={styles.mealSection}>
-                    <Text style={styles.mealSectionTitle}>Meal Check-ins</Text>
-                    <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.mealCardsContainer}
+                {/* Dark Overlay when FAB is open */}
+                {isFabOpen && (
+                    <Animated.View
+                        style={[
+                            styles.fabOverlay,
+                            { opacity: overlayOpacity }
+                        ]}
                     >
-                        {displayMeals.length > 0 ? (
-                            displayMeals.map((meal) => (
-                                <MealCheckinCard
-                                    key={meal.id}
-                                    meal={meal}
-                                    onPress={() => handleMealPress(meal)}
-                                />
-                            ))
-                        ) : (
-                            <View style={styles.noMealsCard}>
-                                <Image source={Images.mascots.cook} style={{ width: 60, height: 60, resizeMode: 'contain', marginBottom: 8 }} />
-                                <Text style={styles.noMealsText}>No meal reviews yet</Text>
-                                <Text style={styles.noMealsSubtext}>Log a meal to see your glucose response</Text>
-                            </View>
-                        )}
-                    </ScrollView>
-                </View>
-            </Animated.ScrollView>
+                        <Pressable
+                            style={StyleSheet.absoluteFill}
+                            onPress={() => fabRef.current?.close()}
+                        />
+                    </Animated.View>
+                )}
 
-
-
-            {/* Sync Banner - shows below header when syncing */}
-            <SyncBanner
-                isSyncing={dailyContext.isSyncing || isLoading || isRefreshing}
-                topOffset={HEADER_HEIGHT}
-            />
-
-            {/* Dark Overlay when FAB is open */}
-            {isFabOpen && (
-                <Animated.View
-                    style={[
-                        styles.fabOverlay,
-                        { opacity: overlayOpacity }
-                    ]}
-                >
-                    <Pressable
-                        style={StyleSheet.absoluteFill}
-                        onPress={() => fabRef.current?.close()}
+                {/* Floating Action Button with Menu */}
+                <View style={styles.fabContainer}>
+                    <AnimatedFAB
+                        ref={fabRef}
+                        size={56}
+                        onPress={handleFabOpenChange}
+                        onLogMeal={() => {
+                            router.push({ pathname: '/meal-scanner' } as any);
+                        }}
+                        onLogActivity={() => {
+                            router.push({ pathname: '/log-activity' } as any);
+                        }}
+                        onLogGlucose={() => {
+                            router.push({ pathname: '/log-glucose' } as any);
+                        }}
                     />
-                </Animated.View>
-            )}
+                </View>
 
-            {/* Floating Action Button with Menu */}
-            <View style={styles.fabContainer}>
-                <AnimatedFAB
-                    ref={fabRef}
-                    size={56}
-                    onPress={handleFabOpenChange}
-                    onLogMeal={() => {
-                        router.push({ pathname: '/meal-scanner' } as any);
+                {/* Meal Response Input Sheet */}
+                <MealReflectionSheet
+                    visible={spikeSheetVisible}
+                    onClose={() => setSpikeSheetVisible(false)}
+                    onAnalyze={(text) => {
+                        setSpikeSheetVisible(false);
+                        router.push({ pathname: '/meal-response-check', params: { initialText: text } } as any);
                     }}
-                    onLogActivity={() => {
-                        router.push({ pathname: '/log-activity' } as any);
-                    }}
-                    onLogGlucose={() => {
-                        router.push({ pathname: '/log-glucose' } as any);
+                />
+
+                {/* Exercise Input Sheet */}
+                <ExerciseInputSheet
+                    visible={exerciseSheetVisible}
+                    onClose={() => setExerciseSheetVisible(false)}
+                    onAnalyze={(text) => {
+                        setExerciseSheetVisible(false);
+                        // Navigate to exercise impact analysis screen
+                        router.push({ pathname: '/check-exercise-impact', params: { initialText: text } } as any);
                     }}
                 />
             </View>
-
-            {/* Meal Response Input Sheet */}
-            <MealReflectionSheet
-                visible={spikeSheetVisible}
-                onClose={() => setSpikeSheetVisible(false)}
-                onAnalyze={(text) => {
-                    setSpikeSheetVisible(false);
-                    router.push({ pathname: '/meal-response-check', params: { initialText: text } } as any);
-                }}
-            />
-
-            {/* Exercise Input Sheet */}
-            <ExerciseInputSheet
-                visible={exerciseSheetVisible}
-                onClose={() => setExerciseSheetVisible(false)}
-                onAnalyze={(text) => {
-                    setExerciseSheetVisible(false);
-                    // Navigate to exercise impact analysis screen
-                    router.push({ pathname: '/check-exercise-impact', params: { initialText: text } } as any);
-                }}
-            />
-        </View>
         </AnimatedScreen >
     );
 }
@@ -1778,6 +1687,12 @@ const styles = StyleSheet.create({
         fontFamily: fonts.regular,
         fontSize: 12,
         color: Colors.textPrimary,
+    },
+    statMeta: {
+        fontFamily: fonts.regular,
+        fontSize: 11,
+        color: Colors.textTertiary,
+        marginBottom: 6,
     },
     broccoliIcon: {
         fontSize: 28,

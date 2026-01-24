@@ -141,18 +141,40 @@ export async function cancelScheduledNotification(notificationId: string): Promi
 /**
  * Handle notification response (when user taps notification)
  */
+let navigationReady = false;
+let pendingNotification: PostMealReviewNotificationData | null = null;
+
+function navigateToNotification(data: PostMealReviewNotificationData): void {
+    router.push({
+        pathname: data.route as any,
+        params: { mealId: data.mealId, mealName: data.mealName },
+    });
+}
+
+export function setNotificationNavigationReady(ready: boolean): void {
+    navigationReady = ready;
+    if (navigationReady && pendingNotification) {
+        const queued = pendingNotification;
+        pendingNotification = null;
+        navigateToNotification(queued);
+    }
+}
+
 export function handleNotificationResponse(
     response: NotificationsType.NotificationResponse
 ): void {
     const data = response.notification.request.content.data as unknown as PostMealReviewNotificationData;
 
-    if (data?.route && data?.mealId) {
-        // Navigate to the after-meal check-in screen
-        router.push({
-            pathname: data.route as any,
-            params: { mealId: data.mealId, mealName: data.mealName },
-        });
+    if (!data?.route || !data?.mealId) {
+        return;
     }
+
+    if (!navigationReady) {
+        pendingNotification = data;
+        return;
+    }
+
+    navigateToNotification(data);
 }
 
 /**

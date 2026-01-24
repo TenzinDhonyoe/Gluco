@@ -109,7 +109,7 @@ Mascot-based gauge showing current glucose status:
 
 #### 7. Meal Check-ins Section
 - Horizontal scroll of meals ready for review
-- Shows meals 2+ hours old without check-ins
+- Shows meals 1+ hour old without check-ins
 - Tap routes to `/meal-checkin`
 
 #### 8. Floating Action Button (FAB)
@@ -164,25 +164,71 @@ Displays targeted interventions and care pathways.
 
 ### B. Progress Tab
 
-Long-term trend analysis and habit tracking.
+Grid-based health metrics dashboard with individual metric cards.
+
+**Layout Structure:**
+```
+┌────────────────────────────────────────────┐
+│         [MetabolicScoreRing 120px]         │
+│                    38                      │
+│           "Metabolic Health"               │
+│            "Needs focus" · ↑ +5            │
+└────────────────────────────────────────────┘
+
+┌──────────────────┐  ┌──────────────────┐
+│ ❤️ RESTING HR    │  │ 💓 HRV           │
+│ [~~~mini chart~~~│  │ [~~~mini chart~~~│
+│ 62 bpm           │  │ 42 ms            │
+│ ● Improving      │  │ ● Stable         │
+└──────────────────┘  └──────────────────┘
+
+┌──────────────────┐  ┌──────────────────┐
+│ 👣 STEPS         │  │ 😴 SLEEP         │
+│ [~~~mini chart~~~│  │ [~~~mini chart~~~│
+│ 7,241            │  │ 7.2 h            │
+│ ● Improving      │  │ ● Declining      │
+└──────────────────┘  └──────────────────┘
+
+┌────────────────────────────────────────────┐
+│  ✓ High confidence · 6/7 days data         │
+└────────────────────────────────────────────┘
+```
 
 **Sections:**
-1. **Trend Velocity**
-   - 7-day rolling metabolic score
-   - Range toggles: 30d, 90d, 180d
-   - Points per week trend
-   - Trend direction indicator
+1. **Hero Score Card**
+   - MetabolicScoreRing (120px) with animated ring
+   - "Metabolic Health" title
+   - Score label ("Excellent"/"Good"/"Needs focus") colored by status
+   - Weekly delta indicator (+/- points from last week)
 
-2. **Compounding Habits**
-   - Days logged meals
-   - Meal check-ins count
-   - Post-meal walks count
+2. **Metric Cards Grid** (2x2)
+   Each card displays:
+   - Icon + uppercase label (colored by metric type)
+   - 7-day mini sparkline chart (or placeholder line if no data)
+   - Current value with unit
+   - Status pill with trend ("Improving", "Stable", "Declining", "No trend")
 
-3. **Data Coverage**
-   - Sleep days tracked
-   - Steps days tracked
-   - Glucose days tracked
-   - Meal days tracked
+   Cards:
+   - **Resting HR** - Lower is better, red accent
+   - **HRV** - Higher is better, blue accent
+   - **Steps** - Higher is better, cyan accent
+   - **Sleep** - Higher is better (within range), blue accent
+
+3. **Data Coverage Footer**
+   - Single-line confidence indicator
+   - Shows confidence level (High/Medium/Low/Building baseline)
+   - Days with data count (X/7 days)
+
+**Key Components:**
+- `components/progress/MetricCard.tsx` - Individual metric card with mini chart
+- `components/charts/MiniLineChart.tsx` - 7-day sparkline SVG chart
+- `components/progress/DataCoverageCard.tsx` - Simplified confidence indicator
+
+**Empty State:**
+When a metric has no data:
+- Shows horizontal line with colored endpoint dot
+- "No data" as value (muted gray)
+- "No trend" status pill
 
 ### C. Experiments Tab
 
@@ -245,6 +291,10 @@ type GlucoseStatus = 'low' | 'in_range' | 'high' | 'no_data';
 - `components/cards/MealCheckinCard.tsx` - Meal check-in prompt
 - `components/charts/GlucoseTrendIndicator.tsx` - Mascot gauge
 - `components/charts/glucose-trend-chart.tsx` - Legacy line chart
+- `components/charts/MiniLineChart.tsx` - 7-day sparkline for Progress tab metric cards
+- `components/charts/MetabolicScoreRing.tsx` - Animated score ring
+- `components/progress/MetricCard.tsx` - Individual metric card with chart and trend
+- `components/progress/DataCoverageCard.tsx` - Simplified data confidence indicator
 
 ---
 
@@ -256,4 +306,6 @@ type GlucoseStatus = 'low' | 'in_range' | 'high' | 'no_data';
 - `hooks/usePersonalInsights.ts` - Insight caching
 - `hooks/useWeeklyMetabolicScores.ts` - Metabolic score data
 - `lib/insights.ts` - Rules engine + safety filtering
-
+- `components/progress/MetricCard.tsx` - Progress tab metric cards
+- `components/charts/MiniLineChart.tsx` - Sparkline charts for metric cards
+- `components/progress/DataCoverageCard.tsx` - Data confidence footer

@@ -1,7 +1,8 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { requireUser } from '../_shared/auth.ts';
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireAiEnabled } from '../_shared/ai.ts';
+import { requireUser } from '../_shared/auth.ts';
+import { callGenAI } from '../_shared/genai.ts';
 
 /**
  * Food Query Rewrite Edge Function
@@ -88,72 +89,15 @@ Deno.serve(async (req) => {
         const aiBlocked = await requireAiEnabled(supabase, user.id, corsHeaders);
         if (aiBlocked) return aiBlocked;
 
-        const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
-
-        if (!GEMINI_API_KEY) {
-            console.error('GEMINI_API_KEY not configured');
-            // Return original query as fallback
-            return new Response(
-                JSON.stringify({
-                    corrected_query: query.trim(),
-                    alternative_queries: [],
-                    synonyms: [],
-                } as RewriteResponse),
-                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-        }
-
-        // Call Gemini API
-        const geminiResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [{
-                            text: `${GEMINI_PROMPT}\nQuery: "${query.trim()}"`
-                        }]
-                    }],
-                    generationConfig: {
-                        temperature: 0.1,
-                        topP: 0.8,
-                        topK: 10,
-                        maxOutputTokens: 256,
-                        responseMimeType: 'application/json',
-                    },
-                    safetySettings: [
-                        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-                    ],
-                }),
-            }
-        );
-
-        if (!geminiResponse.ok) {
-            const errorText = await geminiResponse.text();
-            console.error('Gemini API error:', geminiResponse.status, errorText);
-
-            // Return original query as fallback
-            return new Response(
-                JSON.stringify({
-                    corrected_query: query.trim(),
-                    alternative_queries: [],
-                    synonyms: [],
-                } as RewriteResponse),
-                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-        }
-
-        const geminiData = await geminiResponse.json();
-
-        // Extract the text response
-        const textContent = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+        // Call Vertex AI (temperature 0.2 for better synonym variety while maintaining accuracy)
+        const textContent = await callGenAI(`${GEMINI_PROMPT}\nQuery: "${query.trim()}"`, {
+            temperature: 0.2,
+            maxOutputTokens: 256,
+            jsonOutput: true,
+        });
 
         if (!textContent) {
-            console.error('No text content in Gemini response');
+            console.error('Vertex AI returned empty response');
             return new Response(
                 JSON.stringify({
                     corrected_query: query.trim(),

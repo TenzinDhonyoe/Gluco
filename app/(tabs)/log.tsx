@@ -315,6 +315,13 @@ export default function LogScreen() {
         extrapolate: 'clamp',
     });
 
+    // Header background opacity - transparent at top, opaque when scrolled
+    const headerBgOpacity = scrollY.interpolate({
+        inputRange: [0, SCROLL_THRESHOLD],
+        outputRange: [0, 1],
+        extrapolate: 'clamp',
+    });
+
     const handleScroll = Animated.event(
         [{ nativeEvent: { contentOffset: { y: scrollY } } }],
         { useNativeDriver: true }
@@ -533,21 +540,21 @@ export default function LogScreen() {
 
                 {/* Blurred Header */}
                 <View style={styles.blurHeaderContainer}>
-                    <View style={styles.headerBackground}>
-                        <View style={{ paddingTop: insets.top }}>
-                            <View style={styles.header}>
-                                {/* Large title on the left - fades out on scroll */}
-                                <Animated.Text style={[styles.headerTitle, { opacity: largeTitleOpacity }]}>
-                                    LOGS
-                                </Animated.Text>
-                                {/* Small centered title - fades in and slides down on scroll */}
-                                <Animated.Text style={[styles.headerTitleSmall, {
-                                    opacity: smallTitleOpacity,
-                                    transform: [{ translateY: smallTitleTranslateY }]
-                                }]}>
-                                    LOGS
-                                </Animated.Text>
-                            </View>
+                    {/* Animated background - transparent at top, opaque when scrolled */}
+                    <Animated.View style={[styles.headerBackground, { opacity: headerBgOpacity }]} />
+                    <View style={{ paddingTop: insets.top }}>
+                        <View style={styles.header}>
+                            {/* Large title on the left - fades out on scroll */}
+                            <Animated.Text style={[styles.headerTitle, { opacity: largeTitleOpacity }]}>
+                                LOGS
+                            </Animated.Text>
+                            {/* Small centered title - fades in and slides down on scroll */}
+                            <Animated.Text style={[styles.headerTitleSmall, {
+                                opacity: smallTitleOpacity,
+                                transform: [{ translateY: smallTitleTranslateY }]
+                            }]}>
+                                LOGS
+                            </Animated.Text>
                         </View>
                     </View>
                 </View>
@@ -639,7 +646,8 @@ const styles = StyleSheet.create({
         zIndex: 100,
     },
     headerBackground: {
-        backgroundColor: 'transparent',
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: '#1a1f24',
     },
     header: {
         flexDirection: 'row',

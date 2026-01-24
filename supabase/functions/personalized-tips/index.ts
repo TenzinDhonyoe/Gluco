@@ -3,14 +3,78 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { isAiEnabled } from '../_shared/ai.ts';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { sanitizeText } from '../_shared/safety.ts';
+import { callGenAI } from '../_shared/genai.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+/**
+ * Curated article library - prevents AI URL hallucination by using verified URLs
+ * AI returns a topic_tag, which maps to a pre-validated URL
+ */
+const ARTICLE_LIBRARY: Record<string, string> = {
+    // Nutrition topics
+    'fiber': 'https://www.healthline.com/nutrition/22-high-fiber-foods',
+    'fibre': 'https://www.healthline.com/nutrition/22-high-fiber-foods',
+    'protein': 'https://www.healthline.com/nutrition/10-reasons-to-eat-more-protein',
+    'carbs': 'https://www.healthline.com/nutrition/good-carbs-bad-carbs',
+    'sugar': 'https://www.healthline.com/nutrition/how-much-sugar-per-day',
+    'hydration': 'https://www.healthline.com/nutrition/how-much-water-should-you-drink-per-day',
+    'water': 'https://www.healthline.com/nutrition/how-much-water-should-you-drink-per-day',
+
+    // Meal timing and habits
+    'meal_timing': 'https://www.healthline.com/nutrition/meal-frequency',
+    'meal_frequency': 'https://www.healthline.com/nutrition/meal-frequency',
+    'portion_control': 'https://www.healthline.com/nutrition/portion-control',
+    'mindful_eating': 'https://www.healthline.com/nutrition/mindful-eating-guide',
+    'breakfast': 'https://www.healthline.com/nutrition/is-breakfast-good-for-you',
+
+    // Activity and movement
+    'walking': 'https://www.healthline.com/nutrition/walking-after-eating',
+    'walking_after_eating': 'https://www.healthline.com/nutrition/walking-after-eating',
+    'post_meal_walk': 'https://www.healthline.com/nutrition/walking-after-eating',
+    'activity': 'https://www.healthline.com/health/fitness-exercise/benefits-of-walking',
+    'exercise': 'https://www.healthline.com/nutrition/how-to-start-exercising',
+
+    // Energy and metabolism
+    'energy': 'https://www.healthline.com/nutrition/how-to-boost-energy',
+    'fatigue': 'https://www.healthline.com/nutrition/how-to-boost-energy',
+    'metabolism': 'https://www.healthline.com/nutrition/10-ways-to-boost-metabolism',
+
+    // Sleep and recovery
+    'sleep': 'https://www.sleepfoundation.org/nutrition',
+    'sleep_nutrition': 'https://www.sleepfoundation.org/nutrition',
+
+    // Cravings and hunger
+    'cravings': 'https://www.healthline.com/nutrition/how-to-stop-food-cravings',
+    'hunger': 'https://www.healthline.com/nutrition/18-ways-reduce-hunger-appetite',
+    'satiety': 'https://www.healthline.com/nutrition/15-incredibly-filling-foods',
+
+    // General wellness
+    'wellness': 'https://www.healthline.com/nutrition/27-health-and-nutrition-tips',
+    'general': 'https://www.healthline.com/nutrition/27-health-and-nutrition-tips',
+    'glucose': 'https://www.healthline.com/nutrition/blood-sugar-after-eating',
+    'blood_sugar': 'https://www.healthline.com/nutrition/blood-sugar-after-eating',
+
+    // Fallback
+    'default': 'https://www.healthline.com/nutrition/27-health-and-nutrition-tips',
+};
+
+/**
+ * Map a topic tag to a verified article URL
+ * Falls back to a general wellness article if topic not found
+ */
+function getArticleUrl(topicTag: string | undefined | null): string {
+    if (!topicTag) return ARTICLE_LIBRARY['default'];
+
+    const normalizedTag = topicTag.toLowerCase().trim().replace(/\s+/g, '_');
+    return ARTICLE_LIBRARY[normalizedTag] || ARTICLE_LIBRARY['default'];
+}
 
 interface PersonalizedTip {
     id: string;
@@ -194,12 +258,6 @@ async function fetchUserStats(supabase: any, userId: string): Promise<UserStats>
 }
 
 async function generateTipsWithGemini(stats: UserStats): Promise<PersonalizedTip[]> {
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
-    if (!apiKey) {
-        console.log('GEMINI_API_KEY not configured, using fallback tips');
-        return generateFallbackTips(stats);
-    }
-
     // Build check-in summary for the prompt
     const checkinSummary = stats.checkins.totalCheckins > 0
         ? `
@@ -231,41 +289,23 @@ ${checkinSummary}
 For each tip, provide:
 1. A short title (2-4 words)
 2. A personalized description (1-2 sentences referencing their actual data, especially how they feel after meals)
-3. A relevant article URL from a reputable wellness source (Healthline, Mayo Clinic, Harvard Health, etc.)
+3. A topic_tag from this list: fiber, protein, carbs, sugar, hydration, meal_timing, portion_control, mindful_eating, walking, activity, exercise, energy, sleep, cravings, hunger, glucose, wellness, general
 
 Return ONLY valid JSON in this exact format:
 {
   "tips": [
-    {"category": "glucose", "title": "...", "description": "...", "articleUrl": "https://..."},
-    {"category": "meal", "title": "...", "description": "...", "articleUrl": "https://..."},
-    {"category": "activity", "title": "...", "description": "...", "articleUrl": "https://..."}
+    {"category": "glucose", "title": "...", "description": "...", "topic_tag": "glucose"},
+    {"category": "meal", "title": "...", "description": "...", "topic_tag": "fiber"},
+    {"category": "activity", "title": "...", "description": "...", "topic_tag": "walking"}
   ]
 }`;
 
     try {
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.4,
-                        maxOutputTokens: 800,
-                        responseMimeType: 'application/json',
-                    },
-                }),
-            }
-        );
-
-        if (!response.ok) {
-            console.error('Gemini API error:', response.status);
-            return generateFallbackTips(stats);
-        }
-
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        const text = await callGenAI(prompt, {
+            temperature: 0.4,
+            maxOutputTokens: 800,
+            jsonOutput: true,
+        });
 
         if (!text) {
             return generateFallbackTips(stats);
@@ -277,13 +317,14 @@ Return ONLY valid JSON in this exact format:
             category: tip.category,
             title: tip.title,
             description: tip.description,
-            articleUrl: tip.articleUrl,
+            // Map topic_tag to verified URL instead of using AI-generated URL
+            articleUrl: getArticleUrl(tip.topic_tag || tip.articleUrl),
             metric: tip.category === 'glucose' ? `${stats.glucose.avgLevel ?? '--'} mmol/L avg` :
                 tip.category === 'meal' ? `${stats.meal.avgFibrePerDay ?? 0} g/day fibre` :
                     `${stats.activity.totalMinutes} min this week`,
         }));
     } catch (error) {
-        console.error('Gemini call failed:', error);
+        console.error('Vertex AI call failed:', error);
         return generateFallbackTips(stats);
     }
 }

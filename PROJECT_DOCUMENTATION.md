@@ -34,6 +34,7 @@ Gluco is a React Native (Expo) app for tracking meals, glucose, and activity wit
 - `docs/features/backend-and-data.md`
 - `docs/features/ai-and-ml.md`
 - `docs/features/meal-photo-analyzer.md`
+- `docs/metabolic-score-calculations.md`
 
 ## Configuration Notes
 - Supabase URL and anon key live in `app.json` (Expo `extra`).

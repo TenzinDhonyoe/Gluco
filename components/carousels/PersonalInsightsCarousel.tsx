@@ -1,8 +1,8 @@
 /**
- * Personal Insights Carousel
- * 
- * Horizontal scrollable carousel displaying personalized wellness insights.
- * Includes disclaimer and matches app design language.
+ * Personal Insights - Best Next Step Card
+ *
+ * Single primary action card replacing the multi-card carousel.
+ * Uses low-anxiety patterns: time context, outcome language, and dismissal.
  */
 
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
@@ -10,20 +10,20 @@ import { Images } from '@/constants/Images';
 import { fonts } from '@/hooks/useFonts';
 import { PersonalInsight } from '@/lib/insights';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import {
     ActivityIndicator,
-    Animated,
     Image,
-    PanResponder,
-    ScrollView,
+    Platform,
+    Pressable,
     StyleSheet,
     Text,
-    TouchableOpacity,
     View
 } from 'react-native';
+import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated';
 
 // ============================================
 // TYPES
@@ -31,198 +31,97 @@ import {
 
 interface PersonalInsightsCarouselProps {
     insights: PersonalInsight[];
+    primaryInsight: PersonalInsight | null;
+    secondaryInsights: PersonalInsight[];
+    onDismiss: (id: string) => void;
     isLoading?: boolean;
     onMealPress?: () => void;
     onExercisePress?: () => void;
 }
 
 // ============================================
-// SWIPEABLE TIP CARDS
+// BEST NEXT STEP CARD
 // ============================================
 
-function SwipeableTipCards({ onMealPress, onExercisePress }: {
-    onMealPress?: () => void;
-    onExercisePress?: () => void;
+function BestNextStepCard({ insight, onDismiss }: {
+    insight: PersonalInsight;
+    onDismiss: () => void;
 }) {
-    const [activeIndex, setActiveIndex] = React.useState(0);
-    const slideAnim = React.useRef(new Animated.Value(0)).current;
-
-    const cards = [
-        {
-            image: Images.mascots.cook,
-            text: 'Planning your next lunch?',
-            linkText: 'Tap to check spike risk',
-            onPress: onMealPress,
-        },
-        {
-            image: Images.mascots.exercise,
-            text: 'Planning your next exercise?',
-            linkText: 'Tap to check spike risk',
-            onPress: onExercisePress,
-        },
-    ];
-
-    const handleSwipe = (direction: 'left' | 'right') => {
-        const nextIndex = direction === 'left'
-            ? (activeIndex + 1) % cards.length
-            : (activeIndex - 1 + cards.length) % cards.length;
-
-        Animated.sequence([
-            Animated.timing(slideAnim, {
-                toValue: direction === 'left' ? -30 : 30,
-                duration: 100,
-                useNativeDriver: true,
-            }),
-            Animated.timing(slideAnim, {
-                toValue: 0,
-                duration: 200,
-                useNativeDriver: true,
-            }),
-        ]).start();
-
-        setActiveIndex(nextIndex);
-    };
-
-    const panResponder = React.useMemo(() =>
-        PanResponder.create({
-            onStartShouldSetPanResponder: () => false,
-            onMoveShouldSetPanResponder: (_, gestureState) => {
-                return Math.abs(gestureState.dx) > 15 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
-            },
-            onPanResponderRelease: (_, gestureState) => {
-                if (gestureState.dx < -50) {
-                    handleSwipe('left');
-                } else if (gestureState.dx > 50) {
-                    handleSwipe('right');
-                }
-            },
-        }),
-        [activeIndex]);
-
-    const currentCard = cards[activeIndex];
-
-    return (
-        <View style={styles.tipCardsWrapper}>
-            <Animated.View
-                {...panResponder.panHandlers}
-                style={[
-                    styles.tipCardContainer,
-                    { transform: [{ translateX: slideAnim }] }
-                ]}
-            >
-                <TouchableOpacity
-                    style={styles.tipCardTouchable}
-                    onPress={currentCard.onPress}
-                    activeOpacity={0.8}
-                >
-                    <View style={styles.tipCardStackBack} />
-                    <View style={styles.tipCard}>
-                        <View style={styles.mascotContainer}>
-                            <Image source={currentCard.image} style={{ width: 44, height: 44, resizeMode: 'contain' }} />
-                        </View>
-                        <View style={{ flex: 1, gap: 2 }}>
-                            <Text style={styles.tipText}>{currentCard.text}</Text>
-                            {/* <Text style={styles.tipLink}>{currentCard.linkText}</Text> */}
-                        </View>
-                    </View>
-                </TouchableOpacity>
-            </Animated.View>
-
-            <View style={styles.dotsContainer}>
-                {cards.map((_, index) => (
-                    <View
-                        key={index}
-                        style={[
-                            styles.dot,
-                            index === activeIndex && styles.dotActive
-                        ]}
-                    />
-                ))}
-            </View>
-        </View>
-    );
-}
-
-// ============================================
-// CONFIDENCE BADGE
-// ============================================
-
-const ConfidenceBadge = ({ level }: { level: string }) => {
-    const colors: Record<string, string> = {
-        high: 'rgba(76, 175, 80, 0.9)',
-        moderate: 'rgba(255, 193, 7, 0.9)',
-        low: 'rgba(158, 158, 158, 0.7)',
-    };
-    return (
-        <View style={[styles.confidenceBadge, { backgroundColor: colors[level] || colors.low }]}>
-            <Text style={styles.confidenceText}>{level}</Text>
-        </View>
-    );
-};
-
-// ============================================
-// INSIGHT CARD COMPONENT
-// ============================================
-
-const InsightCard = React.memo(({ insight }: { insight: PersonalInsight }) => {
     const cta = insight.action?.cta ?? insight.cta;
 
-    const handlePress = () => {
+    const handleAction = () => {
         if (cta?.route) {
             router.push(cta.route as any);
         }
     };
 
     return (
-        <AnimatedPressable
-            onPress={handlePress}
-            disabled={!cta}
+        <LinearGradient
+            colors={insight.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.bestNextCard}
         >
-            <LinearGradient
-                colors={insight.gradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.card}
-            >
-                {/* Header: Icon + Title + Confidence */}
-                <View style={styles.cardHeader}>
-                    <View style={styles.iconContainer}>
-                        <Ionicons
-                            name={insight.icon as any}
-                            size={20}
-                            color="rgba(255,255,255,0.9)"
-                        />
-                    </View>
-                    <Text style={styles.cardTitle}>{insight.title}</Text>
-                    <ConfidenceBadge level={insight.confidence} />
+            {/* Time Context */}
+            {insight.timeContext && (
+                <View style={styles.timeContextRow}>
+                    <Ionicons name={insight.icon as any} size={14} color="rgba(255,255,255,0.8)" />
+                    <Text style={styles.timeContextLabel}>
+                        {insight.timeContext.toUpperCase()}
+                    </Text>
                 </View>
+            )}
 
-                {/* Recommendation (main line) */}
-                <Text style={styles.cardRecommendation}>
+            {/* Main Content */}
+            <Text style={styles.mainRecommendation}>{insight.recommendation}</Text>
+            <Text style={styles.supportingDetail}>{insight.because}</Text>
+
+            {/* Outcome */}
+            {insight.outcomeText && (
+                <Text style={styles.outcomeText}>{insight.outcomeText}</Text>
+            )}
+
+            {/* Action Row */}
+            <View style={styles.actionRow}>
+                {cta && (
+                    <Pressable style={styles.ctaButton} onPress={handleAction}>
+                        <Text style={styles.ctaButtonText}>{cta.label}</Text>
+                        <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+                    </Pressable>
+                )}
+                <Pressable style={styles.dismissButton} onPress={onDismiss}>
+                    <Text style={styles.dismissText}>Not a fit today</Text>
+                </Pressable>
+            </View>
+        </LinearGradient>
+    );
+}
+
+// ============================================
+// SECONDARY INSIGHT CARD (COMPACT)
+// ============================================
+
+function SecondaryInsightCard({ insight, onPress }: {
+    insight: PersonalInsight;
+    onPress: () => void;
+}) {
+    const cta = insight.action?.cta ?? insight.cta;
+
+    return (
+        <AnimatedPressable style={styles.secondaryCard} onPress={onPress}>
+            <View style={[styles.secondaryIconContainer, { backgroundColor: insight.gradient[0] + '40' }]}>
+                <Ionicons name={insight.icon as any} size={18} color={insight.gradient[0]} />
+            </View>
+            <View style={styles.secondaryContent}>
+                <Text style={styles.secondaryTitle}>{insight.title}</Text>
+                <Text style={styles.secondaryRecommendation} numberOfLines={1}>
                     {insight.recommendation}
                 </Text>
-
-                {/* Consolidated Action Box */}
-                {insight.action && (
-                    <View style={styles.actionContainer}>
-                        <Ionicons name={insight.icon as any} size={16} color="rgba(255,255,255,0.9)" style={{ marginTop: 2 }} />
-                        <Text style={styles.actionText}>
-                            {insight.action.description}
-                        </Text>
-                    </View>
-                )}
-
-                {/* CTA */}
-                {cta && (
-                    <View style={styles.ctaContainer}>
-                        <Text style={styles.ctaText}>{cta.label}</Text>
-                        <Ionicons name="arrow-forward" size={14} color="rgba(255,255,255,0.9)" />
-                    </View>
-                )}
-            </LinearGradient>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.5)" />
         </AnimatedPressable>
     );
-});
+}
 
 // ============================================
 // EMPTY STATE
@@ -232,32 +131,30 @@ const EmptyState = () => (
     <View style={styles.emptyContainer}>
         <Image
             source={Images.mascots.thinking}
-            style={{ width: 80, height: 80, resizeMode: 'contain', marginBottom: 16 }}
+            style={{ width: 60, height: 60, resizeMode: 'contain', marginBottom: 12 }}
         />
-        <Text style={styles.emptyTitle}>Insights Coming Soon</Text>
+        <Text style={styles.emptyTitle}>All caught up!</Text>
         <Text style={styles.emptyText}>
-            Keep logging to unlock personalized insights
+            Keep logging to unlock more personalized insights
         </Text>
     </View>
 );
 
 // ============================================
-// LOADING STATE
-// ============================================
-
-const LoadingState = () => (
-    <View style={styles.loadingContainer}>
-        <ActivityIndicator size="small" color="#878787" />
-        <Text style={styles.loadingText}>Loading insights...</Text>
-    </View>
-);
-
-
-// ============================================
 // MAIN COMPONENT
 // ============================================
 
-export function PersonalInsightsCarousel({ insights, isLoading, onMealPress, onExercisePress }: PersonalInsightsCarouselProps) {
+export function PersonalInsightsCarousel({
+    insights,
+    primaryInsight,
+    secondaryInsights,
+    onDismiss,
+    isLoading,
+    onMealPress,
+    onExercisePress
+}: PersonalInsightsCarouselProps) {
+    const [showMoreOptions, setShowMoreOptions] = useState(false);
+
     if (isLoading) {
         return (
             <View style={[styles.container, { minHeight: 180, justifyContent: 'center' }]}>
@@ -266,27 +163,87 @@ export function PersonalInsightsCarousel({ insights, isLoading, onMealPress, onE
         );
     }
 
-    if (!insights || insights.length === 0) {
-        return null;
+    // Show empty state if all insights are dismissed
+    if (!primaryInsight) {
+        return (
+            <View style={styles.container}>
+                <Text style={styles.sectionTitle}>Best next step</Text>
+                <EmptyState />
+            </View>
+        );
     }
+
+    const handleSecondaryPress = (insight: PersonalInsight) => {
+        const cta = insight.action?.cta ?? insight.cta;
+        if (cta?.route) {
+            router.push(cta.route as any);
+        }
+    };
 
     return (
         <View style={styles.container}>
-            <Text style={styles.sectionTitle}>Personal Insights</Text>
+            {/* Header Row with Title and More Options */}
+            <View style={styles.headerRow}>
+                <Text style={styles.sectionTitle}>BEST NEXT STEP</Text>
 
-            {/* Spike Risk / Planning Card */}
-            {/* <SwipeableTipCards onMealPress={onMealPress} onExercisePress={onExercisePress} /> */}
+                {/* More Options Toggle - Liquid Glass Pill */}
+                {secondaryInsights.length > 0 && (
+                    <Pressable
+                        style={({ pressed }) => [
+                            styles.moreOptionsButton,
+                            pressed && styles.moreOptionsButtonPressed
+                        ]}
+                        onPressIn={() => {
+                            if (Platform.OS === 'ios') {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            }
+                        }}
+                        onPress={() => setShowMoreOptions(!showMoreOptions)}
+                    >
+                        <LinearGradient
+                            colors={['rgba(60, 65, 70, 0.95)', 'rgba(45, 48, 52, 0.95)']}
+                            style={styles.moreOptionsGradient}
+                        />
+                        <View style={styles.moreOptionsContent}>
+                            <Text style={styles.moreOptionsText}>
+                                {showMoreOptions ? 'Hide' : `+${secondaryInsights.length} more`}
+                            </Text>
+                            <Ionicons
+                                name={showMoreOptions ? 'chevron-up' : 'chevron-down'}
+                                size={14}
+                                color="#FFFFFF"
+                            />
+                        </View>
+                    </Pressable>
+                )}
+            </View>
 
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.scrollContent}
-                style={{ marginHorizontal: -16 }}
-            >
-                {insights.map((insight) => (
-                    <InsightCard key={insight.id} insight={insight} />
-                ))}
-            </ScrollView>
+            {/* Primary Action Card */}
+            <BestNextStepCard
+                insight={primaryInsight}
+                onDismiss={() => onDismiss(primaryInsight.id)}
+            />
+
+            {/* Secondary Insights (Collapsed by default) - Animated */}
+            {showMoreOptions && (
+                <Animated.View
+                    style={styles.secondaryList}
+                    entering={FadeInDown.duration(300).springify().damping(18)}
+                    exiting={FadeOutUp.duration(200)}
+                >
+                    {secondaryInsights.map((insight, index) => (
+                        <Animated.View
+                            key={insight.id}
+                            entering={FadeInDown.delay(index * 60).duration(250).springify().damping(18)}
+                        >
+                            <SecondaryInsightCard
+                                insight={insight}
+                                onPress={() => handleSecondaryPress(insight)}
+                            />
+                        </Animated.View>
+                    ))}
+                </Animated.View>
+            )}
 
             {/* Disclaimer */}
             <Text style={styles.disclaimerText}>
@@ -306,94 +263,157 @@ const styles = StyleSheet.create({
     container: {
         marginBottom: 24,
     },
+    headerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 16,
+    },
     sectionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
         color: '#E7E8E9',
-        marginBottom: 16,
     },
-    scrollContent: {
-        gap: 12,
-        paddingHorizontal: 16, // padding restored for breakout alignment
-    },
-    card: {
-        width: 280, // Slightly narrower
-        height: 220, // Significantly shorter
+    // Best Next Step Card
+    bestNextCard: {
         borderRadius: 20,
-        padding: 16,
+        padding: 20,
+        marginBottom: 12,
     },
-    cardHeader: {
+    timeContextRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
+        gap: 6,
+        marginBottom: 12,
     },
-    iconContainer: {
-        width: 32,
-        height: 32,
+    timeContextLabel: {
+        fontFamily: fonts.bold,
+        fontSize: 11,
+        letterSpacing: 1,
+        color: 'rgba(255,255,255,0.8)',
+    },
+    mainRecommendation: {
+        fontFamily: fonts.semiBold,
+        fontSize: 18,
+        color: '#FFFFFF',
+        marginBottom: 6,
+        lineHeight: 24,
+    },
+    supportingDetail: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: 'rgba(255,255,255,0.85)',
+        lineHeight: 20,
+        marginBottom: 12,
+    },
+    outcomeText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        fontStyle: 'italic',
+        color: 'rgba(255,255,255,0.7)',
+        marginBottom: 16,
+    },
+    actionRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+    },
+    ctaButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 20,
+        gap: 6,
+    },
+    ctaButtonText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: '#FFFFFF',
+    },
+    dismissButton: {
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+    },
+    dismissText: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: 'rgba(255,255,255,0.6)',
+    },
+    // More Options - Liquid Glass Pill (inline with title)
+    moreOptionsButton: {
+        borderRadius: 100,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.12)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    moreOptionsButtonPressed: {
+        opacity: 0.85,
+        transform: [{ scale: 0.97 }],
+    },
+    moreOptionsGradient: {
+        ...StyleSheet.absoluteFillObject,
+        borderRadius: 100,
+    },
+    moreOptionsContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+        gap: 4,
+    },
+    moreOptionsText: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: '#FFFFFF',
+        letterSpacing: 0.2,
+    },
+    // Secondary Cards
+    secondaryList: {
+        gap: 8,
+        marginBottom: 8,
+    },
+    secondaryCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#22282C',
+        borderRadius: 12,
+        padding: 12,
+        gap: 12,
+    },
+    secondaryIconContainer: {
+        width: 36,
+        height: 36,
         borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.15)',
         alignItems: 'center',
         justifyContent: 'center',
     },
-    cardTitle: {
-        fontFamily: fonts.semiBold,
-        fontSize: 15,
-        color: '#FFFFFF',
+    secondaryContent: {
         flex: 1,
     },
-    confidenceBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 8,
-    },
-    confidenceText: {
+    secondaryTitle: {
         fontFamily: fonts.medium,
-        fontSize: 10,
-        color: '#FFFFFF',
-        textTransform: 'capitalize',
+        fontSize: 14,
+        color: '#E7E8E9',
     },
-    cardRecommendation: {
-        fontFamily: fonts.semiBold,
-        fontSize: 16, // Slightly smaller
-        color: '#FFFFFF',
-        lineHeight: 21,
-        marginTop: 8,
-        letterSpacing: -0.3,
+    secondaryRecommendation: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: 'rgba(255,255,255,0.6)',
+        marginTop: 2,
     },
-    actionContainer: {
-        flexDirection: 'row',
-        alignItems: 'center', // Center vertically since text is smaller
-        gap: 8,
-        backgroundColor: 'rgba(0,0,0,0.15)',
-        borderRadius: 12,
-        paddingHorizontal: 10,
-        paddingVertical: 8, // Tighter vertical padding
-        marginTop: 12,
-        marginBottom: 8,
-    },
-    actionText: {
-        fontFamily: fonts.medium,
-        fontSize: 12, // Smaller text
-        color: 'rgba(255,255,255,0.95)',
-        lineHeight: 16,
-        flex: 1,
-    },
-    ctaContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        marginTop: 12,
-    },
-    ctaText: {
-        fontFamily: fonts.medium,
-        fontSize: 13,
-        color: 'rgba(255,255,255,0.9)',
-    },
+    // Empty State
     emptyContainer: {
         backgroundColor: '#1E1E1E',
         borderRadius: 16,
         padding: 24,
-        marginHorizontal: 16,
         alignItems: 'center',
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.08)',
@@ -402,7 +422,6 @@ const styles = StyleSheet.create({
         fontFamily: fonts.semiBold,
         fontSize: 16,
         color: '#E7E8E9',
-        marginTop: 12,
     },
     emptyText: {
         fontFamily: fonts.regular,
@@ -411,18 +430,7 @@ const styles = StyleSheet.create({
         marginTop: 4,
         textAlign: 'center',
     },
-    loadingContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 24,
-        gap: 8,
-    },
-    loadingText: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#878787',
-    },
+    // Disclaimer
     disclaimerText: {
         fontFamily: fonts.regular,
         fontSize: 11,
@@ -431,67 +439,5 @@ const styles = StyleSheet.create({
         lineHeight: 14,
         textAlign: 'center',
         marginTop: 12,
-    },
-    // Swipeable Tip Cards Styles
-    tipCardsWrapper: {
-        marginBottom: 16,
-        // paddingHorizontal: 16, // Removed to match parent padding in index.tsx
-    },
-    tipCardContainer: {
-        position: 'relative',
-        marginBottom: 8,
-    },
-    tipCardTouchable: {
-    },
-    tipCardStackBack: {
-        position: 'absolute',
-        bottom: -6,
-        left: 14,
-        right: 14,
-        height: 20,
-        backgroundColor: '#1C2124',
-        borderRadius: 16,
-        zIndex: -1,
-    },
-    tipCard: {
-        backgroundColor: '#22282C', // Matches statCard color
-        borderRadius: 16,
-        padding: 16,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    mascotContainer: {
-        width: 44,
-        height: 44,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    tipText: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#E7E8E9', // Colors.textPrimary replacement
-        lineHeight: 20,
-    },
-    tipLink: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#3494D9', // Colors.primary replacement
-        lineHeight: 20,
-    },
-    dotsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        gap: 8,
-        marginTop: 6,
-    },
-    dot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: '#3F4243',
-    },
-    dotActive: {
-        backgroundColor: '#FFFFFF',
     },
 });

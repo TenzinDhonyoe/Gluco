@@ -1,6 +1,10 @@
 import { AnimatedScreen } from '@/components/animations/animated-screen';
+import { MetabolicScoreRing } from '@/components/charts/MetabolicScoreRing';
 import { SegmentedControl } from '@/components/controls/segmented-control';
+import { DataCoverageCard } from '@/components/progress/DataCoverageCard';
+import { MetricCard } from '@/components/progress/MetricCard';
 import { Disclaimer } from '@/components/ui/Disclaimer';
+import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -31,6 +35,7 @@ import {
     getUserExperiments,
     startCarePathway,
     startUserExperiment,
+    supabase,
     updateCarePathway,
     updateUserAction,
     upsertMetabolicDailyFeature,
@@ -44,12 +49,12 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Animated,
     Image,
-    ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -64,6 +69,74 @@ type MetricKey =
     | 'steps'
     | 'sleep_hours';
 
+// Metabolic score API response type
+interface MetabolicScoreResponse {
+    score7d: number | null;
+    score28d: number | null;
+    confidence_v2: 'high' | 'medium' | 'low' | 'insufficient_data';
+    atypicalActivityWeek: boolean;
+    mode: 'baseline_relative' | 'absolute_fallback';
+    components_v2: {
+        rhrBad: number | null;
+        stepsBad: number | null;
+        sleepBad: number | null;
+        hrvBad: number | null;
+        contextNorm: number;
+        wearableStrain: number;
+        contextMultiplier: number;
+        strain: number;
+    } | null;
+    v2: {
+        score7d: number | null;
+        score28d: number | null;
+        confidence: 'high' | 'medium' | 'low' | 'insufficient_data';
+        components?: {
+            rhrBad: number | null;
+            stepsBad: number | null;
+            sleepBad: number | null;
+            hrvBad: number | null;
+        };
+    };
+    debug_v2?: {
+        validDays: {
+            rhrDays: number;
+            stepsDays: number;
+            sleepDays: number;
+            hrvDays: number;
+        };
+    };
+    // Aggregates from the API (approximate from drivers)
+    drivers?: Array<{
+        key: string;
+        points: number;
+        text: string;
+    }>;
+}
+
+// Parsed metabolic score data for UI
+interface MetabolicScoreData {
+    score7d: number | null;
+    confidence: 'high' | 'medium' | 'low' | 'insufficient_data';
+    components: {
+        rhrBad: number | null;
+        stepsBad: number | null;
+        sleepBad: number | null;
+        hrvBad: number | null;
+    } | null;
+    aggregates: {
+        weeklyRHR: number | null;
+        weeklySteps: number | null;
+        weeklySleep: number | null;
+        weeklyHRV: number | null;
+    };
+    dataCompleteness: {
+        rhrDays: number;
+        stepsDays: number;
+        sleepDays: number;
+        hrvDays: number;
+    };
+}
+
 const ACTION_BASELINE_DAYS = 7;
 const DEFAULT_TARGET_MIN = 3.9;
 const DEFAULT_TARGET_MAX = 10.0;
@@ -74,6 +147,44 @@ function addHours(date: Date, hours: number): Date {
     const result = new Date(date.getTime());
     result.setHours(result.getHours() + hours);
     return result;
+}
+
+function clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max);
+}
+
+function clamp01(value: number): number {
+    return clamp(value, 0, 1);
+}
+
+// Calculate component score (0-100) based on "badness" formulas
+// 100 = Perfect, 0 = Bad
+function calculateComponentScore(type: 'sleep' | 'activity' | 'glucose', value: number | null): number | null {
+    if (value === null) return null;
+
+    let badness = 0;
+
+    switch (type) {
+        case 'sleep':
+            // Sleep duration: clamp01(abs(weeklySleep - 7.5) / 2.5)
+            // 7.5 is ideal. < 5 or > 10 is max badness.
+            badness = clamp01(Math.abs(value - 7.5) / 2.5);
+            break;
+        case 'activity':
+            // Steps: clamp01(1 - (weeklySteps - 3000) / (12000 - 3000))
+            // 12000 is ideal (0 badness). 3000 is max badness.
+            badness = clamp01(1 - (value - 3000) / (9000));
+            break;
+        case 'glucose':
+            // Glucose: Using Time In Range % as the metric.
+            // 100% TIR = 0 badness. 50% TIR = 1 badness (?)
+            // Let's say < 50% TIR is max badness.
+            // badness = clamp01(1 - (tir - 50) / (100 - 50))
+            badness = clamp01(1 - (value - 50) / 50);
+            break;
+    }
+
+    return Math.round(100 * (1 - badness));
 }
 
 function addDays(date: Date, days: number): Date {
@@ -198,9 +309,25 @@ export default function InsightsScreen() {
     const insets = useSafeAreaInsets();
     const HEADER_HEIGHT = 120 + insets.top;
 
-    const [activeTab, setActiveTab] = useState<TabKey>('actions');
+    const [activeTab, setActiveTab] = useState<TabKey>('progress');
     const insightsRangeDays = 30;
-    const [progressRangeDays, setProgressRangeDays] = useState(90);
+
+    // Scroll-based header animation
+    const scrollY = useRef(new Animated.Value(0)).current;
+    const SCROLL_THRESHOLD = 50;
+
+    // Header background opacity - transparent at top, opaque when scrolled
+    const headerBgOpacity = scrollY.interpolate({
+        inputRange: [0, SCROLL_THRESHOLD],
+        outputRange: [0, 1],
+        extrapolate: 'clamp',
+    });
+
+    const handleScroll = Animated.event(
+        [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+        { useNativeDriver: true }
+    );
+
 
     const [glucoseLogs, setGlucoseLogs] = useState<GlucoseLog[]>([]);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -216,6 +343,10 @@ export default function InsightsScreen() {
     const [insightsLoading, setInsightsLoading] = useState(true);
     const [actionsLoading, setActionsLoading] = useState(false);
     const [pathwayLoading, setPathwayLoading] = useState(false);
+    const [metabolicScore, setMetabolicScore] = useState<MetabolicScoreData | null>(null);
+    const [metabolicScoreLoading, setMetabolicScoreLoading] = useState(false);
+
+
 
     // Experiments state
     const [suggestedExperiments, setSuggestedExperiments] = useState<SuggestedExperiment[]>([]);
@@ -359,12 +490,62 @@ export default function InsightsScreen() {
         }
     }, [user]);
 
+    const fetchMetabolicScore = useCallback(async () => {
+        if (!user) return;
+        setMetabolicScoreLoading(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('metabolic-score', {
+                body: { user_id: user.id, range: '7d' }
+            });
+
+            if (error) {
+                console.error('Error fetching metabolic score:', error);
+                return;
+            }
+
+            const response = data as MetabolicScoreResponse;
+
+            // Parse the response into our UI-friendly format
+            // Extract aggregates from daily context if available
+            const parsed: MetabolicScoreData = {
+                score7d: response.score7d,
+                confidence: response.confidence_v2 || response.v2?.confidence || 'insufficient_data',
+                components: response.components_v2 ? {
+                    rhrBad: response.components_v2.rhrBad,
+                    stepsBad: response.components_v2.stepsBad,
+                    sleepBad: response.components_v2.sleepBad,
+                    hrvBad: response.components_v2.hrvBad,
+                } : null,
+                aggregates: {
+                    // These will be populated from dailyContext computed values
+                    weeklyRHR: null,
+                    weeklySteps: null,
+                    weeklySleep: null,
+                    weeklyHRV: null,
+                },
+                dataCompleteness: response.debug_v2?.validDays || {
+                    rhrDays: 0,
+                    stepsDays: 0,
+                    sleepDays: 0,
+                    hrvDays: 0,
+                },
+            };
+
+            setMetabolicScore(parsed);
+        } catch (error) {
+            console.error('Error fetching metabolic score:', error);
+        } finally {
+            setMetabolicScoreLoading(false);
+        }
+    }, [user]);
+
     useFocusEffect(
         useCallback(() => {
             fetchCoreData();
             fetchActions();
             fetchExperimentsData();
-        }, [fetchCoreData, fetchActions, fetchExperimentsData])
+            fetchMetabolicScore();
+        }, [fetchCoreData, fetchActions, fetchExperimentsData, fetchMetabolicScore])
     );
 
     useFocusEffect(
@@ -424,6 +605,26 @@ export default function InsightsScreen() {
                 return null;
         }
     }, [meals, glucoseLogs, dailyContext, targetMin, targetMax]);
+
+    // Component score calculations (moved to top level to avoid hook errors)
+    const last7DaysEnd = useMemo(() => new Date(), []);
+    const last7DaysStart = useMemo(() => addDays(last7DaysEnd, -7), [last7DaysEnd]);
+
+    const avgSleep7d = useMemo(() => {
+        return computeMetricValue('sleep_hours', last7DaysStart, last7DaysEnd);
+    }, [computeMetricValue, last7DaysStart, last7DaysEnd]);
+
+    const avgSteps7d = useMemo(() => {
+        return computeMetricValue('steps', last7DaysStart, last7DaysEnd);
+    }, [computeMetricValue, last7DaysStart, last7DaysEnd]);
+
+    const avgTIR7d = useMemo(() => {
+        return computeMetricValue('time_in_range', last7DaysStart, last7DaysEnd);
+    }, [computeMetricValue, last7DaysStart, last7DaysEnd]);
+
+    const sleepScore = calculateComponentScore('sleep', avgSleep7d);
+    const activityScore = calculateComponentScore('activity', avgSteps7d);
+    const glucoseScore = calculateComponentScore('glucose', avgTIR7d);
 
     const detectActionCompletion = useCallback((action: UserAction): boolean => {
         const windowStart = new Date(action.window_start);
@@ -778,7 +979,7 @@ export default function InsightsScreen() {
         return pathwayTemplates.find(template => template.slug === 'high-glucose-7d-reset') || null;
     }, [carePathway, pathwayTemplates]);
 
-    const velocity = useMemo(() => computeVelocity(weeklyScores, progressRangeDays), [weeklyScores, progressRangeDays]);
+    const velocity = useMemo(() => computeVelocity(weeklyScores, 30), [weeklyScores]);
 
     const habitsSummary = useMemo(() => {
         const uniqueMealDays = new Set(meals.map(meal => toDateKey(meal.logged_at)));
@@ -1036,7 +1237,7 @@ export default function InsightsScreen() {
     };
 
     const renderActionsTab = () => (
-        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false}>
+        <Animated.ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16}>
             <Text style={styles.sectionTitle}>Action Loop</Text>
             <Text style={styles.sectionDescription}>Every signal maps to a 24-72 hour next step.</Text>
 
@@ -1068,70 +1269,211 @@ export default function InsightsScreen() {
             <Text style={styles.sectionTitle}>Care Pathway</Text>
             <Text style={styles.sectionDescription}>Structured 7-day plans close the loop from signal to outcome.</Text>
             {renderCarePathway()}
-        </ScrollView>
+        </Animated.ScrollView>
     );
 
-    const renderProgressTab = () => (
-        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false}>
-            <Text style={styles.sectionTitle}>Trend Velocity</Text>
-            <Text style={styles.sectionDescription}>Track direction and speed across 30, 90, and 180 days.</Text>
+    const renderProgressTab = () => {
+        const score = metabolicScore?.score7d ?? velocity.latest;
+        const hasScore = score !== null;
 
-            <View style={styles.rangeToggleRow}>
-                {PROGRESS_RANGES.map(range => (
-                    <TouchableOpacity
-                        key={range}
-                        style={[styles.rangeToggle, progressRangeDays === range && styles.rangeToggleActive]}
-                        onPress={() => setProgressRangeDays(range)}
-                    >
-                        <Text style={[styles.rangeToggleText, progressRangeDays === range && styles.rangeToggleTextActive]}>
-                            {range}d
-                        </Text>
-                    </TouchableOpacity>
-                ))}
-            </View>
+        const getScoreColor = (s: number | null) => {
+            if (s === null) return Colors.textTertiary;
+            if (s >= 70) return Colors.success;
+            if (s >= 50) return Colors.warning;
+            return Colors.error;
+        };
 
-            <View style={styles.progressCard}>
-                <Text style={styles.progressLabel}>Latest score</Text>
-                <Text style={styles.progressValue}>{velocity.latest ?? '--'}</Text>
-                <Text style={styles.progressMeta}>
-                    {velocity.perWeek === null
-                        ? 'Not enough weekly data yet.'
-                        : `${velocity.perWeek > 0 ? '+' : ''}${velocity.perWeek.toFixed(1)} pts/week over ${progressRangeDays}d`}
-                </Text>
-            </View>
+        const getScoreLabel = (s: number | null) => {
+            if (s === null) return 'No data';
+            if (s >= 70) return 'Excellent';
+            if (s >= 50) return 'Good';
+            return 'Needs focus';
+        };
 
-            <Text style={styles.sectionTitle}>Compounding Habits</Text>
-            <Text style={styles.sectionDescription}>Habits that build momentum over 30+ days.</Text>
+        // Get last 7 days data (sorted oldest first for charts)
+        const last7Days = dailyContext.slice(0, 7).reverse();
 
-            <View style={styles.habitRow}>
-                <View style={styles.habitCard}>
-                    <Text style={styles.habitValue}>{habitsSummary.mealDays}</Text>
-                    <Text style={styles.habitLabel}>Days logged meals</Text>
+        // Extract histories for each metric
+        const rhrHistory = last7Days.map(d => d.resting_hr);
+        const hrvHistory = last7Days.map(d => d.hrv_ms);
+        const stepsHistory = last7Days.map(d => d.steps);
+        const sleepHistory = last7Days.map(d => d.sleep_hours);
+
+        // Compute trend from history
+        const computeTrend = (history: (number | null)[]): 'up' | 'down' | 'neutral' | null => {
+            const valid = history.filter((v): v is number => v !== null);
+            if (valid.length < 3) return null;
+            const recent = valid.slice(-3);
+            const earlier = valid.slice(0, 3);
+            const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+            const earlierAvg = earlier.reduce((a, b) => a + b, 0) / earlier.length;
+            const diff = recentAvg - earlierAvg;
+            if (Math.abs(diff) < (earlierAvg * 0.05)) return 'neutral';
+            return diff > 0 ? 'up' : 'down';
+        };
+
+        // Compute aggregates from dailyContext for display
+        const computedAggregates = {
+            weeklyRHR: (() => {
+                const last7 = dailyContext.slice(0, 7).filter(d => d.resting_hr !== null);
+                if (last7.length === 0) return null;
+                return last7.reduce((sum, d) => sum + (d.resting_hr || 0), 0) / last7.length;
+            })(),
+            weeklySteps: avgSteps7d,
+            weeklySleep: avgSleep7d,
+            weeklyHRV: (() => {
+                const last7 = dailyContext.slice(0, 7).filter(d => d.hrv_ms !== null);
+                if (last7.length === 0) return null;
+                return last7.reduce((sum, d) => sum + (d.hrv_ms || 0), 0) / last7.length;
+            })(),
+        };
+
+        // Count days with any data
+        const daysWithData = dailyContext.slice(0, 7).filter(d =>
+            d.steps !== null || d.sleep_hours !== null || d.resting_hr !== null || d.hrv_ms !== null
+        ).length;
+
+        return (
+            <Animated.ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16}>
+                {/* Section 1: Hero Score Card */}
+                <LinearGradient
+                    colors={['#2A2C2C', '#212222']}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
+                    style={[styles.progressCard, { alignItems: 'center', paddingVertical: 28 }]}
+                >
+                    {metabolicScoreLoading ? (
+                        <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 40 }} />
+                    ) : hasScore ? (
+                        <>
+                            <MetabolicScoreRing
+                                size={120}
+                                score={score}
+                                scoreColor={getScoreColor(score)}
+                            />
+                            <Text style={styles.heroTitle}>Metabolic Health</Text>
+                            <View style={styles.heroSubtitleRow}>
+                                <Text style={[styles.heroSubtitle, { color: getScoreColor(score) }]}>
+                                    {getScoreLabel(score)}
+                                </Text>
+                                {velocity.delta !== null && (
+                                    <View style={styles.deltaPillInline}>
+                                        <Ionicons
+                                            name={velocity.delta >= 0 ? 'arrow-up' : 'arrow-down'}
+                                            size={10}
+                                            color={velocity.delta >= 0 ? Colors.success : Colors.error}
+                                        />
+                                        <Text style={[
+                                            styles.deltaTextInline,
+                                            { color: velocity.delta >= 0 ? Colors.success : Colors.error }
+                                        ]}>
+                                            {velocity.delta >= 0 ? '+' : ''}{Math.round(velocity.delta)}
+                                        </Text>
+                                    </View>
+                                )}
+                            </View>
+                        </>
+                    ) : (
+                        <>
+                            <MetabolicScoreRing size={120} />
+                            <Text style={styles.heroTitle}>Metabolic Health</Text>
+                            <Text style={styles.heroSubtitle}>
+                                Log more data to unlock your score
+                            </Text>
+                        </>
+                    )}
+                </LinearGradient>
+
+                {/* Section 2: Metric Cards Grid */}
+                <Text style={[styles.sectionTitle, { marginBottom: 4 }]}>Score Breakdown</Text>
+                <View style={styles.metricsGrid}>
+                    <View style={styles.gridRow}>
+                        <MetricCard
+                            icon="heart"
+                            label="Resting HR"
+                            value={computedAggregates.weeklyRHR}
+                            unit="bpm"
+                            color={Colors.heartRate}
+                            trend={computeTrend(rhrHistory)}
+                            history={rhrHistory}
+                            higherIsBetter={false}
+                        />
+                        <MetricCard
+                            icon="pulse"
+                            label="HRV"
+                            value={computedAggregates.weeklyHRV}
+                            unit="ms"
+                            color={Colors.primary}
+                            trend={computeTrend(hrvHistory)}
+                            history={hrvHistory}
+                            higherIsBetter={true}
+                        />
+                    </View>
+                    <View style={styles.gridRow}>
+                        <MetricCard
+                            icon="footsteps"
+                            label="Steps"
+                            value={computedAggregates.weeklySteps}
+                            unit=""
+                            color={Colors.activity}
+                            trend={computeTrend(stepsHistory)}
+                            history={stepsHistory}
+                            higherIsBetter={true}
+                        />
+                        <MetricCard
+                            icon="moon"
+                            label="Sleep"
+                            value={computedAggregates.weeklySleep}
+                            unit="h"
+                            color={Colors.sleep}
+                            trend={computeTrend(sleepHistory)}
+                            history={sleepHistory}
+                            higherIsBetter={true}
+                        />
+                    </View>
                 </View>
-                <View style={styles.habitCard}>
-                    <Text style={styles.habitValue}>{habitsSummary.checkinCount}</Text>
-                    <Text style={styles.habitLabel}>Meal check-ins</Text>
-                </View>
-                <View style={styles.habitCard}>
-                    <Text style={styles.habitValue}>{habitsSummary.postMealWalks}</Text>
-                    <Text style={styles.habitLabel}>Post-meal walks</Text>
-                </View>
-            </View>
 
-            <Text style={styles.sectionTitle}>Data Coverage</Text>
-            <Text style={styles.sectionDescription}>Standardized signals powering your longitudinal dataset.</Text>
+                {/* Section 3: Simplified Data Coverage */}
+                <DataCoverageCard
+                    confidence={metabolicScore?.confidence || 'insufficient_data'}
+                    daysWithData={daysWithData}
+                />
+                {/* Add habits and data coverage sections back */}
+                <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Compounding Habits</Text>
+                <Text style={styles.sectionDescription}>Habits that build momentum over 30+ days.</Text>
 
-            <View style={styles.progressCard}>
-                <Text style={styles.dataCoverageText}>Sleep days: {dataCoverage.sleepDays}</Text>
-                <Text style={styles.dataCoverageText}>Steps days: {dataCoverage.stepsDays}</Text>
-                <Text style={styles.dataCoverageText}>Glucose days: {dataCoverage.glucoseDays}</Text>
-                <Text style={styles.dataCoverageText}>Meal days: {dataCoverage.mealDays}</Text>
-            </View>
-        </ScrollView>
-    );
+                <View style={styles.habitRow}>
+                    <View style={styles.habitCard}>
+                        <Text style={styles.habitValue}>{habitsSummary.mealDays}</Text>
+                        <Text style={styles.habitLabel}>Days logged meals</Text>
+                    </View>
+                    <View style={styles.habitCard}>
+                        <Text style={styles.habitValue}>{habitsSummary.checkinCount}</Text>
+                        <Text style={styles.habitLabel}>Meal check-ins</Text>
+                    </View>
+                    <View style={styles.habitCard}>
+                        <Text style={styles.habitValue}>{habitsSummary.postMealWalks}</Text>
+                        <Text style={styles.habitLabel}>Post-meal walks</Text>
+                    </View>
+                </View>
+
+                <Text style={[styles.sectionTitle, { marginTop: 16 }]}>Data Coverage</Text>
+                <Text style={styles.sectionDescription}>Standardized signals powering your longitudinal dataset.</Text>
+
+                <View style={styles.progressCard}>
+                    <Text style={styles.dataCoverageText}>Sleep days: {dataCoverage.sleepDays}</Text>
+                    <Text style={styles.dataCoverageText}>Steps days: {dataCoverage.stepsDays}</Text>
+                    <Text style={styles.dataCoverageText}>Glucose days: {dataCoverage.glucoseDays}</Text>
+                    <Text style={styles.dataCoverageText}>Meal days: {dataCoverage.mealDays}</Text>
+                </View>
+            </Animated.ScrollView>
+        );
+    };
+
+
 
     const renderExperimentsTab = () => (
-        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false}>
+        <Animated.ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16}>
             <View style={styles.experimentsHeader}>
                 <Text style={styles.sectionTitle}>Find What Works For You</Text>
                 <Text style={styles.sectionDescription}>Structured experiments refine what actually moves your numbers.</Text>
@@ -1174,7 +1516,7 @@ export default function InsightsScreen() {
                     </View>
                 ))
             )}
-        </ScrollView>
+        </Animated.ScrollView>
     );
 
     return (
@@ -1195,8 +1537,8 @@ export default function InsightsScreen() {
                         </View>
                     ) : (
                         <>
-                            {activeTab === 'actions' && renderActionsTab()}
                             {activeTab === 'progress' && renderProgressTab()}
+                            {activeTab === 'actions' && renderActionsTab()}
                             {activeTab === 'experiments' && renderExperimentsTab()}
                         </>
                     )}
@@ -1204,22 +1546,22 @@ export default function InsightsScreen() {
 
                 {/* Blurred Header */}
                 <View style={styles.blurHeaderContainer}>
-                    <View style={styles.headerBackground}>
-                        <View style={{ paddingTop: insets.top }}>
-                            <View style={styles.header}>
-                                <Text style={styles.headerTitle}>INSIGHTS</Text>
-                            </View>
-                            <View style={styles.segmentedControlContainer}>
-                                <SegmentedControl
-                                    options={[
-                                        { label: 'ACTIONS', value: 'actions' },
-                                        { label: 'PROGRESS', value: 'progress' },
-                                        { label: 'EXPERIMENTS', value: 'experiments' },
-                                    ]}
-                                    value={activeTab}
-                                    onChange={setActiveTab}
-                                />
-                            </View>
+                    {/* Animated background - transparent at top, opaque when scrolled */}
+                    <Animated.View style={[styles.headerBackground, { opacity: headerBgOpacity }]} />
+                    <View style={{ paddingTop: insets.top }}>
+                        <View style={styles.header}>
+                            <Text style={styles.headerTitle}>INSIGHTS</Text>
+                        </View>
+                        <View style={styles.segmentedControlContainer}>
+                            <SegmentedControl
+                                options={[
+                                    { label: 'PROGRESS', value: 'progress' },
+                                    { label: 'ACTIONS', value: 'actions' },
+                                    { label: 'EXPERIMENTS', value: 'experiments' },
+                                ]}
+                                value={activeTab}
+                                onChange={setActiveTab}
+                            />
                         </View>
                     </View>
                 </View>
@@ -1244,7 +1586,8 @@ const styles = StyleSheet.create({
         zIndex: 100,
     },
     headerBackground: {
-        backgroundColor: 'transparent',
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: '#1a1f24',
     },
     header: {
         flexDirection: 'row',
@@ -1349,12 +1692,6 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: 'rgba(255,255,255,0.06)',
         gap: 8,
-    },
-    actionMeta: {
-        fontFamily: fonts.regular,
-        fontSize: 13,
-        color: '#878787',
-        fontStyle: 'italic',
     },
     statusPill: {
         alignSelf: 'flex-start',
@@ -1557,12 +1894,18 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
     },
     progressCard: {
-        backgroundColor: '#1A1A1E',
+        backgroundColor: '#22282C',
         borderRadius: 16,
         padding: 16,
         gap: 6,
+        // Liquid glass / 3D effect
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(255, 255, 255, 0.15)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 5,
     },
     progressLabel: {
         fontFamily: fonts.regular,
@@ -1611,4 +1954,106 @@ const styles = StyleSheet.create({
         gap: 8,
         marginBottom: 12,
     },
+    componentRow: {
+        backgroundColor: '#1A1A1E',
+        borderRadius: 16,
+        padding: 16,
+        gap: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.06)',
+    },
+    componentHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    componentIconTitle: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    componentTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 15,
+        color: '#FFFFFF',
+    },
+    componentValue: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: '#E0E0E0',
+    },
+    progressBarContainer: {
+        height: 6,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        borderRadius: 3,
+        overflow: 'hidden',
+    },
+    progressBarFill: {
+        height: '100%',
+        borderRadius: 3,
+    },
+    heroTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 20,
+        color: '#FFFFFF',
+        marginTop: 14,
+    },
+    heroSubtitle: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: Colors.textTertiary,
+    },
+    heroSubtitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: 4,
+    },
+    deltaPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        marginTop: 12,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        backgroundColor: 'rgba(255,255,255,0.06)',
+        borderRadius: 12,
+    },
+    deltaPillInline: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 2,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        backgroundColor: 'rgba(255,255,255,0.06)',
+        borderRadius: 8,
+    },
+    deltaText: {
+        fontFamily: fonts.medium,
+        fontSize: 12,
+    },
+    deltaTextInline: {
+        fontFamily: fonts.medium,
+        fontSize: 11,
+    },
+    metricsGrid: {
+        gap: 12,
+    },
+    gridRow: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    trendHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    trendRange: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: Colors.textTertiary,
+    },
 });
+
+

@@ -33,6 +33,10 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
     const [bannerState, setBannerState] = useState<BannerState>('hidden');
     const [isVisible, setIsVisible] = useState(false);
     const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const completeTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const syncStartRef = useRef<number | null>(null);
+    const MIN_SPIN_MS = 800;
+    const ROTATION_MS = 900;
 
     // Animation values
     const bannerOpacity = useSharedValue(0);
@@ -44,18 +48,15 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
 
     // Start rotation animation
     const startRotation = () => {
-        rotation.value = 0;
         rotation.value = withRepeat(
-            withTiming(360, { duration: 1000, easing: Easing.linear }),
+            withTiming(1, { duration: ROTATION_MS, easing: Easing.linear }),
             -1,
             false
         );
     };
 
-    // Stop rotation and show checkmark
+    // Show checkmark without stopping the rotation loop
     const showCheckmark = () => {
-        cancelAnimation(rotation);
-        rotation.value = withTiming(0, { duration: 150 });
         syncIconOpacity.value = withTiming(0, { duration: 150 });
         checkmarkScale.value = withDelay(100, withSpring(1, { damping: 12, stiffness: 300 }));
         checkmarkOpacity.value = withDelay(100, withTiming(1, { duration: 150 }));
@@ -66,7 +67,6 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
         syncIconOpacity.value = 1;
         checkmarkScale.value = 0;
         checkmarkOpacity.value = 0;
-        rotation.value = 0;
     };
 
     // Show banner with slide-in animation
@@ -75,7 +75,10 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
         resetIcons();
         bannerOpacity.value = withSpring(1, { damping: 20, stiffness: 300 });
         bannerTranslateY.value = withSpring(0, { damping: 20, stiffness: 300 });
-        startRotation();
+    };
+
+    const clearSyncStart = () => {
+        syncStartRef.current = null;
     };
 
     // Hide banner with slide-out animation
@@ -85,6 +88,7 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
             if (finished) {
                 runOnJS(setIsVisible)(false);
                 runOnJS(setBannerState)('hidden');
+                runOnJS(clearSyncStart)();
             }
         });
     };
@@ -96,28 +100,53 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
             clearTimeout(hideTimerRef.current);
             hideTimerRef.current = null;
         }
+        if (completeTimerRef.current) {
+            clearTimeout(completeTimerRef.current);
+            completeTimerRef.current = null;
+        }
 
         if (isSyncing) {
             // Started syncing
-            setBannerState('syncing');
-            showBanner();
-        } else if (bannerState === 'syncing') {
-            // Finished syncing - show completion
-            setBannerState('complete');
-            showCheckmark();
+            if (bannerState !== 'syncing') {
+                syncStartRef.current = Date.now();
+                setBannerState('syncing');
+                showBanner();
+            } else if (!isVisible) {
+                showBanner();
+            }
+            return;
+        }
 
-            // Auto-hide after delay
-            hideTimerRef.current = setTimeout(() => {
-                hideBanner();
-            }, 1500);
+        if (bannerState === 'syncing') {
+            // Finished syncing - show completion
+            const startedAt = syncStartRef.current ?? Date.now();
+            const elapsed = Date.now() - startedAt;
+            const remaining = Math.max(0, MIN_SPIN_MS - elapsed);
+            completeTimerRef.current = setTimeout(() => {
+                setBannerState('complete');
+                showCheckmark();
+
+                // Auto-hide after delay
+                hideTimerRef.current = setTimeout(() => {
+                    hideBanner();
+                }, 1500);
+            }, remaining);
         }
 
         return () => {
             if (hideTimerRef.current) {
                 clearTimeout(hideTimerRef.current);
             }
+            if (completeTimerRef.current) {
+                clearTimeout(completeTimerRef.current);
+            }
         };
-    }, [isSyncing]);
+    }, [isSyncing, bannerState, isVisible]);
+
+    useEffect(() => {
+        startRotation();
+        return () => cancelAnimation(rotation);
+    }, []);
 
     // Animated styles
     const bannerStyle = useAnimatedStyle(() => ({
@@ -126,7 +155,7 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
     }));
 
     const syncIconStyle = useAnimatedStyle(() => ({
-        transform: [{ rotate: `${rotation.value}deg` }],
+        transform: [{ rotate: `${rotation.value * 360}deg` }],
         opacity: syncIconOpacity.value,
     }));
 

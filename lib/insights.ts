@@ -44,6 +44,8 @@ export interface PersonalInsight {
         route: string;
         params?: Record<string, any>;
     };
+    timeContext?: string;    // "In the next 30 minutes", "Before your next meal"
+    outcomeText?: string;    // "Helps your body process glucose"
 }
 
 export type TrackingMode =
@@ -160,6 +162,46 @@ const GRADIENTS: Record<InsightCategory, [string, string]> = {
 };
 
 // ============================================
+// TIME CONTEXT & OUTCOME MAPPINGS
+// ============================================
+
+/**
+ * Time context by action type - tells user WHEN to act
+ */
+const TIME_CONTEXTS: Record<string, string> = {
+    'post_meal_walk': 'In the next 30 minutes',
+    'pre_meal_fibre': 'Before your next meal',
+    'fiber_boost': 'At your next meal',
+    'log_meal': 'At your next meal',
+    'meal_checkin': 'After your next meal',
+    'log_activity': 'In the next hour',
+    'steps_boost': 'In the next hour',
+    'sleep_window': 'In the next 2 hours',
+    'sleep_logging': 'Tonight',
+    'sleep_consistency': 'Tonight',
+    'log_glucose': 'Before your next meal',
+    'meal_pairing': 'At your next meal',
+};
+
+/**
+ * Outcome text by action type - tells user WHY it matters
+ */
+const OUTCOME_TEXTS: Record<string, string> = {
+    'post_meal_walk': 'Helps your body process glucose',
+    'pre_meal_fibre': 'Helps slow glucose absorption',
+    'fiber_boost': 'Helps slow glucose absorption',
+    'log_meal': 'Builds your pattern history',
+    'meal_checkin': 'Reveals how meals affect your energy',
+    'log_activity': 'Tracks your movement impact',
+    'steps_boost': 'Supports metabolic health',
+    'sleep_window': 'Supports metabolic recovery',
+    'sleep_logging': 'Helps correlate sleep with energy',
+    'sleep_consistency': 'Supports metabolic recovery',
+    'log_glucose': 'Builds your personal zone data',
+    'meal_pairing': 'Helps moderate glucose response',
+};
+
+// ============================================
 // DATA QUALITY / CONFIDENCE SCORING
 // ============================================
 
@@ -248,6 +290,8 @@ function generateMealRecommendations(data: InsightData): PersonalInsight[] {
                 cta: { label: 'Log a meal', route: '/meal-scanner' },
             }),
             cta: { label: 'Log a meal', route: '/meal-scanner' },
+            timeContext: TIME_CONTEXTS['log_meal'],
+            outcomeText: OUTCOME_TEXTS['log_meal'],
         });
         return insights;
     }
@@ -279,6 +323,8 @@ function generateMealRecommendations(data: InsightData): PersonalInsight[] {
                 cta: { label: 'Log a meal', route: '/meal-scanner' },
             }),
             cta: { label: 'Log a meal', route: '/meal-scanner' },
+            timeContext: TIME_CONTEXTS['fiber_boost'],
+            outcomeText: OUTCOME_TEXTS['fiber_boost'],
         });
     }
 
@@ -304,6 +350,8 @@ function generateMealRecommendations(data: InsightData): PersonalInsight[] {
                 cta: { label: 'Add check-in', route: '/meal-checkin' },
             }),
             cta: { label: 'Add check-in', route: '/meal-checkin' },
+            timeContext: TIME_CONTEXTS['meal_checkin'],
+            outcomeText: OUTCOME_TEXTS['meal_checkin'],
         });
     } else if (data.checkinsThisWeek !== undefined && data.totalMealsThisWeek !== undefined) {
         insights.push({
@@ -326,6 +374,8 @@ function generateMealRecommendations(data: InsightData): PersonalInsight[] {
                 cta: { label: 'Add check-in', route: '/meal-checkin' },
             }),
             cta: { label: 'Add check-in', route: '/meal-checkin' },
+            timeContext: TIME_CONTEXTS['meal_checkin'],
+            outcomeText: OUTCOME_TEXTS['meal_checkin'],
         });
     }
 
@@ -363,6 +413,8 @@ function generateActivityRecommendations(data: InsightData): PersonalInsight[] {
                     cta: { label: 'Log activity', route: '/log-activity' },
                 }),
                 cta: { label: 'Log activity', route: '/log-activity' },
+                timeContext: TIME_CONTEXTS['post_meal_walk'],
+                outcomeText: OUTCOME_TEXTS['post_meal_walk'],
             });
         } else {
             insights.push({
@@ -385,6 +437,8 @@ function generateActivityRecommendations(data: InsightData): PersonalInsight[] {
                     cta: { label: 'Log activity', route: '/log-activity' },
                 }),
                 cta: { label: 'Log activity', route: '/log-activity' },
+                timeContext: TIME_CONTEXTS['post_meal_walk'],
+                outcomeText: OUTCOME_TEXTS['post_meal_walk'],
             });
         }
     }
@@ -416,6 +470,8 @@ function generateActivityRecommendations(data: InsightData): PersonalInsight[] {
                 cta: { label: 'Log activity', route: '/log-activity' },
             }),
             cta: { label: 'Log activity', route: '/log-activity' },
+            timeContext: TIME_CONTEXTS['steps_boost'],
+            outcomeText: OUTCOME_TEXTS['steps_boost'],
         });
     }
 
@@ -447,6 +503,8 @@ function generateSleepRecommendations(data: InsightData): PersonalInsight[] {
                 cta: { label: 'Connect Health', route: '/settings' },
             }),
             cta: { label: 'Connect Health', route: '/settings' },
+            timeContext: TIME_CONTEXTS['sleep_logging'],
+            outcomeText: OUTCOME_TEXTS['sleep_logging'],
         });
         return insights;
     }
@@ -475,6 +533,8 @@ function generateSleepRecommendations(data: InsightData): PersonalInsight[] {
                     cta: { label: 'View sleep', route: '/insights' },
                 }),
                 cta: { label: 'View sleep', route: '/insights' },
+                timeContext: TIME_CONTEXTS['sleep_window'],
+                outcomeText: OUTCOME_TEXTS['sleep_window'],
             });
         } else {
             insights.push({
@@ -497,6 +557,8 @@ function generateSleepRecommendations(data: InsightData): PersonalInsight[] {
                     cta: { label: 'View patterns', route: '/insights' },
                 }),
                 cta: { label: 'View patterns', route: '/insights' },
+                timeContext: TIME_CONTEXTS['sleep_consistency'],
+                outcomeText: OUTCOME_TEXTS['sleep_consistency'],
             });
         }
     }
@@ -529,6 +591,8 @@ function generateGlucoseRecommendations(data: InsightData): PersonalInsight[] {
                 cta: { label: 'Log glucose', route: '/log-glucose' },
             }),
             cta: { label: 'Log glucose', route: '/log-glucose' },
+            timeContext: TIME_CONTEXTS['log_glucose'],
+            outcomeText: OUTCOME_TEXTS['log_glucose'],
         });
         return insights;
     }
@@ -555,6 +619,8 @@ function generateGlucoseRecommendations(data: InsightData): PersonalInsight[] {
                 cta: { label: 'Log a meal', route: '/meal-scanner' },
             }),
             cta: { label: 'View patterns', route: '/insights' },
+            timeContext: TIME_CONTEXTS['meal_pairing'],
+            outcomeText: OUTCOME_TEXTS['meal_pairing'],
         });
     } else if (data.timeInZonePercent !== undefined) {
         const inZone = Math.round(data.timeInZonePercent);
@@ -582,6 +648,8 @@ function generateGlucoseRecommendations(data: InsightData): PersonalInsight[] {
                 cta: { label: 'Log activity', route: '/log-activity' },
             }),
             cta: { label: 'View patterns', route: '/insights' },
+            timeContext: TIME_CONTEXTS['post_meal_walk'],
+            outcomeText: OUTCOME_TEXTS['post_meal_walk'],
         });
     }
 

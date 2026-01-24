@@ -1,9 +1,11 @@
 // supabase/functions/meal-photo-analyze/index.ts
-// AI Photo Meal Analysis with Vertex AI Gemini - Rebuilt for Reliable Food Detection
+// AI Photo Meal Analysis with Google Gen AI SDK - Rebuilt for Reliable Food Detection
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { GoogleGenAI } from 'npm:@google/genai@1.38.0';
 import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
+import { enforceNutrientLimits } from '../_shared/nutrition-validation.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -111,27 +113,8 @@ const DEFAULT_DISCLAIMER = 'Estimates from a photo only. Edit to improve accurac
 function toNumberOrNull(value: unknown): number | null {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (typeof value !== 'string') return null;
-    const cleaned = value.trim().toLowerCase();
+    const cleaned = value.trim();
     if (!cleaned) return null;
-
-    // Handle mixed fractions like "1 1/2"
-    const mixedMatch = cleaned.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)/);
-    if (mixedMatch) {
-        const whole = Number(mixedMatch[1]);
-        const numerator = Number(mixedMatch[2]);
-        const denominator = Number(mixedMatch[3]);
-        if (denominator) return whole + numerator / denominator;
-    }
-
-    // Handle simple fractions like "1/2"
-    const fractionMatch = cleaned.match(/^(\d+)\s*\/\s*(\d+)/);
-    if (fractionMatch) {
-        const numerator = Number(fractionMatch[1]);
-        const denominator = Number(fractionMatch[2]);
-        if (denominator) return numerator / denominator;
-    }
-
-    // Handle regular numbers
     const numeric = cleaned.replace(/[^0-9.+-]/g, '');
     if (!numeric) return null;
     const parsed = Number.parseFloat(numeric);
@@ -226,59 +209,44 @@ function sumNutrients(items: AnalyzedItem[], key: keyof NutrientEstimate, decima
     return hasValue ? roundTo(total, decimals) : null;
 }
 
-// ============================================
-// FOOD REFERENCE DATA (for validation)
-// ============================================
-
-// Common food items with typical nutrition per serving for validation
-const COMMON_FOODS: Record<string, { calories: [number, number]; carbs: [number, number]; protein: [number, number]; fat: [number, number] }> = {
-    'apple': { calories: [80, 120], carbs: [20, 30], protein: [0, 1], fat: [0, 1] },
-    'banana': { calories: [90, 130], carbs: [22, 35], protein: [1, 2], fat: [0, 1] },
-    'orange': { calories: [60, 90], carbs: [12, 22], protein: [1, 2], fat: [0, 1] },
-    'salad': { calories: [50, 300], carbs: [5, 20], protein: [2, 15], fat: [2, 25] },
-    'sandwich': { calories: [250, 600], carbs: [25, 50], protein: [10, 30], fat: [8, 35] },
-    'pasta': { calories: [200, 600], carbs: [35, 80], protein: [7, 20], fat: [3, 25] },
-    'rice': { calories: [150, 350], carbs: [30, 60], protein: [3, 8], fat: [0, 5] },
-    'chicken': { calories: [150, 400], carbs: [0, 10], protein: [25, 45], fat: [3, 25] },
-    'steak': { calories: [200, 500], carbs: [0, 5], protein: [25, 45], fat: [10, 35] },
-    'fish': { calories: [100, 350], carbs: [0, 5], protein: [20, 40], fat: [2, 20] },
-    'egg': { calories: [70, 100], carbs: [0, 2], protein: [6, 8], fat: [5, 8] },
-    'bread': { calories: [60, 120], carbs: [10, 25], protein: [2, 5], fat: [1, 3] },
-    'milk': { calories: [80, 150], carbs: [10, 15], protein: [6, 10], fat: [2, 8] },
-    'cheese': { calories: [80, 150], carbs: [0, 3], protein: [5, 10], fat: [6, 12] },
-    'yogurt': { calories: [80, 200], carbs: [10, 30], protein: [5, 15], fat: [0, 10] },
-};
-
 function validateNutrients(item: AnalyzedItem): AnalyzedItem {
-    // Find if this is a common food type
-    const lowerName = item.display_name.toLowerCase();
-    let foodType: string | null = null;
+    // Enforce nutrient limits using the shared validation module
+    // Prevents AI hallucination of extreme values (e.g., 7500 cal coffee)
+    const enforced = enforceNutrientLimits(
+        item.display_name,
+        {
+            calories_kcal: item.nutrients.calories_kcal,
+            carbs_g: item.nutrients.carbs_g,
+            protein_g: item.nutrients.protein_g,
+            fat_g: item.nutrients.fat_g,
+            fibre_g: item.nutrients.fibre_g,
+            sugar_g: item.nutrients.sugar_g,
+            sodium_mg: item.nutrients.sodium_mg,
+        },
+        item.quantity
+    );
 
-    for (const food of Object.keys(COMMON_FOODS)) {
-        if (lowerName.includes(food)) {
-            foodType = food;
-            break;
-        }
+    if (enforced._wasClamped) {
+        log('WARN', 'Nutrient values clamped', {
+            food: item.display_name,
+            original: enforced._originalCalories,
+            clamped: enforced.calories,
+            reason: enforced._clampReason,
+        });
     }
 
-    if (!foodType) return item;
-
-    const ref = COMMON_FOODS[foodType];
-    const nutrients = item.nutrients;
-
-    // Flag extremely out-of-range values but don't change them - just log
-    if (nutrients.calories_kcal !== null) {
-        const cal = nutrients.calories_kcal;
-        if (cal < ref.calories[0] * 0.3 || cal > ref.calories[1] * 3) {
-            log('WARN', 'Unusual calorie value detected', {
-                food: item.display_name,
-                value: cal,
-                expectedRange: ref.calories
-            });
-        }
-    }
-
-    return item;
+    return {
+        ...item,
+        nutrients: {
+            calories_kcal: enforced.calories,
+            carbs_g: enforced.carbs_g,
+            protein_g: enforced.protein_g,
+            fat_g: enforced.fat_g,
+            fibre_g: enforced.fibre_g,
+            sugar_g: enforced.sugar_g,
+            sodium_mg: enforced.sodium_mg,
+        },
+    };
 }
 
 // ============================================
@@ -289,17 +257,8 @@ function normalizeAnalysisResult(raw: unknown, debug?: { model: string; processi
     const source = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {};
     const rawItems = Array.isArray(source.items) ? source.items : [];
 
-    log('DEBUG', 'Normalizing analysis result', {
-        itemCount: rawItems.length,
-        rawSource: typeof source === 'object' ? Object.keys(source) : 'not object'
-    });
-
-    const items: AnalyzedItem[] = rawItems.map((item: unknown, index: number) => {
+    const items: AnalyzedItem[] = rawItems.map((item: unknown) => {
         const itemObj = (item && typeof item === 'object') ? item as Record<string, unknown> : {};
-
-        log('DEBUG', `Processing item ${index}`, {
-            rawItem: JSON.stringify(item).substring(0, 200)
-        });
 
         const normalized: AnalyzedItem = {
             display_name: normalizeDisplayName(itemObj.display_name ?? itemObj.name ?? itemObj.food_name ?? itemObj.foodName),
@@ -349,112 +308,22 @@ function normalizeAnalysisResult(raw: unknown, debug?: { model: string; processi
 }
 
 // ============================================
-// VERTEX AI (GEMINI) CALL
+// GOOGLE GEN AI SDK
 // ============================================
 
-const VERTEX_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
-const DEFAULT_VERTEX_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = 'gemini-2.5-flash';
 
-interface ServiceAccountKey {
-    client_email: string;
-    private_key: string;
-    token_uri?: string;
-}
+let aiClient: GoogleGenAI | null = null;
 
-function base64UrlEncode(input: Uint8Array): string {
-    let binary = '';
-    const chunkSize = 0x8000;
-    for (let i = 0; i < input.length; i += chunkSize) {
-        binary += String.fromCharCode(...input.subarray(i, i + chunkSize));
+function getGenAIClient(): GoogleGenAI {
+    if (!aiClient) {
+        const apiKey = Deno.env.get('GEMINI_API_KEY');
+        if (!apiKey) {
+            throw new Error('GEMINI_API_KEY environment variable is not set');
+        }
+        aiClient = new GoogleGenAI({ apiKey });
     }
-    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function pemToArrayBuffer(pem: string): ArrayBuffer {
-    const cleaned = pem
-        .replace('-----BEGIN PRIVATE KEY-----', '')
-        .replace('-----END PRIVATE KEY-----', '')
-        .replace(/\s+/g, '');
-    const binary = atob(cleaned);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
-}
-
-async function getAccessToken(): Promise<{ token: string; model: string; projectId: string; region: string }> {
-    const raw = Deno.env.get('VERTEX_AI_SERVICE_ACCOUNT_JSON');
-    const projectId = Deno.env.get('VERTEX_AI_PROJECT_ID');
-    const region = Deno.env.get('VERTEX_AI_REGION');
-    const model = Deno.env.get('VERTEX_AI_MODEL') || DEFAULT_VERTEX_MODEL;
-
-    if (!raw) throw new Error('VERTEX_AI_SERVICE_ACCOUNT_JSON not set');
-    if (!projectId) throw new Error('VERTEX_AI_PROJECT_ID not set');
-    if (!region) throw new Error('VERTEX_AI_REGION not set');
-
-    log('DEBUG', 'Getting Vertex AI access token', { projectId, region, model });
-
-    const key = JSON.parse(raw) as ServiceAccountKey;
-    const tokenUri = key.token_uri || 'https://oauth2.googleapis.com/token';
-    const now = Math.floor(Date.now() / 1000);
-
-    const header = { alg: 'RS256', typ: 'JWT' };
-    const claims = {
-        iss: key.client_email,
-        sub: key.client_email,
-        aud: tokenUri,
-        iat: now,
-        exp: now + 3600,
-        scope: VERTEX_SCOPE,
-    };
-
-    const headerBytes = new TextEncoder().encode(JSON.stringify(header));
-    const claimsBytes = new TextEncoder().encode(JSON.stringify(claims));
-    const headerEncoded = base64UrlEncode(headerBytes);
-    const claimsEncoded = base64UrlEncode(claimsBytes);
-    const toSign = `${headerEncoded}.${claimsEncoded}`;
-
-    const keyData = pemToArrayBuffer(key.private_key);
-    const cryptoKey = await crypto.subtle.importKey(
-        'pkcs8',
-        keyData,
-        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-        false,
-        ['sign']
-    );
-    const signature = await crypto.subtle.sign(
-        'RSASSA-PKCS1-v1_5',
-        cryptoKey,
-        new TextEncoder().encode(toSign)
-    );
-    const signatureEncoded = base64UrlEncode(new Uint8Array(signature));
-    const jwt = `${toSign}.${signatureEncoded}`;
-
-    const body = new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion: jwt,
-    });
-
-    const res = await fetch(tokenUri, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-    });
-
-    if (!res.ok) {
-        const text = await res.text();
-        log('ERROR', 'Failed to get access token', { status: res.status, error: text });
-        throw new Error(`Failed to get access token: ${text}`);
-    }
-
-    const data = await res.json();
-    if (!data?.access_token) {
-        throw new Error('Access token missing from response');
-    }
-
-    log('DEBUG', 'Access token obtained successfully');
-    return { token: data.access_token as string, model, projectId, region };
+    return aiClient;
 }
 
 async function fetchImageAsBase64(photoUrl: string): Promise<{ data: string; mimeType: string; size: number }> {
@@ -492,9 +361,22 @@ async function fetchImageAsBase64(photoUrl: string): Promise<{ data: string; mim
 function buildSystemPrompt(): string {
     return `You are an expert food recognition and nutrition estimation assistant. Your primary goal is to accurately identify ALL visible food items in photos and provide reliable nutrition estimates.
 
+## CRITICAL CALORIE CONSTRAINTS (MUST FOLLOW):
+
+- Single food items should NEVER exceed 2500 calories
+- Beverages (coffee, tea, juice, smoothies, lattes) should NEVER exceed 800 calories
+- A plain black coffee is 2-5 calories
+- A large latte with syrup is 200-400 calories
+- If you're uncertain, estimate LOWER rather than higher
+- Reference ranges for single items:
+  - Small snack: 50-200 cal
+  - Medium meal item: 200-500 cal
+  - Large meal item: 500-1000 cal
+  - Full meal plate (multiple items): 800-1500 cal total
+
 ## CRITICAL RULES FOR FOOD DETECTION:
 
-1. **ALWAYS IDENTIFY FOODS** - Even if image quality is imperfect, ALWAYS attempt to identify foods. Be generous in detection.
+1. **ALWAYS IDENTIFY FOODS** - Even if image quality is imperfect, ALWAYS attempt to identify foods. Identify foods confidently, but estimate portions conservatively.
 
 2. **COMMON FOODS TO RECOGNIZE** (you MUST be able to identify these):
    - Fruits: apple, banana, orange, grapes, strawberry, blueberry, mango, pineapple, watermelon
@@ -508,8 +390,9 @@ function buildSystemPrompt(): string {
 
 3. **PORTION ESTIMATION**:
    - Use visual cues (plate size, hand size if visible, other objects)
-   - Default to medium portions if unclear
+   - Default to MEDIUM portions if unclear (not large)
    - Use appropriate units: "piece" for whole fruits, "cup" for rice/pasta, "oz" for meats, "slice" for bread
+   - When in doubt, estimate smaller portions - users can adjust up if needed
 
 4. **CONFIDENCE LEVELS**:
    - "high": Clear view, easily identifiable food (e.g., whole apple, banana)
@@ -525,6 +408,7 @@ function buildSystemPrompt(): string {
    - For common foods like apples: ~95 calories, 25g carbs, 0.5g protein, 0.3g fat
    - For common foods like bananas: ~105 calories, 27g carbs, 1.3g protein, 0.4g fat
    - Scale nutrition values based on estimated portion size
+   - VERIFY: Calories should roughly equal (carbs * 4) + (protein * 4) + (fat * 9)
 
 ## OUTPUT FORMAT (STRICT JSON):
 
@@ -573,7 +457,11 @@ function buildSystemPrompt(): string {
   ]
 }
 
-REMEMBER: Your goal is RELIABLE DETECTION. When in doubt, IDENTIFY the food with appropriate confidence level.`;
+REMEMBER:
+- Your goal is RELIABLE DETECTION with CONSERVATIVE estimates
+- When in doubt about portions, estimate SMALLER
+- NEVER output calories over 2500 for a single item or 800 for beverages
+- When in doubt, IDENTIFY the food with appropriate confidence level`;
 }
 
 function buildUserPrompt(mealType?: string, mealTime?: string, mealName?: string, mealNotes?: string): string {
@@ -612,18 +500,18 @@ async function analyzePhotoWithGemini(
     let rawResponseText = '';
 
     try {
-        const { token, model, projectId, region } = await getAccessToken();
+        const ai = getGenAIClient();
+        const model = Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL;
         const { data: imageBase64, mimeType, size } = await fetchImageAsBase64(photoUrl);
         imageSize = size;
 
         const systemPrompt = buildSystemPrompt();
         const userPrompt = buildUserPrompt(mealType, mealTime, mealName, mealNotes);
 
-        log('INFO', 'Sending request to Vertex AI', { model, imageSize: size });
+        log('INFO', 'Sending request to Google Gen AI', { model, imageSize: size });
 
-        const endpoint = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
-
-        const requestBody = {
+        const response = await ai.models.generateContent({
+            model,
             contents: [
                 {
                     role: 'user',
@@ -634,57 +522,20 @@ async function analyzePhotoWithGemini(
                     ],
                 },
             ],
-            generationConfig: {
-                temperature: 0.2, // Lower temperature for more consistent results
+            config: {
+                temperature: 0.2,
                 topP: 0.8,
                 topK: 40,
                 maxOutputTokens: 2048,
                 responseMimeType: 'application/json',
             },
-            safetySettings: [
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-            ],
-        };
-
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify(requestBody),
         });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            log('ERROR', 'Vertex AI request failed', { status: response.status, error: errorText.substring(0, 500) });
-            throw new Error(`Vertex AI request failed: ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        // Log the full response structure for debugging
-        log('DEBUG', 'Vertex AI response received', {
-            hasCandidate: !!data?.candidates?.[0],
-            finishReason: data?.candidates?.[0]?.finishReason
-        });
-
-        // Check for blocked content
-        if (data?.candidates?.[0]?.finishReason === 'SAFETY') {
-            log('WARN', 'Response blocked by safety filters');
-            throw new Error('Content was blocked by safety filters');
-        }
-
-        const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const content = response.text || '';
         rawResponseText = content.substring(0, 2000); // Store for debugging
 
-        log('DEBUG', 'Raw AI response', { content: content.substring(0, 500) });
-
         if (!content) {
-            log('WARN', 'Empty response from Vertex AI');
+            log('WARN', 'Empty response from Gen AI');
             throw new Error('Empty response from AI');
         }
 
@@ -732,12 +583,11 @@ async function analyzePhotoWithGemini(
         for (let i = 0; i < parseStrategies.length; i++) {
             try {
                 parsed = parseStrategies[i]();
-                log('DEBUG', `JSON parsed successfully with strategy ${i + 1}`);
                 break;
             } catch (e) {
                 if (i === parseStrategies.length - 1) {
                     log('ERROR', 'All JSON parsing strategies failed', {
-                        content: content.substring(0, 1000),
+                        content: content.substring(0, 500),
                         lastError: e instanceof Error ? e.message : 'Unknown'
                     });
                     throw new Error('Could not parse AI response as JSON');
@@ -777,7 +627,7 @@ async function analyzePhotoWithGemini(
             items: [],
             totals: { calories_kcal: null, carbs_g: null, protein_g: null, fat_g: null, fibre_g: null },
             debug: {
-                model: Deno.env.get('VERTEX_AI_MODEL') || DEFAULT_VERTEX_MODEL,
+                model: Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL,
                 processingTimeMs,
                 imageSize,
                 error: errorMessage,
@@ -867,7 +717,7 @@ serve(async (req) => {
                     photo_path: photo_url,
                     status: result.status,
                     result: result,
-                    model: Deno.env.get('VERTEX_AI_MODEL') || DEFAULT_VERTEX_MODEL,
+                    model: Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL,
                 }, { onConflict: 'meal_id' });
 
             if (dbError) {

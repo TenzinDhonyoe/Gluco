@@ -15,7 +15,10 @@ import {
     type DataCompleteness,
     type MetabolicScoreCalculation,
     type MetabolicScoreComponentsV2,
+    type MetabolicScoreDebugV2,
     type MetabolicScoreInput,
+    type ScoreLevel,
+    type UxReason,
     type UsedBaseline,
 } from './score.ts';
 
@@ -55,12 +58,17 @@ interface MetabolicScoreV2Result {
     mode: 'baseline_relative' | 'absolute_fallback';
     reason?: string;
     components?: MetabolicScoreComponentsV2;
+    // New progressive scoring fields
+    scoreLevel?: ScoreLevel;
+    uxReason?: UxReason;
+    zSteps?: number | null;
     debug?: {
         validDays: DataCompleteness;
         usedBaseline: UsedBaseline;
         usedFallbacks: UsedBaseline;
         smoothingUnavailable: boolean;
     };
+    debugV2?: MetabolicScoreDebugV2;
 }
 
 /**
@@ -456,11 +464,17 @@ serve(async (req) => {
         // Labs feature removed - no longer checking for lab_snapshots
         const labPresent = false;
 
+        // 3. Fetch weekly scores count for progressive scoring level determination
+        const { count: weeklyScoresCount } = await supabase
+            .from('user_metabolic_weekly_scores')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', userId);
+
         // 4. Build input and calculate score
         const input = buildMetabolicScoreInput(currentContext, profile);
         const baselinePrimary = buildBaselineInput(baseline28Context);
         const baselineFallback = buildBaselineInput(baseline56Context);
-        const scoreResult = calculateMetabolicScore(input, baselinePrimary, baselineFallback);
+        const scoreResult = calculateMetabolicScore(input, baselinePrimary, baselineFallback, weeklyScoresCount ?? 0);
 
         let score28d: number | null = null;
         let smoothingUnavailable = false;
@@ -511,7 +525,8 @@ serve(async (req) => {
             scoreResult.dataCompleteness,
             scoreResult.aggregates.weeklyHRV !== null,
             scoreResult.atypicalActivityWeek,
-            smoothingUnavailable
+            smoothingUnavailable,
+            scoreResult.scoreLevel
         );
 
         const v2Result: MetabolicScoreV2Result = {
@@ -522,12 +537,17 @@ serve(async (req) => {
             mode: scoreResult.mode,
             reason: scoreResult.score7d === null ? 'insufficient_data' : undefined,
             components: scoreResult.components ?? undefined,
+            // New progressive scoring fields
+            scoreLevel: scoreResult.scoreLevel,
+            uxReason: scoreResult.uxReason,
+            zSteps: scoreResult.zSteps,
             debug: debugEnabled ? {
                 validDays: scoreResult.dataCompleteness,
                 usedBaseline: scoreResult.usedBaseline,
                 usedFallbacks: scoreResult.usedFallbacks,
                 smoothingUnavailable,
             } : undefined,
+            debugV2: debugEnabled ? scoreResult.debugV2 : undefined,
         };
 
         // 5. Convert to legacy format for backward compatibility
@@ -548,7 +568,12 @@ serve(async (req) => {
             mode: v2Result.mode,
             reason: v2Result.reason,
             components_v2: v2Result.components,
+            // New progressive scoring fields
+            scoreLevel: v2Result.scoreLevel,
+            uxReason: v2Result.uxReason,
+            zSteps: v2Result.zSteps,
             debug_v2: v2Result.debug,
+            debugV2: v2Result.debugV2,
             v2: v2Result,
         };
 
@@ -567,4 +592,11 @@ serve(async (req) => {
 
 // Export for testing
 export { calculateMetabolicScore, calculateConfidenceLabel, smoothScores };
-export type { MetabolicScoreInput, MetabolicScoreCalculation, MetabolicScoreV2Result };
+export type {
+    MetabolicScoreInput,
+    MetabolicScoreCalculation,
+    MetabolicScoreV2Result,
+    ScoreLevel,
+    UxReason,
+    MetabolicScoreDebugV2,
+};

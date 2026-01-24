@@ -4,9 +4,10 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { isAiEnabled } from '../_shared/ai.ts';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { sanitizeText } from '../_shared/safety.ts';
+import { callGenAI } from '../_shared/genai.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -502,8 +503,9 @@ function calculateBaselineRisk(
     // Fat slows absorption, reduces spike (up to -10%)
     const fatReduction = Math.min(10, macros.fat * 0.2);
 
-    // Fibre reduces risk (up to -20%)
-    const fibreReduction = Math.min(20, macros.fibre * 2);
+    // Fibre reduces risk (up to -15%, more realistic than previous 20%)
+    // 10g fiber = 12% reduction (was 20% before, which was too aggressive)
+    const fibreReduction = Math.min(15, macros.fibre * 1.2);
 
     // Time-of-day modifier
     const timeModifier = getTimeModifier(timeBucket);
@@ -804,41 +806,16 @@ Example output format:
 }`;
 }
 
-async function callGemini(prompt: string): Promise<{ drivers: Driver[]; adjustment_tips: AdjustmentTip[] } | null> {
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
-    if (!apiKey) {
-        console.log('GEMINI_API_KEY not configured');
-        return null;
-    }
-
+async function callGeminiForPremeal(prompt: string): Promise<{ drivers: Driver[]; adjustment_tips: AdjustmentTip[] } | null> {
     try {
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.3,
-                        maxOutputTokens: 600,
-                        responseMimeType: 'application/json',
-                    },
-                }),
-            }
-        );
-
-        if (!response.ok) {
-            const error = await response.text();
-            console.error('Gemini API error:', response.status, error);
-            return null;
-        }
-
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        const text = await callGenAI(prompt, {
+            temperature: 0.3,
+            maxOutputTokens: 600,
+            jsonOutput: true,
+        });
 
         if (!text) {
-            console.error('Gemini returned empty response');
+            console.error('Vertex AI returned empty response');
             return null;
         }
 
@@ -849,7 +826,7 @@ async function callGemini(prompt: string): Promise<{ drivers: Driver[]; adjustme
             adjustment_tips: parsed.adjustment_tips || [],
         };
     } catch (error) {
-        console.error('Gemini call failed:', error);
+        console.error('Vertex AI call failed:', error);
         return null;
     }
 }
@@ -913,7 +890,7 @@ async function generateLLMExplanations(
     const prompt = buildLLMPrompt(baseline, mealName, topItems);
 
     // Try Gemini first (free tier)
-    let result = await callGemini(prompt);
+    let result = await callGeminiForPremeal(prompt);
 
     // Fallback to OpenAI if Gemini fails
     if (!result) {
@@ -1183,10 +1160,23 @@ function applyContextAdjustments(
         reasons.push('HIGH_VARIABILITY');
     }
 
-    // Low sleep increases risk (when available)
-    if (context.sleep_hours_last_night && context.sleep_hours_last_night < 6) {
-        risk += 6;
-        reasons.push('LOW_SLEEP');
+    // Graduated sleep penalty based on severity (when available)
+    if (context.sleep_hours_last_night != null) {
+        const sleepHours = context.sleep_hours_last_night;
+        if (sleepHours < 5) {
+            // Very poor sleep: significant impact
+            risk += 10;
+            reasons.push('VERY_LOW_SLEEP');
+        } else if (sleepHours < 6) {
+            // Poor sleep: moderate impact
+            risk += 6;
+            reasons.push('LOW_SLEEP');
+        } else if (sleepHours < 7) {
+            // Suboptimal sleep: minor impact
+            risk += 3;
+            reasons.push('SUBOPTIMAL_SLEEP');
+        }
+        // 7+ hours: no penalty
     }
 
     return { risk: Math.max(0, Math.min(100, risk)), reasons };

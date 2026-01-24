@@ -840,7 +840,7 @@ export default function LogMealReviewScreen() {
         });
       }
 
-      const proposedCheckIn = new Date(mealTime.getTime() + 2 * 60 * 60 * 1000);
+      const proposedCheckIn = new Date(mealTime.getTime() + 60 * 60 * 1000);
       const minCheckIn = new Date(Date.now() + 60 * 1000);
       const checkInTime = proposedCheckIn > minCheckIn ? proposedCheckIn : minCheckIn;
       await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime);

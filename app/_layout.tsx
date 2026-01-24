@@ -1,7 +1,7 @@
-import { Stack } from 'expo-router';
+import { Stack, useRootNavigationState } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { ActivityIndicator, LogBox, View } from 'react-native';
+import { Image, LogBox, View } from 'react-native';
 import 'react-native-reanimated';
 
 // Silence known harmless warnings
@@ -11,7 +11,6 @@ LogBox.ignoreLogs([
   'shadow set but cannot calculate shadow efficiently', // Alternative shadow warning format
 ]);
 
-import { Colors } from '@/constants/Colors';
 import { AuthProvider } from '@/context/AuthContext';
 import { SubscriptionProvider } from '@/context/SubscriptionContext';
 import { useOutfitFonts } from '@/hooks/useFonts';
@@ -19,12 +18,18 @@ import {
   configureAndroidChannel,
   handleInitialNotification,
   initNotifications,
+  setNotificationNavigationReady,
   setupNotificationListeners,
 } from '@/lib/notifications';
 import { initializeRevenueCat } from '@/lib/revenuecat';
 
+const SPLASH_LOGO = require('../assets/images/mascots/gluco_app_mascott/gluco_splash.png');
+
 export default function RootLayout() {
   const { fontsLoaded, fontError } = useOutfitFonts();
+  const navigationState = useRootNavigationState();
+  const fontsReady = fontsLoaded || !!fontError;
+  const navigationReady = !!navigationState?.key;
 
   // Initialize RevenueCat SDK (lazy loaded to avoid hot reload issues)
   useEffect(() => {
@@ -47,12 +52,18 @@ export default function RootLayout() {
     return cleanup;
   }, []);
 
+  useEffect(() => {
+    if (!fontsReady || !navigationReady) return;
+    setNotificationNavigationReady(true);
+    return () => setNotificationNavigationReady(false);
+  }, [fontsReady, navigationReady]);
+
   // Show loading screen while fonts load, but don't block forever
   // If there's a font error, continue anyway
   if (!fontsLoaded && !fontError) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111111' }}>
-        <ActivityIndicator size="large" color={Colors.buttonPrimary} />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#151718' }}>
+        <Image source={SPLASH_LOGO} style={{ width: 200, height: 200, resizeMode: 'contain' }} />
       </View>
     );
   }

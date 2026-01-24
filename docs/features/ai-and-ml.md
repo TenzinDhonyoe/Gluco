@@ -16,6 +16,17 @@ There are two distinct categories:
      - `label-parse` (nutrition label extraction)
      - `food-query-rewrite` (search rewrites)
 
+   **Adjustment Tips UI (Low-Anxiety Design):**
+   The `premeal-analyze` function returns adjustment tips that are presented with a micro-commitment approach:
+   - Tips sorted by `benefit_level` (high/medium/low)
+   - Primary tip shown prominently; secondary tips collapsed
+   - Action buttons: "I'll try this" / "Not today" (not checkboxes)
+   - Outcome-focused language (e.g., "Helps reduce glucose spikes")
+   - Time context labels (e.g., "In the next 30 minutes")
+   - Reversible selection with "Undo" and reassurance text
+
+   See `docs/features/meal-scanner.md` for full UI specifications.
+
 2) **Deterministic scoring (no ML model)**
    - The Metabolic Score is **pure math**, not an ML model.
    - It is a deterministic formula based on wearable signals.

@@ -3,9 +3,10 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { isAiEnabled } from '../_shared/ai.ts';
+import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { sanitizeStringArray, sanitizeText } from '../_shared/safety.ts';
+import { callGenAI } from '../_shared/genai.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -305,12 +306,6 @@ async function generateSummary(
     metrics: Record<string, VariantMetrics>,
     comparison: ComparisonResult
 ): Promise<{ summary: string; suggestions: string[] }> {
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
-
-    if (!apiKey) {
-        return generateFallbackSummary(template, variants, metrics, comparison);
-    }
-
     const variantNames = variants.reduce((acc: any, v: any) => {
         acc[v.key] = v.name;
         return acc;
@@ -336,6 +331,8 @@ COMPARISON:
 - Difference: ${comparison.delta ?? 'N/A'} mmol/L
 - Confidence: ${comparison.confidence}
 
+CRITICAL: Only reference numbers and foods that were provided in the data above. Do not invent or assume additional details.
+
 Write:
 1. A 2-3 sentence summary in plain English explaining what they learned. Be encouraging but honest.
 2. 2-3 actionable next steps they could try.
@@ -347,29 +344,11 @@ Return ONLY valid JSON:
 }`;
 
     try {
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.4,
-                        maxOutputTokens: 400,
-                        responseMimeType: 'application/json',
-                    },
-                }),
-            }
-        );
-
-        if (!response.ok) {
-            console.error('Gemini API error:', response.status);
-            return generateFallbackSummary(template, variants, metrics, comparison);
-        }
-
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        const text = await callGenAI(prompt, {
+            temperature: 0.4,
+            maxOutputTokens: 400,
+            jsonOutput: true,
+        });
 
         if (!text) {
             return generateFallbackSummary(template, variants, metrics, comparison);
@@ -385,7 +364,7 @@ Return ONLY valid JSON:
 
         return { summary, suggestions };
     } catch (error) {
-        console.error('Gemini call failed:', error);
+        console.error('Vertex AI call failed:', error);
         return generateFallbackSummary(template, variants, metrics, comparison);
     }
 }
