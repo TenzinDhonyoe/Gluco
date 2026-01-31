@@ -2,6 +2,7 @@
 // Gemini 2.5 Flash with structured JSON output for food detection only
 
 import { GoogleGenAI, Type as SchemaType } from 'npm:@google/genai@1.38.0';
+import { convertToGrams } from './portion-estimator.ts';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 
@@ -163,19 +164,39 @@ const FOOD_DETECTION_SCHEMA = {
 /**
  * System prompt for food detection (NO nutrition estimation)
  */
-const DETECTION_SYSTEM_PROMPT = `You are an expert food recognition assistant. Your ONLY job is to identify food items and describe their portions visually.
+const DETECTION_SYSTEM_PROMPT = `You are an expert food recognition assistant. Your ONLY job is to identify food items and estimate their portion weight in grams.
 
 ## CRITICAL RULES:
 
-1. **IDENTIFY FOODS ONLY** - Do NOT estimate calories or nutrition. Your job is purely identification.
+1. **IDENTIFY FOODS ONLY** - Do NOT estimate calories or nutrition. Your job is identification and weight estimation.
 
 2. **VISIBLE ITEMS ONLY** - Only identify foods you can clearly see. Do not guess hidden ingredients.
 
-3. **PORTION DESCRIPTIONS** - Describe portions visually:
-   - Use 'qualitative' for descriptions like "medium", "small bowl", "half plate"
-   - Use 'volume_ml' if you can estimate liquid volume
-   - Use 'weight_g' only if confident (reference objects help)
-   - Use 'none' if portion is completely unclear
+3. **PORTION WEIGHT IN GRAMS** - You MUST always estimate weight in grams for every item:
+   - ALWAYS set estimate_type to 'weight_g' and unit to 'g'
+   - Provide your best numeric estimate in the value field
+   - Use these reference weights when estimating:
+     * Apple/orange/pear: 150-200g
+     * Banana: 100-130g
+     * Chicken breast: 120-200g
+     * Steak/beef portion: 150-250g
+     * Fish fillet: 120-180g
+     * Egg: 50g
+     * Cooked rice (bowl): 150-250g
+     * Cooked pasta (plate): 180-300g
+     * Bread slice: 25-40g
+     * Sandwich: 180-280g
+     * Burger patty + bun: 180-250g
+     * Pizza slice: 100-150g
+     * Potato (medium): 170-220g
+     * Broccoli (serving): 100-180g
+     * Salad (bowl): 120-250g
+     * Soup (bowl): 250-400g
+     * Curry (serving): 250-350g
+     * Cookie: 30-50g
+     * Cup of liquid: ~240g
+   - Use plate, bowl, hand, or utensils in the image as size references
+   - If truly unable to estimate, set value to null (but try your best)
 
 4. **CONFIDENCE LEVELS** (0-1 scale):
    - 0.9-1.0: Crystal clear, easily identifiable
@@ -203,7 +224,7 @@ const DETECTION_SYSTEM_PROMPT = `You are an expert food recognition assistant. Y
    - has_reference_object: Plate, hand, utensil visible (helps portion estimation)
    - lighting_issue: Too dark or overexposed
 
-Remember: You are NOT a nutritionist. Your job is identification and visual description only.`;
+Remember: You are NOT a nutritionist. Your job is identification and gram-weight estimation only.`;
 
 /**
  * Fetch an image from URL and convert to base64
@@ -262,11 +283,12 @@ For each item, provide:
 2. Synonyms for database lookup
 3. Category
 4. Visual portion description
-5. Your confidence level
+5. Estimated weight in grams (estimate_type: 'weight_g', unit: 'g')
+6. Your confidence level
 
 ${contextHints.length > 0 ? `\nContext: ${contextHints.join(', ')}` : ''}
 
-Identify foods confidently but estimate portions conservatively.`;
+Identify foods confidently. ALWAYS estimate weight in grams for each item.`;
 
     try {
         const response = await ai.models.generateContent({
@@ -356,8 +378,19 @@ function normalizeDetectionResult(raw: FoodDetectionResult): FoodDetectionResult
         // Normalize confidence
         const confidence = Math.max(0, Math.min(1, item.confidence ?? 0.5));
 
+        // Safety net: convert non-weight_g portions to grams
+        const name = item.name?.trim() || 'Unknown food';
+        if (portion.estimate_type !== 'weight_g' || portion.value === null || portion.value <= 0) {
+            const gramsEstimate = convertToGrams(name, category, portion);
+            portion.estimate_type = 'weight_g';
+            portion.value = gramsEstimate;
+            portion.unit = 'g';
+            // Lower confidence since this is a fallback conversion
+            portion.confidence = Math.min(portion.confidence, 0.5);
+        }
+
         return {
-            name: item.name?.trim() || 'Unknown food',
+            name,
             synonyms: Array.isArray(item.synonyms) ? item.synonyms.filter(s => typeof s === 'string') : [],
             category,
             visible_portion_descriptor: item.visible_portion_descriptor || '',
@@ -402,11 +435,12 @@ For each item, provide:
 2. Synonyms for database lookup
 3. Category
 4. Visual portion description
-5. Your confidence level
+5. Estimated weight in grams (estimate_type: 'weight_g', unit: 'g')
+6. Your confidence level
 
 ${contextHints.length > 0 ? `\nContext: ${contextHints.join(', ')}` : ''}
 
-Identify foods confidently but estimate portions conservatively.`;
+Identify foods confidently. ALWAYS estimate weight in grams for each item.`;
 
     try {
         const response = await ai.models.generateContent({

@@ -53,6 +53,7 @@ The AI prompt is designed to maximize food detection:
 - Items matched to database get real nutrition data; unmatched use AI estimates
 - Meal time is captured for insights and trend analysis
 - Comprehensive logging added for debugging analysis issues
+- **New pipeline (`meals-from-photo`)**: Uses separated concerns (Gemini for detection + gram estimation, FatSecret/USDA for nutrition lookup, server-side scaling to detected portion). Nutrition values returned from the API represent the full detected portion. See `docs/features/meal-scanner.md` for full architecture.
 
 ## Key Files
 - `app/meal-scanner.tsx` (primary camera flow)

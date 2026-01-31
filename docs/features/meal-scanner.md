@@ -399,6 +399,69 @@ Check Supabase function logs for detailed structured logging.
 
 ---
 
+## Gram-Based Portion Estimation & Nutrition Scaling (meals-from-photo)
+
+### Overview
+
+The `meals-from-photo` edge function uses a separated-concerns pipeline: Gemini detects food items and estimates portion weight in grams, then FatSecret/USDA provides nutrition data which is scaled to the detected portion size.
+
+### Problem Solved
+
+Previously, Gemini returned qualitative portion descriptions ("medium bowl", "half plate") and nutrition from FatSecret/USDA was returned unscaled (per 100g or per serving). This meant a 250g portion showed the same calories as 100g.
+
+### How It Works
+
+```
+Photo → Gemini (detect + estimate grams) → Normalize to weight_g → FatSecret/USDA (per-serving nutrition) → Scale nutrition to detected grams → Return
+```
+
+#### Step 1: Gemini Gram Estimation
+- The Gemini prompt now instructs the model to ALWAYS return `estimate_type: 'weight_g'` with a numeric gram value
+- Reference weights are provided in the prompt for 20+ common foods (e.g., apple ~180g, chicken breast ~150g)
+- The model uses visual cues (plate, bowl, hand, utensils) to calibrate estimates
+
+#### Step 2: Server-Side Gram Fallback
+If Gemini still returns qualitative/none/null portions, a server-side safety net converts them to grams using this resolution order:
+1. Already `weight_g` with a value → use as-is
+2. Numeric value with convertible volume unit (cup→240g, tbsp→15g, etc.) → convert
+3. Fuzzy match against `PORTION_REFERENCES` (70+ food entries) → use `typical_g`
+4. `CATEGORY_DEFAULT_WEIGHTS` fallback (e.g., fruit→150g, protein→150g, grain→180g)
+
+This runs in both `normalizeDetectionResult()` (gemini-structured.ts) and `detectionToLookupItem()` (meals-from-photo/index.ts).
+
+#### Step 3: Nutrition Scaling
+After FatSecret/USDA returns per-serving nutrition:
+1. `resolveServingToGrams()` converts the serving size to grams (handles g, cup, tbsp, oz, etc.)
+2. `scaleNutritionToPortionSize()` computes `multiplier = detectedGrams / servingGrams` (clamped [0.1, 10])
+3. All nutrition values are scaled by the multiplier
+4. `portion.value` is set to `1` and `portion.unit` to `'serving'` so the client's existing `nutrition * quantity` math stays correct
+5. `serving_description` is updated to show the scaling (e.g., "180g (scaled from per 100g)")
+
+### Example
+
+| Step | Apple (180g detected) |
+|------|----------------------|
+| Gemini | `{ estimate_type: 'weight_g', value: 180, unit: 'g' }` |
+| FatSecret | 52 cal per 100g serving |
+| Multiplier | 180 / 100 = 1.8 |
+| Scaled calories | 52 * 1.8 = 94 cal |
+| Final portion | `{ value: 1, unit: 'serving' }` |
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `supabase/functions/_shared/portion-estimator.ts` | `convertToGrams()`, `VOLUME_TO_GRAMS`, `CATEGORY_DEFAULT_WEIGHTS`, `PORTION_REFERENCES` |
+| `supabase/functions/_shared/gemini-structured.ts` | Gram-first prompt, `normalizeDetectionResult()` with gram fallback |
+| `supabase/functions/_shared/nutrition-lookup.ts` | `resolveServingToGrams()`, `scaleNutritionToPortionSize()`, applied in all lookup paths |
+| `supabase/functions/meals-from-photo/index.ts` | `detectionToLookupItem()` safety net for qualitative portions |
+
+### Followup Flow Compatibility
+
+The Small/Medium/Large followup multipliers (0.7/1.0/1.5) in `applyFollowupResponses()` work correctly with the new scaling since they multiply the already-scaled nutrition values.
+
+---
+
 ## Safety Features
 
 ### Medical Term Filtering

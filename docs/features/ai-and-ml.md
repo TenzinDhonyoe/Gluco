@@ -27,6 +27,9 @@ There are two distinct categories:
 
    See `docs/features/meal-scanner.md` for full UI specifications.
 
+   **Meal Photo Gram Estimation:**
+   The `meals-from-photo` pipeline instructs Gemini to estimate portion weight in grams (not qualitative descriptions). A server-side fallback (`convertToGrams()` in `portion-estimator.ts`) converts any remaining qualitative/volume portions to grams using food reference tables and category defaults. Nutrition values from FatSecret/USDA are then scaled to the detected gram weight so the API returns accurate per-portion nutrition. See `docs/features/meal-scanner.md` for the full pipeline.
+
 2) **Deterministic scoring (no ML model)**
    - The Metabolic Score is **pure math**, not an ML model.
    - It is a deterministic formula based on wearable signals.

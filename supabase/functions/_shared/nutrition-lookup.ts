@@ -11,6 +11,11 @@ import {
     scoreFatSecretResult,
     searchFoods,
 } from './fatsecret.ts';
+import {
+    CATEGORY_DEFAULT_WEIGHTS,
+    convertToGrams,
+    VOLUME_TO_GRAMS,
+} from './portion-estimator.ts';
 
 /**
  * Food category for better matching
@@ -241,6 +246,118 @@ function scoreUsdaResult(
 }
 
 /**
+ * Resolve a serving description to grams.
+ * e.g. "100g" → 100, "1 cup" → 240, "1 tbsp" → 15
+ */
+function resolveServingToGrams(
+    servingAmount: number | null,
+    servingUnit: string | null
+): number {
+    if (servingAmount === null || servingAmount <= 0) {
+        return 100; // default assumption
+    }
+
+    if (!servingUnit) {
+        return servingAmount;
+    }
+
+    const unitLower = servingUnit.toLowerCase().trim().replace(/\s+/g, '_');
+
+    // Direct gram-based units
+    if (unitLower === 'g' || unitLower === 'gram' || unitLower === 'grams') {
+        return servingAmount;
+    }
+
+    // Check volume-to-grams map
+    const gramsPerUnit = VOLUME_TO_GRAMS[unitLower];
+    if (gramsPerUnit) {
+        return Math.round(servingAmount * gramsPerUnit);
+    }
+
+    // Common serving descriptions that are roughly 100g
+    if (unitLower === 'serving' || unitLower === 'portion') {
+        return 100;
+    }
+
+    // Fallback: assume the serving amount is in grams
+    return servingAmount;
+}
+
+/**
+ * Scale nutrition values to match the detected portion size.
+ *
+ * Nutrition databases return values per serving (often per 100g).
+ * This function computes: multiplier = detectedGrams / servingGrams
+ * and scales all nutrition values accordingly.
+ *
+ * After scaling, portion is set to { value: 1, unit: 'serving' }
+ * so the client's `nutrition * quantity` math stays correct.
+ */
+function scaleNutritionToPortionSize(
+    result: NutritionLookupResult,
+    normalizedNutrition: NormalizedNutrition
+): NutritionLookupResult {
+    if (!result.nutrition) {
+        return result;
+    }
+
+    // 1. Get detected grams from the item's portion
+    const detectedGrams = convertToGrams(
+        result.name,
+        result.category,
+        result.portion
+    );
+
+    // 2. Get serving grams from the nutrition source
+    const servingGrams = resolveServingToGrams(
+        normalizedNutrition.serving_amount,
+        normalizedNutrition.serving_unit
+    );
+
+    // 3. Compute multiplier, clamped to [0.1, 10] for safety
+    const rawMultiplier = detectedGrams / servingGrams;
+    const multiplier = Math.max(0.1, Math.min(10, rawMultiplier));
+
+    // 4. Scale all nutrition values
+    const scaleVal = (v: number | null): number | null => {
+        if (v === null) return null;
+        return Math.round(v * multiplier * 10) / 10;
+    };
+    const scaleRound = (v: number | null): number | null => {
+        if (v === null) return null;
+        return Math.round(v * multiplier);
+    };
+
+    const scaledNutrition = {
+        calories: scaleRound(result.nutrition.calories),
+        carbs_g: scaleVal(result.nutrition.carbs_g),
+        protein_g: scaleVal(result.nutrition.protein_g),
+        fat_g: scaleVal(result.nutrition.fat_g),
+        fibre_g: scaleVal(result.nutrition.fibre_g),
+        sugar_g: scaleVal(result.nutrition.sugar_g),
+        sodium_mg: scaleRound(result.nutrition.sodium_mg),
+    };
+
+    // 5. Set portion to 1 serving so client math stays correct
+    const scaledPortion = {
+        estimate_type: 'weight_g' as const,
+        value: 1,
+        unit: 'serving',
+        confidence: result.portion.confidence,
+    };
+
+    // 6. Update serving_description
+    const servingDescription = `${detectedGrams}g (scaled from per ${servingGrams}g)`;
+
+    return {
+        ...result,
+        nutrition: scaledNutrition,
+        portion: scaledPortion,
+        serving_description: servingDescription,
+    };
+}
+
+/**
  * Normalize query for cache key
  */
 export function normalizeQueryKey(query: string, category?: FoodCategory): string {
@@ -301,7 +418,7 @@ export async function lookupNutrition(
                             if (serving) {
                                 const nutrition = normalizeServing(serving);
 
-                                return {
+                                const unscaledResult: NutritionLookupResult = {
                                     ...baseResult,
                                     nutrition: {
                                         calories: nutrition.calories,
@@ -318,6 +435,8 @@ export async function lookupNutrition(
                                     matched_food_brand: best.food.brand_name,
                                     serving_description: nutrition.serving_description,
                                 };
+
+                                return scaleNutritionToPortionSize(unscaledResult, nutrition);
                             }
                         }
                     }
@@ -340,7 +459,7 @@ export async function lookupNutrition(
                 // Check if best match is acceptable (score >= 50)
                 const best = usdaResults[0];
                 if (best && best.score >= 50) {
-                    return {
+                    const unscaledResult: NutritionLookupResult = {
                         ...baseResult,
                         nutrition: {
                             calories: best.nutrition.calories,
@@ -357,6 +476,8 @@ export async function lookupNutrition(
                         matched_food_brand: best.brandOwner,
                         serving_description: best.nutrition.serving_description,
                     };
+
+                    return scaleNutritionToPortionSize(unscaledResult, best.nutrition);
                 }
             }
         } catch (error) {
@@ -364,13 +485,31 @@ export async function lookupNutrition(
         }
     }
 
-    // No matches found - return with fallback estimates
-    return {
+    // No matches found - return with fallback estimates scaled to portion
+    const fallbackNutrition = getFallbackEstimate(item.name, item.category);
+    // Fallback estimates are per "typical serving" - use category default weight as synthetic serving basis
+    const categoryWeight = CATEGORY_DEFAULT_WEIGHTS[item.category] ?? 150;
+    const syntheticNormalized: NormalizedNutrition = {
+        calories: fallbackNutrition?.calories ?? null,
+        carbs_g: fallbackNutrition?.carbs_g ?? null,
+        protein_g: fallbackNutrition?.protein_g ?? null,
+        fat_g: fallbackNutrition?.fat_g ?? null,
+        fibre_g: fallbackNutrition?.fibre_g ?? null,
+        sugar_g: fallbackNutrition?.sugar_g ?? null,
+        sodium_mg: fallbackNutrition?.sodium_mg ?? null,
+        serving_description: `${categoryWeight}g (category default)`,
+        serving_amount: categoryWeight,
+        serving_unit: 'g',
+    };
+
+    const unscaledFallback: NutritionLookupResult = {
         ...baseResult,
-        nutrition: getFallbackEstimate(item.name, item.category),
+        nutrition: fallbackNutrition,
         nutrition_source: 'fallback_estimate',
         nutrition_confidence: 0.3,
     };
+
+    return scaleNutritionToPortionSize(unscaledFallback, syntheticNormalized);
 }
 
 /**

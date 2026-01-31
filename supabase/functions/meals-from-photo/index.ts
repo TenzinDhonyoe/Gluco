@@ -20,7 +20,7 @@ import {
     lookupNutritionBatch,
     NutritionLookupResult,
 } from '../_shared/nutrition-lookup.ts';
-import { DeviceDepthPayload } from '../_shared/portion-estimator.ts';
+import { convertToGrams, DeviceDepthPayload } from '../_shared/portion-estimator.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -234,16 +234,26 @@ function applyFollowupResponses(
 function detectionToLookupItem(
     item: FoodDetectionResult['items'][0]
 ): DetectedItem {
+    const portion = {
+        estimate_type: item.portion.estimate_type,
+        value: item.portion.value,
+        unit: item.portion.unit,
+        confidence: item.portion.confidence,
+    };
+
+    // Safety net: if Gemini returned qualitative/none, convert to weight_g
+    if (portion.estimate_type !== 'weight_g' || portion.value === null || portion.value <= 0) {
+        portion.estimate_type = 'weight_g';
+        portion.value = convertToGrams(item.name, item.category, portion);
+        portion.unit = 'g';
+        portion.confidence = Math.min(portion.confidence, 0.5);
+    }
+
     return {
         name: item.name,
         synonyms: item.synonyms,
         category: item.category,
-        portion: {
-            estimate_type: item.portion.estimate_type,
-            value: item.portion.value,
-            unit: item.portion.unit,
-            confidence: item.portion.confidence,
-        },
+        portion,
         confidence: item.confidence,
     };
 }

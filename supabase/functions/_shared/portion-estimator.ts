@@ -213,6 +213,37 @@ export async function estimatePortions(
 }
 
 /**
+ * Volume-to-grams conversion map (approximate, water-density based)
+ */
+export const VOLUME_TO_GRAMS: Record<string, number> = {
+    cup: 240,
+    tbsp: 15,
+    tsp: 5,
+    oz: 28.35,
+    fl_oz: 30,
+    ml: 1,
+    l: 1000,
+    pint: 473,
+    quart: 946,
+};
+
+/**
+ * Default portion weights by food category (grams)
+ */
+export const CATEGORY_DEFAULT_WEIGHTS: Record<string, number> = {
+    fruit: 150,
+    vegetable: 120,
+    protein: 150,
+    grain: 180,
+    dairy: 170,
+    beverage: 240,
+    snack: 50,
+    dessert: 100,
+    prepared_meal: 350,
+    other: 150,
+};
+
+/**
  * Common portion size references for validation
  */
 export const PORTION_REFERENCES: Record<string, { typical_g: number; range_g: [number, number] }> = {
@@ -220,27 +251,144 @@ export const PORTION_REFERENCES: Record<string, { typical_g: number; range_g: [n
     'apple': { typical_g: 180, range_g: [120, 250] },
     'banana': { typical_g: 120, range_g: [80, 180] },
     'orange': { typical_g: 130, range_g: [80, 200] },
+    'grapes': { typical_g: 150, range_g: [80, 250] },
+    'strawberry': { typical_g: 150, range_g: [80, 250] },
+    'blueberry': { typical_g: 100, range_g: [50, 200] },
+    'mango': { typical_g: 200, range_g: [150, 300] },
+    'watermelon': { typical_g: 280, range_g: [150, 400] },
+    'pineapple': { typical_g: 165, range_g: [80, 250] },
+    'pear': { typical_g: 180, range_g: [130, 250] },
+    'peach': { typical_g: 150, range_g: [100, 200] },
+    'avocado': { typical_g: 150, range_g: [100, 200] },
 
     // Proteins
     'chicken_breast': { typical_g: 150, range_g: [100, 250] },
+    'chicken': { typical_g: 150, range_g: [80, 300] },
     'steak': { typical_g: 200, range_g: [120, 350] },
+    'beef': { typical_g: 170, range_g: [100, 300] },
     'fish_fillet': { typical_g: 150, range_g: [100, 200] },
+    'fish': { typical_g: 150, range_g: [80, 250] },
+    'salmon': { typical_g: 170, range_g: [100, 250] },
+    'shrimp': { typical_g: 100, range_g: [60, 200] },
     'egg': { typical_g: 50, range_g: [40, 65] },
+    'tofu': { typical_g: 150, range_g: [80, 250] },
+    'burger': { typical_g: 200, range_g: [120, 300] },
+    'sausage': { typical_g: 75, range_g: [40, 150] },
+    'bacon': { typical_g: 30, range_g: [15, 60] },
 
     // Grains
     'rice_cooked': { typical_g: 150, range_g: [80, 300] },
+    'rice': { typical_g: 200, range_g: [100, 400] },
     'pasta_cooked': { typical_g: 200, range_g: [100, 350] },
+    'pasta': { typical_g: 200, range_g: [100, 350] },
+    'noodle': { typical_g: 200, range_g: [100, 350] },
     'bread_slice': { typical_g: 30, range_g: [20, 45] },
+    'bread': { typical_g: 50, range_g: [25, 100] },
+    'sandwich': { typical_g: 200, range_g: [150, 350] },
+    'tortilla': { typical_g: 60, range_g: [30, 100] },
+    'pizza': { typical_g: 120, range_g: [80, 200] },
+    'pancake': { typical_g: 75, range_g: [40, 130] },
+    'oatmeal': { typical_g: 250, range_g: [150, 400] },
+    'cereal': { typical_g: 60, range_g: [30, 100] },
 
     // Dairy
     'milk_glass': { typical_g: 240, range_g: [200, 300] },
     'cheese_slice': { typical_g: 28, range_g: [15, 45] },
+    'cheese': { typical_g: 40, range_g: [15, 80] },
     'yogurt_cup': { typical_g: 170, range_g: [120, 250] },
+    'yogurt': { typical_g: 170, range_g: [120, 250] },
+    'butter': { typical_g: 14, range_g: [5, 30] },
+    'cream': { typical_g: 30, range_g: [15, 60] },
+    'ice_cream': { typical_g: 130, range_g: [70, 200] },
+
+    // Vegetables
+    'potato': { typical_g: 200, range_g: [100, 350] },
+    'sweet_potato': { typical_g: 180, range_g: [100, 300] },
+    'broccoli': { typical_g: 150, range_g: [80, 250] },
+    'carrot': { typical_g: 80, range_g: [40, 150] },
+    'tomato': { typical_g: 120, range_g: [60, 200] },
+    'corn': { typical_g: 100, range_g: [60, 170] },
+    'salad': { typical_g: 150, range_g: [80, 300] },
+    'spinach': { typical_g: 80, range_g: [30, 150] },
+
+    // Prepared meals & mixed
+    'soup': { typical_g: 300, range_g: [200, 500] },
+    'curry': { typical_g: 300, range_g: [200, 450] },
+    'stew': { typical_g: 300, range_g: [200, 450] },
+    'burrito': { typical_g: 300, range_g: [200, 450] },
+    'taco': { typical_g: 120, range_g: [80, 180] },
+    'sushi': { typical_g: 40, range_g: [25, 60] },
+    'dumpling': { typical_g: 30, range_g: [20, 50] },
+    'fries': { typical_g: 120, range_g: [70, 200] },
+    'french_fries': { typical_g: 120, range_g: [70, 200] },
+
+    // Snacks & desserts
+    'cookie': { typical_g: 40, range_g: [20, 80] },
+    'cake': { typical_g: 100, range_g: [50, 180] },
+    'muffin': { typical_g: 110, range_g: [60, 170] },
+    'donut': { typical_g: 60, range_g: [40, 100] },
+    'brownie': { typical_g: 60, range_g: [30, 100] },
+    'chips': { typical_g: 50, range_g: [25, 100] },
+    'nuts': { typical_g: 40, range_g: [20, 80] },
+    'chocolate': { typical_g: 40, range_g: [20, 100] },
+    'granola_bar': { typical_g: 40, range_g: [25, 60] },
 
     // Beverages
     'coffee_cup': { typical_g: 240, range_g: [180, 350] },
     'smoothie': { typical_g: 350, range_g: [250, 500] },
+    'juice': { typical_g: 240, range_g: [150, 350] },
 };
+
+/**
+ * Convert a portion to grams using food name, category, and portion info.
+ *
+ * Resolution order:
+ * 1. Already weight_g with a numeric value → return as-is
+ * 2. Numeric value with a convertible volume unit → VOLUME_TO_GRAMS
+ * 3. Fuzzy match against PORTION_REFERENCES → typical_g
+ * 4. CATEGORY_DEFAULT_WEIGHTS fallback
+ */
+export function convertToGrams(
+    foodName: string,
+    category: string,
+    portion: { estimate_type: string; value: number | null; unit: string }
+): number {
+    // 1. Already grams
+    if (portion.estimate_type === 'weight_g' && typeof portion.value === 'number' && portion.value > 0) {
+        return portion.value;
+    }
+
+    // 2. Numeric value with convertible unit
+    if (typeof portion.value === 'number' && portion.value > 0) {
+        const unitLower = portion.unit.toLowerCase().replace(/\s+/g, '_');
+        const gramsPerUnit = VOLUME_TO_GRAMS[unitLower];
+        if (gramsPerUnit) {
+            return Math.round(portion.value * gramsPerUnit);
+        }
+    }
+
+    // 3. Fuzzy match against PORTION_REFERENCES
+    const nameLower = foodName.toLowerCase();
+    // Try exact key match first, then substring match
+    for (const [key, ref] of Object.entries(PORTION_REFERENCES)) {
+        const keyWords = key.replace(/_/g, ' ');
+        if (nameLower === keyWords || nameLower.includes(keyWords) || keyWords.includes(nameLower)) {
+            return ref.typical_g;
+        }
+    }
+    // Second pass: partial token match
+    for (const [key, ref] of Object.entries(PORTION_REFERENCES)) {
+        const keyWords = key.replace(/_/g, ' ');
+        const nameTokens = nameLower.split(/\s+/);
+        const keyTokens = keyWords.split(/\s+/);
+        if (nameTokens.some(t => t.length > 2 && keyTokens.some(k => k.includes(t) || t.includes(k)))) {
+            return ref.typical_g;
+        }
+    }
+
+    // 4. Category fallback
+    return CATEGORY_DEFAULT_WEIGHTS[category] ?? CATEGORY_DEFAULT_WEIGHTS['other'] ?? 150;
+}
 
 /**
  * Validate a portion estimate against typical ranges
