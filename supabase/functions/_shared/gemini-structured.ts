@@ -5,6 +5,8 @@ import { GoogleGenAI, Type as SchemaType } from 'npm:@google/genai@1.38.0';
 import { convertToGrams } from './portion-estimator.ts';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash';
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
 
 let aiClient: GoogleGenAI | null = null;
 
@@ -227,18 +229,96 @@ const DETECTION_SYSTEM_PROMPT = `You are an expert food recognition assistant. Y
 Remember: You are NOT a nutritionist. Your job is identification and gram-weight estimation only.`;
 
 /**
- * Fetch an image from URL and convert to base64
+ * Validate that a photo URL is safe to fetch (SSRF prevention).
+ * Only allows HTTPS URLs from trusted Supabase storage domains.
+ * Blocks private/internal IP ranges and metadata endpoints.
+ */
+export function validatePhotoUrl(url: string): void {
+    let parsed: URL;
+    try {
+        parsed = new URL(url);
+    } catch {
+        throw new Error('Invalid photo URL');
+    }
+
+    if (parsed.protocol !== 'https:') {
+        throw new Error('Only HTTPS photo URLs are allowed');
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block private/internal IP ranges and cloud metadata endpoints
+    if (
+        hostname === 'localhost' ||
+        hostname === '[::1]' ||
+        hostname.startsWith('127.') ||
+        hostname.startsWith('10.') ||
+        hostname.startsWith('192.168.') ||
+        hostname.startsWith('169.254.') ||
+        hostname.startsWith('0.') ||
+        hostname.includes('metadata.google') ||
+        hostname.includes('metadata.aws') ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+    ) {
+        throw new Error('Photo URL points to a restricted address');
+    }
+
+    // Only allow Supabase storage domains
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    let supabaseHost = '';
+    try {
+        supabaseHost = new URL(supabaseUrl).hostname;
+    } catch { /* ignore */ }
+
+    const allowedHostSuffixes = ['.supabase.co', '.supabase.in'];
+    if (supabaseHost) {
+        allowedHostSuffixes.push(supabaseHost);
+    }
+
+    const isAllowed = allowedHostSuffixes.some(suffix => {
+        const domain = suffix.startsWith('.') ? suffix.slice(1) : suffix;
+        return hostname === domain || hostname.endsWith(suffix);
+    });
+
+    if (!isAllowed) {
+        throw new Error('Photo URL must be from a trusted storage domain');
+    }
+}
+
+/**
+ * Fetch an image from URL and convert to base64.
+ * Validates URL safety, enforces size limits, and checks content type.
  */
 async function fetchImageAsBase64(
     photoUrl: string
 ): Promise<{ data: string; mimeType: string; size: number }> {
+    validatePhotoUrl(photoUrl);
+
     const response = await fetch(photoUrl);
     if (!response.ok) {
         throw new Error(`Failed to fetch image: ${response.status}`);
     }
 
-    const mimeType = response.headers.get('content-type') || 'image/jpeg';
+    // Validate content type is an actual image
+    const contentType = response.headers.get('content-type') || '';
+    const mimeType = ALLOWED_IMAGE_TYPES.find(t => contentType.startsWith(t));
+    if (!mimeType) {
+        throw new Error('Response is not a valid image type');
+    }
+
+    // Check content-length header before downloading
+    const contentLength = response.headers.get('content-length');
+    if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_SIZE_BYTES) {
+        throw new Error(`Image too large (max ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB)`);
+    }
+
     const buffer = await response.arrayBuffer();
+
+    // Double-check actual size after download
+    if (buffer.byteLength > MAX_IMAGE_SIZE_BYTES) {
+        throw new Error(`Image too large (max ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB)`);
+    }
+
     const bytes = new Uint8Array(buffer);
 
     // Convert to base64

@@ -120,12 +120,12 @@ async function searchUsdaFdc(
         return [];
     }
 
-    const searchUrl = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${apiKey}`;
+    const searchUrl = 'https://api.nal.usda.gov/fdc/v1/foods/search';
 
     try {
         const response = await fetch(searchUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
             body: JSON.stringify({
                 query,
                 pageSize: Math.min(pageSize, 50),
@@ -558,16 +558,26 @@ function getFallbackEstimate(
 }
 
 /**
- * Look up nutrition for multiple detected items in parallel
+ * Look up nutrition for detected items with bounded concurrency.
+ * Processes items in batches of BATCH_SIZE to avoid overwhelming external APIs.
  */
 export async function lookupNutritionBatch(
     items: DetectedItem[]
 ): Promise<NutritionLookupResult[]> {
-    const results = await Promise.all(
-        items.map((item, index) =>
-            lookupNutrition(item, `item_${index}_${Date.now()}`)
-        )
-    );
+    const MAX_ITEMS = 15;
+    const BATCH_SIZE = 3;
+    const cappedItems = items.slice(0, MAX_ITEMS);
+    const results: NutritionLookupResult[] = [];
+
+    for (let i = 0; i < cappedItems.length; i += BATCH_SIZE) {
+        const batch = cappedItems.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(
+            batch.map((item, batchIndex) =>
+                lookupNutrition(item, `item_${i + batchIndex}_${Date.now()}`)
+            )
+        );
+        results.push(...batchResults);
+    }
 
     return results;
 }

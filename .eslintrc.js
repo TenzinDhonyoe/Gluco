@@ -1,5 +1,9 @@
-// https://docs.expo.dev/guides/using-eslint/
 module.exports = {
-  extends: 'expo',
-  ignorePatterns: ['/dist/*'],
+  root: true,
+  extends: ['expo'],
+  ignorePatterns: [
+    'dist/*',
+    'supabase/**',
+    'unused/**',
+  ],
 };

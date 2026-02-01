@@ -3,7 +3,7 @@ import { fonts } from '@/hooks/useFonts';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, G, Line } from 'react-native-svg';
+import Svg, { G, Line } from 'react-native-svg';
 
 export const MetabolicScoreRing = ({
     size = 48,
@@ -35,8 +35,8 @@ export const MetabolicScoreRing = ({
 
             const x1 = center + (radius) * Math.cos(angle);
             const y1 = center + (radius) * Math.sin(angle);
-            const x2 = center + (radius - 6) * Math.cos(angle);
-            const y2 = center + (radius - 6) * Math.sin(angle);
+            const x2 = center + (radius - 3) * Math.cos(angle);
+            const y2 = center + (radius - 3) * Math.sin(angle);
 
             const isActive = score !== null && i < activeTicks;
             const tickColor = isActive ? scoreColor : "rgba(255,255,255,0.15)";
@@ -50,7 +50,7 @@ export const MetabolicScoreRing = ({
                     x2={x2}
                     y2={y2}
                     stroke={tickColor}
-                    strokeWidth="2"
+                    strokeWidth="1.5"
                     strokeLinecap="round"
                     opacity={tickOpacity}
                 />
@@ -64,16 +64,6 @@ export const MetabolicScoreRing = ({
             <Svg width={size} height={size}>
                 {/* Tick marks ring */}
                 <G>{ticks}</G>
-
-                {/* Inner solid ring */}
-                <Circle
-                    cx={center}
-                    cy={center}
-                    r={innerRadius}
-                    stroke="rgba(255,255,255,0.1)"
-                    strokeWidth={strokeWidth}
-                    fill="none"
-                />
             </Svg>
             <View style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center' }]}>
                 {score !== null ? (

@@ -35,6 +35,7 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
     const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
     const completeTimerRef = useRef<NodeJS.Timeout | null>(null);
     const syncStartRef = useRef<number | null>(null);
+    const wasSyncingRef = useRef(false);
     const MIN_SPIN_MS = 800;
     const ROTATION_MS = 900;
 
@@ -95,7 +96,7 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
 
     // Handle sync state changes
     useEffect(() => {
-        // Clear any pending hide timer
+        // Clear any pending timers
         if (hideTimerRef.current) {
             clearTimeout(hideTimerRef.current);
             hideTimerRef.current = null;
@@ -106,29 +107,36 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
         }
 
         if (isSyncing) {
-            // Started syncing
-            if (bannerState !== 'syncing') {
-                syncStartRef.current = Date.now();
-                setBannerState('syncing');
-                showBanner();
-            } else if (!isVisible) {
-                showBanner();
-            }
+            // Started syncing - show banner
+            wasSyncingRef.current = true;
+            syncStartRef.current = Date.now();
+            setBannerState('syncing');
+            showBanner();
             return;
         }
 
-        if (bannerState === 'syncing') {
-            // Finished syncing - show completion
+        // Not syncing - check if we just finished syncing (transition from true to false)
+        if (wasSyncingRef.current) {
+            wasSyncingRef.current = false;
+
+            // Calculate remaining spin time
             const startedAt = syncStartRef.current ?? Date.now();
             const elapsed = Date.now() - startedAt;
             const remaining = Math.max(0, MIN_SPIN_MS - elapsed);
+
             completeTimerRef.current = setTimeout(() => {
                 setBannerState('complete');
                 showCheckmark();
 
-                // Auto-hide after delay
+                // Auto-hide after showing completion
                 hideTimerRef.current = setTimeout(() => {
                     hideBanner();
+                    // Fallback: force hide after animation should complete
+                    setTimeout(() => {
+                        setIsVisible(false);
+                        setBannerState('hidden');
+                        clearSyncStart();
+                    }, 300);
                 }, 1500);
             }, remaining);
         }
@@ -141,7 +149,7 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
                 clearTimeout(completeTimerRef.current);
             }
         };
-    }, [isSyncing, bannerState, isVisible]);
+    }, [isSyncing]);
 
     useEffect(() => {
         startRotation();

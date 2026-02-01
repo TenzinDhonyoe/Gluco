@@ -12,9 +12,6 @@ import {
     SelectedItemFromAnalysis,
 } from './types';
 
-// Re-export types for convenience
-export * from './types';
-
 /**
  * Options for photo analysis
  */

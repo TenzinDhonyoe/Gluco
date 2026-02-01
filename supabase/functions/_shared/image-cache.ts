@@ -2,7 +2,7 @@
 // Image analysis caching with SHA-256 hash keys
 
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { FoodDetectionResult } from './gemini-structured.ts';
+import { FoodDetectionResult, validatePhotoUrl } from './gemini-structured.ts';
 
 // Cache TTL in milliseconds (10 minutes)
 const IMAGE_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -81,6 +81,8 @@ export async function computeHashFromBase64(base64Data: string): Promise<string>
  * Compute hash from image URL by fetching and hashing
  */
 export async function computeHashFromUrl(imageUrl: string): Promise<string> {
+    validatePhotoUrl(imageUrl);
+
     const response = await fetch(imageUrl);
     if (!response.ok) {
         throw new Error(`Failed to fetch image: ${response.status}`);

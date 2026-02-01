@@ -7,7 +7,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
-import { detectFoodItems, FoodDetectionResult } from '../_shared/gemini-structured.ts';
+import { detectFoodItems, FoodDetectionResult, validatePhotoUrl } from '../_shared/gemini-structured.ts';
 import {
     cacheImageAnalysis,
     computeHashFromUrl,
@@ -23,7 +23,7 @@ import {
 import { convertToGrams, DeviceDepthPayload } from '../_shared/portion-estimator.ts';
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -92,11 +92,6 @@ interface AnalysisResponse {
     };
     followups?: FollowupQuestion[];
     cache_hit: boolean;
-    debug?: {
-        processingTimeMs: number;
-        detectionTimeMs: number;
-        nutritionLookupTimeMs: number;
-    };
 }
 
 // ============================================
@@ -328,6 +323,10 @@ async function analyzePhoto(
 
         // Check for empty detection
         if (!detection.items || detection.items.length === 0) {
+            log('INFO', 'Empty detection result', {
+                processingTimeMs: Date.now() - startTime,
+                detectionTimeMs,
+            });
             return {
                 status: 'failed',
                 items: [],
@@ -337,11 +336,6 @@ async function analyzePhoto(
                     lighting_issue: detection.photo_quality?.lighting_issue ?? false,
                 },
                 cache_hit: cacheHit,
-                debug: {
-                    processingTimeMs: Date.now() - startTime,
-                    detectionTimeMs,
-                    nutritionLookupTimeMs: 0,
-                },
             };
         }
 
@@ -370,6 +364,12 @@ async function analyzePhoto(
         // Determine status
         const status = followups.length > 0 ? 'needs_followup' : 'complete';
 
+        log('INFO', 'Analysis pipeline timing', {
+            processingTimeMs: Date.now() - startTime,
+            detectionTimeMs,
+            nutritionLookupTimeMs,
+        });
+
         return {
             status,
             items: analyzedItems,
@@ -380,11 +380,6 @@ async function analyzePhoto(
             },
             followups: followups.length > 0 ? followups : undefined,
             cache_hit: cacheHit,
-            debug: {
-                processingTimeMs: Date.now() - startTime,
-                detectionTimeMs,
-                nutritionLookupTimeMs,
-            },
         };
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -399,11 +394,6 @@ async function analyzePhoto(
                 lighting_issue: false,
             },
             cache_hit: false,
-            debug: {
-                processingTimeMs: Date.now() - startTime,
-                detectionTimeMs,
-                nutritionLookupTimeMs,
-            },
         };
     }
 }
@@ -439,6 +429,25 @@ serve(async (req) => {
             );
         }
 
+        // Validate photo URL is safe (SSRF prevention)
+        try {
+            validatePhotoUrl(photo_url);
+        } catch (urlError) {
+            log('WARN', 'Invalid photo URL', { requestId });
+            return new Response(
+                JSON.stringify({ error: 'Invalid photo URL' }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
+        // Validate input sizes
+        if (followup_responses && followup_responses.length > 20) {
+            return new Response(
+                JSON.stringify({ error: 'Too many followup responses (max 20)' }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
         // Auth check
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -464,7 +473,6 @@ serve(async (req) => {
             status: result.status,
             itemCount: result.items.length,
             cacheHit: result.cache_hit,
-            processingTimeMs: result.debug?.processingTimeMs,
         });
 
         return new Response(
@@ -478,7 +486,6 @@ serve(async (req) => {
         return new Response(
             JSON.stringify({
                 error: 'Internal server error',
-                message: errorMessage,
                 requestId,
             }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
