@@ -51,7 +51,7 @@ function mapRangeToFibreRange(range: RangeKey): 'today' | 'week' | 'month' {
  */
 export function useTodayScreenData(_range: RangeKey): TodayScreenData {
     const { user, loading: authLoading } = useAuth();
-    const [data, setData] = useState<TodayScreenData>({
+    const [data, setData] = useState<Omit<TodayScreenData, 'refetch'>>({
         glucoseLogs: [],
         activityLogs: [],
         fibreSummary: null,

@@ -81,7 +81,7 @@ export default function MealPhotoEstimateScreen() {
         }
 
         router.dismissTo({
-            pathname: '/log-meal',
+            pathname: '/log-meal' as any,
             params: {
                 mealId: params.mealId, // Pass back mealId just in case
                 analyzedItems: JSON.stringify(items)

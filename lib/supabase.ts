@@ -1406,13 +1406,13 @@ export interface PremealResult {
 export interface PremealMealItem {
     display_name: string;
     quantity: number;
-    unit?: string;
+    unit?: string | null;
     nutrients: {
-        calories_kcal?: number;
-        carbs_g?: number;
-        protein_g?: number;
-        fat_g?: number;
-        fibre_g?: number;
+        calories_kcal?: number | null;
+        carbs_g?: number | null;
+        protein_g?: number | null;
+        fat_g?: number | null;
+        fibre_g?: number | null;
     };
 }
 
@@ -1603,6 +1603,10 @@ export interface UserAction {
     last_evaluated_at: string | null;
     created_at: string;
     updated_at: string;
+    cta?: {
+        label: string;
+        route: string;
+    };
 }
 
 export interface CreateUserActionInput {

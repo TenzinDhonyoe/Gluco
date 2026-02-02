@@ -113,6 +113,7 @@ export const Colors = {
     buttonPrimaryText: '#FFFFFF',
     buttonSecondary: '#285E2A',
     buttonSecondaryBorder: '#448D47',
+    buttonBorder: 'rgba(255, 255, 255, 0.1)',
     buttonDisabled: '#2A3036',
     buttonDestructive: '#FF3B30',
 
