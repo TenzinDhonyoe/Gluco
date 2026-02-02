@@ -37,6 +37,11 @@ const SCORE_WEIGHTS = {
     SUPPLEMENT_PENALTY: -40,    // Looks like a supplement, not food
     INGREDIENT_PENALTY: -20,    // Looks like raw ingredient list
 
+    // Multi-token query adjustments (only for 2+ token queries)
+    ALL_TOKENS_MATCH: 35,       // Bonus when every query token appears in result name
+    PARTIAL_MATCH_PENALTY: -15, // Per missing token in multi-word query
+    RAW_COMMODITY_PENALTY: -25, // USDA raw ingredient patterns ("Fat, X", "Butter, salted")
+
     // Provider preference
     HAS_BRAND: 5,               // Branded items often more relevant
 
@@ -62,6 +67,16 @@ const INGREDIENT_PATTERNS = [
     /ingredients?:/i,
     /contains?:/i,
     /\([^)]{100,}\)/,  // Very long parenthetical (ingredient list)
+];
+
+// Patterns suggesting USDA raw commodities (e.g., "Fat, chicken", "Butter, salted")
+// Only applied when user query has 2+ tokens to avoid penalizing single-word searches
+const RAW_COMMODITY_PATTERNS = [
+    /^fat[,\s]/i,                       // "Fat, chicken"
+    /^oil[,\s]/i,                       // "Oil, olive"
+    /,\s*(salted|unsalted|raw|dried|fresh|frozen|canned)\s*$/i,
+    /^(shortening|lard|tallow|suet)[,\s]/i,
+    /^(spice|herb|seed|flour|starch)[,\s]/i,
 ];
 
 export interface ScoredResult {
@@ -237,6 +252,33 @@ export function scoreResult(food: NormalizedFood, query: string): ScoredResult {
     if (isIngredientList) {
         score += SCORE_WEIGHTS.INGREDIENT_PENALTY;
         breakdown['ingredient_penalty'] = SCORE_WEIGHTS.INGREDIENT_PENALTY;
+    }
+
+    // 13. Multi-token query adjustments (only for 2+ token queries)
+    if (queryTokens.length >= 2) {
+        const missingTokens = queryTokens.length - matchedTokens.length;
+
+        // Bonus when all query tokens appear in result name
+        if (missingTokens === 0) {
+            score += SCORE_WEIGHTS.ALL_TOKENS_MATCH;
+            breakdown['all_tokens_match'] = SCORE_WEIGHTS.ALL_TOKENS_MATCH;
+        }
+
+        // Penalty per missing token
+        if (missingTokens > 0) {
+            const penalty = missingTokens * SCORE_WEIGHTS.PARTIAL_MATCH_PENALTY;
+            score += penalty;
+            breakdown['partial_match_penalty'] = penalty;
+        }
+
+        // Raw commodity penalty for USDA-style ingredient names
+        const isRawCommodity = RAW_COMMODITY_PATTERNS.some(pattern =>
+            pattern.test(food.display_name)
+        );
+        if (isRawCommodity) {
+            score += SCORE_WEIGHTS.RAW_COMMODITY_PENALTY;
+            breakdown['raw_commodity_penalty'] = SCORE_WEIGHTS.RAW_COMMODITY_PENALTY;
+        }
     }
 
     return {

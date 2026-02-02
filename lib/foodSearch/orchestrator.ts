@@ -17,7 +17,7 @@ import {
     setCache,
 } from './cache';
 import { getQueryRewrite, hasGeminiRewrite } from './geminiRewrite';
-import { fixCommonTypos, getQueryVariants, normalizeQuery } from './normalize';
+import { fixCommonTypos, getQueryVariants, normalizeQuery, tokenize } from './normalize';
 import { needsGeminiFallback, rankResults } from './rank';
 import { generateRequestId, isStaleRequest } from './requestManager';
 import { createTimer, logSearchTiming } from './telemetry';
@@ -233,11 +233,15 @@ export async function searchWithProgressiveResults(
     };
 
     // Emit Edge results
+    // Use a higher threshold for multi-word queries (dishes) so Gemini kicks in
+    // more aggressively when USDA returns weak ingredient-level matches
+    const queryTokens = tokenize(typoFixedQuery);
+    const scoreThreshold = queryTokens.length >= 2 ? 75 : CONFIG.MIN_SCORE_THRESHOLD;
     const needsGemini = aiEnabled && !skipGemini && needsGeminiFallback(
         edgeResults,
         typoFixedQuery,
         CONFIG.MIN_RESULTS_FOR_GOOD_SEARCH,
-        CONFIG.MIN_SCORE_THRESHOLD
+        scoreThreshold
     );
 
     if (onPartialResults) {

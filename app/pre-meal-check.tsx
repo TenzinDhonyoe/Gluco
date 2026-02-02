@@ -4,6 +4,7 @@ import { fonts } from '@/hooks/useFonts';
 import {
     addMealItems,
     createMeal,
+    deleteMeal,
     invokePremealAnalyze,
     PremealAdjustmentTip,
     PremealDriver,
@@ -490,10 +491,15 @@ export default function PreMealCheckScreen() {
                         sodium_mg: item.sodium_mg ?? null,
                     },
                 }));
-                await addMealItems(user.id, meal.id, items);
+                try {
+                    await addMealItems(user.id, meal.id, items);
+                } catch (itemError) {
+                    console.error('Failed to save meal items, cleaning up meal:', itemError);
+                    await deleteMeal(meal.id, user.id);
+                    Alert.alert('Save Failed', 'Could not save meal items. Please try again.');
+                    return;
+                }
             }
-
-            // Removed PostMealReview creation logic
 
             Alert.alert('Success', 'Meal logged successfully!', [
                 { text: 'OK', onPress: () => router.dismissTo('/(tabs)') },

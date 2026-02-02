@@ -9,6 +9,7 @@ import {
   createGlucoseLog,
   createMeal,
   CreateMealItemInput,
+  deleteMeal,
   invokeMealAdjustments,
   MealAdjustment,
   NormalizedFood,
@@ -828,7 +829,15 @@ export default function LogMealReviewScreen() {
         },
       }));
 
-      await addMealItems(user.id, meal.id, mealItems);
+      try {
+        await addMealItems(user.id, meal.id, mealItems);
+      } catch (itemError) {
+        // Items failed to save - clean up the orphaned meal
+        console.error('Failed to save meal items, cleaning up meal:', itemError);
+        await deleteMeal(meal.id, user.id);
+        Alert.alert('Save Failed', 'Could not save meal items. Please try again.');
+        return;
+      }
 
       if (glucoseLevelMmol !== null) {
         await createGlucoseLog(user.id, {
@@ -843,7 +852,9 @@ export default function LogMealReviewScreen() {
       const proposedCheckIn = new Date(mealTime.getTime() + 60 * 60 * 1000);
       const minCheckIn = new Date(Date.now() + 60 * 1000);
       const checkInTime = proposedCheckIn > minCheckIn ? proposedCheckIn : minCheckIn;
-      await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime);
+      await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime).catch(() => {
+        // Non-critical - don't fail the save if notification scheduling fails
+      });
 
       await AsyncStorage.multiRemove([MEAL_DRAFT_KEY, MEAL_ITEMS_DRAFT_KEY]);
 

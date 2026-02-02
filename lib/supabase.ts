@@ -446,6 +446,63 @@ export async function getGlucoseLogs(
     return data || [];
 }
 
+export async function getGlucoseLogById(
+    logId: string,
+    userId: string
+): Promise<GlucoseLog | null> {
+    const { data, error } = await supabase
+        .from('glucose_logs')
+        .select('*')
+        .eq('id', logId)
+        .eq('user_id', userId)
+        .single();
+
+    if (error) {
+        console.error('Error fetching glucose log by id:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function updateGlucoseLog(
+    logId: string,
+    userId: string,
+    updates: Partial<Pick<GlucoseLog, 'glucose_level' | 'unit' | 'context' | 'notes' | 'logged_at'>>
+): Promise<GlucoseLog | null> {
+    const { data, error } = await supabase
+        .from('glucose_logs')
+        .update({
+            ...updates,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', logId)
+        .eq('user_id', userId)
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error updating glucose log:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function deleteGlucoseLog(logId: string, userId: string): Promise<boolean> {
+    const { error } = await supabase
+        .from('glucose_logs')
+        .delete()
+        .eq('id', logId)
+        .eq('user_id', userId);
+
+    if (error) {
+        console.error('Error deleting glucose log:', error);
+        return false;
+    }
+    return true;
+}
+
 export async function getGlucoseLogsByDateRange(
     userId: string,
     startDate: Date,
@@ -533,6 +590,63 @@ export async function getActivityLogs(
     }
 
     return data || [];
+}
+
+export async function getActivityLogById(
+    logId: string,
+    userId: string
+): Promise<ActivityLog | null> {
+    const { data, error } = await supabase
+        .from('activity_logs')
+        .select('*')
+        .eq('id', logId)
+        .eq('user_id', userId)
+        .single();
+
+    if (error) {
+        console.error('Error fetching activity log by id:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function updateActivityLog(
+    logId: string,
+    userId: string,
+    updates: Partial<Pick<ActivityLog, 'activity_name' | 'duration_minutes' | 'intensity' | 'notes' | 'logged_at'>>
+): Promise<ActivityLog | null> {
+    const { data, error } = await supabase
+        .from('activity_logs')
+        .update({
+            ...updates,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', logId)
+        .eq('user_id', userId)
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error updating activity log:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function deleteActivityLog(logId: string, userId: string): Promise<boolean> {
+    const { error } = await supabase
+        .from('activity_logs')
+        .delete()
+        .eq('id', logId)
+        .eq('user_id', userId);
+
+    if (error) {
+        console.error('Error deleting activity log:', error);
+        return false;
+    }
+    return true;
 }
 
 export async function getActivityLogsByDateRange(
@@ -703,10 +817,24 @@ export async function addMealItems(
 
     if (error) {
         console.error('Error adding meal items:', error);
-        return [];
+        throw new Error(`Failed to save meal items: ${error.message}`);
     }
 
     return data || [];
+}
+
+export async function deleteMeal(mealId: string, userId: string): Promise<boolean> {
+    const { error } = await supabase
+        .from('meals')
+        .delete()
+        .eq('id', mealId)
+        .eq('user_id', userId);
+
+    if (error) {
+        console.error('Error deleting meal:', error);
+        return false;
+    }
+    return true;
 }
 
 export async function getMealsByDateRange(
@@ -747,6 +875,49 @@ export async function getMeals(
     }
 
     return data || [];
+}
+
+export async function getMealById(
+    mealId: string,
+    userId: string
+): Promise<Meal | null> {
+    const { data, error } = await supabase
+        .from('meals')
+        .select('*')
+        .eq('id', mealId)
+        .eq('user_id', userId)
+        .single();
+
+    if (error) {
+        console.error('Error fetching meal by id:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function updateMeal(
+    mealId: string,
+    userId: string,
+    updates: Partial<Pick<Meal, 'name' | 'meal_type' | 'notes' | 'logged_at'>>
+): Promise<Meal | null> {
+    const { data, error } = await supabase
+        .from('meals')
+        .update({
+            ...updates,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', mealId)
+        .eq('user_id', userId)
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error updating meal:', error);
+        return null;
+    }
+
+    return data;
 }
 
 export async function getMealItems(mealId: string): Promise<MealItem[]> {

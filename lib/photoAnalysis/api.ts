@@ -192,11 +192,15 @@ export async function analyzeMealPhotoWithRetry(
 
         // Check if error is retryable
         const error = lastResult.error;
-        const isRetryable = error.message?.includes('timeout') ||
-            error.message?.includes('network') ||
-            error.message?.includes('502') ||
-            error.message?.includes('503') ||
-            error.message?.includes('504');
+        const errorMsg = error.message?.toLowerCase() || '';
+        const isRetryable = errorMsg.includes('timeout') ||
+            errorMsg.includes('network') ||
+            errorMsg.includes('429') ||
+            errorMsg.includes('rate limit') ||
+            errorMsg.includes('500') ||
+            errorMsg.includes('502') ||
+            errorMsg.includes('503') ||
+            errorMsg.includes('504');
 
         if (!isRetryable || attempt === maxRetries) {
             break;

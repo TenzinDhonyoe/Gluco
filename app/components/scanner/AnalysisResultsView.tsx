@@ -78,6 +78,8 @@ interface AnalysisResultsViewProps {
     followupComponent?: React.ReactNode;
     /** Optional warning message about photo quality */
     photoQualityWarning?: string;
+    /** Whether a save is currently in progress */
+    isSaving?: boolean;
 }
 
 // Format serving size for display
@@ -216,6 +218,7 @@ export default function AnalysisResultsView({
     macroOverrides,
     followupComponent,
     photoQualityWarning,
+    isSaving = false,
 }: AnalysisResultsViewProps) {
     const insets = useSafeAreaInsets();
     const { user } = useAuth();
@@ -774,13 +777,17 @@ export default function AnalysisResultsView({
                         <AnimatedPressable style={styles.editButton} onPress={onReview}>
                             <Text style={styles.editButtonText}>Edit</Text>
                         </AnimatedPressable>
-                        <AnimatedPressable style={styles.logButton} onPress={() => {
-                            const selectedSuggestions = sortedTips
-                                .filter((tip, index) => suggestionActions[`${index}_${tip.action_type}`] === 'try')
-                                .map(tip => ({ title: tip.title, action_type: tip.action_type }));
-                            onSave(selectedSuggestions);
-                        }}>
-                            <Text style={styles.logButtonText}>{primaryActionLabel}</Text>
+                        <AnimatedPressable
+                            style={[styles.logButton, isSaving && styles.logButtonDisabled]}
+                            disabled={isSaving}
+                            onPress={() => {
+                                const selectedSuggestions = sortedTips
+                                    .filter((tip, index) => suggestionActions[`${index}_${tip.action_type}`] === 'try')
+                                    .map(tip => ({ title: tip.title, action_type: tip.action_type }));
+                                onSave(selectedSuggestions);
+                            }}
+                        >
+                            <Text style={styles.logButtonText}>{isSaving ? 'Saving...' : primaryActionLabel}</Text>
                         </AnimatedPressable>
                     </View>
                 </View>
@@ -1245,6 +1252,9 @@ const styles = StyleSheet.create({
         paddingVertical: 16,
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    logButtonDisabled: {
+        opacity: 0.5,
     },
     logButtonText: {
         fontFamily: fonts.semiBold,

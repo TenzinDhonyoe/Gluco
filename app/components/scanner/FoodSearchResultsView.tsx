@@ -412,8 +412,6 @@ export default function FoodSearchResultsView({
                     </TouchableOpacity>
                 )}
 
-
-
                 {/* Tabs */}
                 <View style={styles.tabsContainer}>
                     <TouchableOpacity

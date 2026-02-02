@@ -95,6 +95,7 @@ export default function RootLayout() {
             <Stack.Screen name="log-meal-items" options={{ animation: 'fade' }} />
             <Stack.Screen name="log-glucose" options={{ animation: 'fade' }} />
             <Stack.Screen name="log-activity" options={{ animation: 'fade' }} />
+            <Stack.Screen name="log-detail" options={{ animation: 'fade' }} />
             <Stack.Screen name="settings" />
             <Stack.Screen name="customization" />
             <Stack.Screen name="data-sources" />

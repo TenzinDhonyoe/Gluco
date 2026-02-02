@@ -83,6 +83,82 @@ const COMMON_TYPOS: Record<string, string> = {
     'fibre': 'fiber',
 };
 
+// Common dish names mapped to alternative search terms
+// Used to expand queries so USDA/provider searches find actual dishes
+const COMMON_DISHES: Record<string, string[]> = {
+    // South Asian
+    'butter chicken': ['murgh makhani', 'chicken makhani', 'butter chicken curry'],
+    'chicken tikka masala': ['tikka masala', 'chicken tikka curry'],
+    'palak paneer': ['spinach paneer', 'saag paneer'],
+    'dal makhani': ['black lentil curry', 'dal makhni'],
+    'biryani': ['chicken biryani', 'lamb biryani', 'biryani rice'],
+    'chicken biryani': ['biryani chicken', 'chicken biryani rice'],
+    'naan': ['naan bread', 'indian flatbread'],
+    'samosa': ['vegetable samosa', 'indian samosa'],
+    'tandoori chicken': ['tandoori', 'chicken tandoori'],
+    'chana masala': ['chickpea curry', 'chole masala'],
+    'aloo gobi': ['potato cauliflower curry', 'aloo gobhi'],
+
+    // East Asian
+    'pad thai': ['pad thai noodles', 'thai stir fry noodles'],
+    'fried rice': ['chinese fried rice', 'stir fried rice'],
+    'kung pao chicken': ['kung pao', 'gong bao chicken'],
+    'lo mein': ['lo mein noodles', 'chinese lo mein'],
+    'chow mein': ['chow mein noodles', 'chinese chow mein'],
+    'general tso chicken': ['general tso', 'general tsos chicken'],
+    'sweet and sour chicken': ['sweet sour chicken'],
+    'egg fried rice': ['chinese egg fried rice'],
+    'teriyaki chicken': ['chicken teriyaki'],
+    'ramen': ['ramen noodles', 'japanese ramen'],
+    'sushi roll': ['maki roll', 'sushi'],
+    'pho': ['pho soup', 'vietnamese pho', 'pho noodle soup'],
+
+    // Mexican / Latin
+    'burrito': ['bean burrito', 'burrito tortilla'],
+    'chicken burrito': ['burrito chicken'],
+    'tacos': ['taco', 'taco shell with filling'],
+    'quesadilla': ['cheese quesadilla', 'chicken quesadilla'],
+    'enchiladas': ['enchilada', 'chicken enchilada'],
+    'guacamole': ['avocado dip', 'guac'],
+    'nachos': ['nachos with cheese', 'tortilla chips with cheese'],
+
+    // Italian
+    'spaghetti bolognese': ['spaghetti with meat sauce', 'bolognese pasta'],
+    'chicken parmesan': ['chicken parmigiana', 'chicken parm'],
+    'lasagna': ['lasagne', 'beef lasagna'],
+    'fettuccine alfredo': ['alfredo pasta', 'fettuccini alfredo'],
+    'margherita pizza': ['cheese pizza', 'pizza margherita'],
+    'carbonara': ['spaghetti carbonara', 'pasta carbonara'],
+    'risotto': ['italian risotto', 'mushroom risotto'],
+
+    // American / Western
+    'mac and cheese': ['macaroni and cheese', 'mac n cheese'],
+    'grilled cheese': ['grilled cheese sandwich', 'cheese sandwich grilled'],
+    'chicken pot pie': ['pot pie chicken'],
+    'meatloaf': ['meat loaf', 'beef meatloaf'],
+    'fish and chips': ['fish n chips', 'fried fish with fries'],
+    'chicken wings': ['buffalo wings', 'hot wings'],
+    'pulled pork': ['pulled pork sandwich', 'bbq pulled pork'],
+    'club sandwich': ['turkey club sandwich'],
+    'caesar salad': ['chicken caesar salad', 'caesar salad with chicken'],
+    'clam chowder': ['new england clam chowder', 'cream of clam soup'],
+    'chicken noodle soup': ['chicken soup with noodles'],
+
+    // Middle Eastern
+    'falafel': ['falafel wrap', 'chickpea falafel'],
+    'hummus': ['chickpea hummus', 'hummus dip'],
+    'shawarma': ['chicken shawarma', 'shawarma wrap'],
+    'kebab': ['chicken kebab', 'shish kebab'],
+
+    // Breakfast
+    'eggs benedict': ['egg benedict', 'benedict eggs'],
+    'french toast': ['french toast bread'],
+    'pancakes': ['pancake', 'buttermilk pancakes'],
+    'avocado toast': ['toast with avocado'],
+    'omelette': ['omelet', 'egg omelette'],
+    'acai bowl': ['acai berry bowl', 'acai smoothie bowl'],
+};
+
 // Food aliases and synonyms (term -> canonical)
 const FOOD_ALIASES: Record<string, string> = {
     'poulet': 'chicken',
@@ -243,6 +319,12 @@ export function getQueryVariants(query: string): string[] {
             variants.add(normalized.replace(token, FOOD_ALIASES[token]));
         }
     });
+
+    // Add common dish variants (check both normalized and typo-fixed versions)
+    const dishVariants = COMMON_DISHES[normalized] || COMMON_DISHES[fixed];
+    if (dishVariants) {
+        dishVariants.forEach(variant => variants.add(variant));
+    }
 
     // Remove empty strings and duplicates
     return Array.from(variants).filter(v => v.length > 0);

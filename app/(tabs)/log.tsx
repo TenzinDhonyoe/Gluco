@@ -264,8 +264,13 @@ function TipCard({ data, onPress }: { data: TipCardData; onPress?: () => void })
 
 // Log Entry Component
 function LogEntryRow({ entry }: { entry: LogEntry }) {
+    const handlePress = () => {
+        const rawId = entry.id.replace(/^(meal|glucose|activity)-/, '');
+        router.push(`/log-detail?type=${entry.type}&id=${rawId}` as any);
+    };
+
     return (
-        <AnimatedPressable style={styles.logEntry}>
+        <AnimatedPressable style={styles.logEntry} onPress={handlePress}>
             <View style={styles.logEntryLeft}>
                 <View style={styles.logIcon}>
                     {getLogIcon(entry.type)}
@@ -275,7 +280,10 @@ function LogEntryRow({ entry }: { entry: LogEntry }) {
                     <Text style={styles.logDescription}>{entry.description}</Text>
                 </View>
             </View>
-            <Text style={styles.logTime}>{entry.time}</Text>
+            <View style={styles.logEntryRight}>
+                <Text style={styles.logTime}>{entry.time}</Text>
+                <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />
+            </View>
         </AnimatedPressable>
     );
 }
@@ -859,6 +867,11 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: Colors.textPrimary,
         lineHeight: 14 * 0.95,
+    },
+    logEntryRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
     },
     logTime: {
         fontFamily: fonts.regular,

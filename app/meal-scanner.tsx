@@ -23,6 +23,7 @@ import {
     AnalyzedItem,
     createMeal,
     CreateMealItemInput,
+    deleteMeal,
     invokeMealPhotoAnalyze,
     NormalizedFood,
     searchFoodsWithVariants,
@@ -374,6 +375,7 @@ export default function MealScannerScreen() {
     const [followupResponses, setFollowupResponses] = useState<FollowupResponse[]>([]);
     const [labelSubMode, setLabelSubMode] = useState<'barcode' | 'label'>('label');
     const [isCartModalOpen, setIsCartModalOpen] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
 
     // Macro overrides logic
     const [editMacrosOpen, setEditMacrosOpen] = useState(false);
@@ -738,7 +740,9 @@ export default function MealScannerScreen() {
     }, [analysisResult]);
 
     const handleAnalysisSave = useCallback(async (checkedSuggestions: { title: string; action_type: string }[]) => {
-        if (!analysisResult || !user) return;
+        if (!analysisResult || !user || isSaving) return;
+
+        setIsSaving(true);
 
         try {
             // Upload photo if needed
@@ -759,46 +763,90 @@ export default function MealScannerScreen() {
                 ? `Committed to: ${checkedSuggestions.map(s => s.title).join(', ')}`
                 : null;
 
+            // Determine meal type based on time of day
+            const now = new Date();
+            const hour = now.getHours();
+            let mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack' = 'snack';
+            if (hour >= 5 && hour < 11) mealType = 'breakfast';
+            else if (hour >= 11 && hour < 15) mealType = 'lunch';
+            else if (hour >= 18 && hour < 22) mealType = 'dinner';
+
             // Create the meal
             const meal = await createMeal(user.id, {
                 name: autoMealName,
-                meal_type: 'snack', // Default to snack, could be made dynamic
-                logged_at: new Date().toISOString(),
+                meal_type: mealType,
+                logged_at: now.toISOString(),
                 photo_path: photoUrl,
                 notes: suggestionNotes,
             });
 
             if (!meal) {
-                Alert.alert('Error', 'Failed to save meal.');
+                Alert.alert('Error', 'Failed to save meal. Please check your connection and try again.');
                 return;
             }
 
-            // Create meal items with macro overrides applied
-            const mealItems: CreateMealItemInput[] = analysisResult.items.map((item) => ({
-                provider: item.provider || 'analyzed',
-                external_id: item.external_id || `analyzed_${Date.now()}_${Math.random()}`,
-                display_name: item.display_name,
-                brand: item.brand,
-                quantity: item.quantity || 1,
-                unit: 'serving',
-                serving_size: item.serving_size,
-                serving_unit: item.serving_unit,
-                nutrients: {
-                    calories_kcal: macroOverrides.calories ?? item.calories_kcal,
-                    carbs_g: macroOverrides.carbs ?? item.carbs_g,
-                    protein_g: macroOverrides.protein ?? item.protein_g,
-                    fat_g: macroOverrides.fat ?? item.fat_g,
-                    fibre_g: macroOverrides.fibre ?? item.fibre_g,
+            // Build meal items - distribute macro overrides proportionally across items
+            const hasOverrides = macroOverrides.calories !== undefined ||
+                macroOverrides.carbs !== undefined ||
+                macroOverrides.protein !== undefined ||
+                macroOverrides.fat !== undefined ||
+                macroOverrides.fibre !== undefined;
+
+            const mealItems: CreateMealItemInput[] = analysisResult.items.map((item) => {
+                let nutrients = {
+                    calories_kcal: item.calories_kcal,
+                    carbs_g: item.carbs_g,
+                    protein_g: item.protein_g,
+                    fat_g: item.fat_g,
+                    fibre_g: item.fibre_g,
                     sugar_g: item.sugar_g,
                     sodium_mg: item.sodium_mg,
-                },
-            }));
+                };
 
-            await addMealItems(user.id, meal.id, mealItems);
+                // Only apply overrides for single-item meals to avoid inflating totals
+                if (hasOverrides && analysisResult.items.length === 1) {
+                    nutrients = {
+                        ...nutrients,
+                        calories_kcal: macroOverrides.calories ?? nutrients.calories_kcal,
+                        carbs_g: macroOverrides.carbs ?? nutrients.carbs_g,
+                        protein_g: macroOverrides.protein ?? nutrients.protein_g,
+                        fat_g: macroOverrides.fat ?? nutrients.fat_g,
+                        fibre_g: macroOverrides.fibre ?? nutrients.fibre_g,
+                    };
+                }
+
+                return {
+                    provider: item.provider || 'analyzed',
+                    external_id: item.external_id || `analyzed_${Date.now()}_${Math.random()}`,
+                    display_name: item.display_name,
+                    brand: item.brand,
+                    quantity: item.quantity || 1,
+                    unit: 'serving',
+                    serving_size: item.serving_size,
+                    serving_unit: item.serving_unit,
+                    nutrients,
+                };
+            });
+
+            try {
+                await addMealItems(user.id, meal.id, mealItems);
+            } catch (itemError) {
+                // Items failed to save - clean up the orphaned meal
+                console.error('Failed to save meal items, cleaning up meal:', itemError);
+                await deleteMeal(meal.id, user.id);
+                Alert.alert(
+                    'Save Failed',
+                    'Could not save meal items. Please try again.',
+                    [{ text: 'OK' }]
+                );
+                return;
+            }
 
             // Schedule post-meal check-in notification (1 hour from now)
             const checkInTime = new Date(Date.now() + 60 * 60 * 1000);
-            await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime);
+            await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime).catch(() => {
+                // Non-critical - don't fail the save if notification scheduling fails
+            });
 
             // Clear state and navigate back
             setAnalysisResult(null);
@@ -815,8 +863,10 @@ export default function MealScannerScreen() {
         } catch (error) {
             console.error('Save meal error:', error);
             Alert.alert('Error', 'Failed to save meal. Please try again.');
+        } finally {
+            setIsSaving(false);
         }
-    }, [analysisResult, user, macroOverrides]);
+    }, [analysisResult, user, macroOverrides, isSaving]);
 
     const handleAnalysisClose = useCallback(() => {
         setAnalysisResult(null);
@@ -1034,6 +1084,7 @@ export default function MealScannerScreen() {
                         onSave={handleAnalysisSave}
                         onClose={handleAnalysisClose}
                         macroOverrides={macroOverrides}
+                        isSaving={isSaving}
                         followupComponent={pendingFollowups.length > 0 ? (
                             <FollowupQuestionView
                                 questions={pendingFollowups}
@@ -1068,7 +1119,11 @@ export default function MealScannerScreen() {
                             <Text style={styles.macroInputLabel}>Calories (kcal)</Text>
                             <TextInput
                                 value={macroOverrides.calories?.toString() ?? ''}
-                                onChangeText={(text) => setMacroOverrides(p => ({ ...p, calories: Number(text) || undefined }))}
+                                onChangeText={(text) => {
+                                    const trimmed = text.trim();
+                                    const parsed = trimmed === '' ? undefined : Number(trimmed);
+                                    setMacroOverrides(p => ({ ...p, calories: parsed !== undefined && !isNaN(parsed) && parsed >= 0 ? parsed : undefined }));
+                                }}
                                 placeholder="0"
                                 placeholderTextColor="#6F6F6F"
                                 keyboardType="number-pad"
@@ -1079,7 +1134,11 @@ export default function MealScannerScreen() {
                             <Text style={styles.macroInputLabel}>Carbs (g)</Text>
                             <TextInput
                                 value={macroOverrides.carbs?.toString() ?? ''}
-                                onChangeText={(text) => setMacroOverrides(p => ({ ...p, carbs: Number(text) || undefined }))}
+                                onChangeText={(text) => {
+                                    const trimmed = text.trim();
+                                    const parsed = trimmed === '' ? undefined : Number(trimmed);
+                                    setMacroOverrides(p => ({ ...p, carbs: parsed !== undefined && !isNaN(parsed) && parsed >= 0 ? parsed : undefined }));
+                                }}
                                 placeholder="0"
                                 placeholderTextColor="#6F6F6F"
                                 keyboardType="number-pad"
@@ -1090,7 +1149,11 @@ export default function MealScannerScreen() {
                             <Text style={styles.macroInputLabel}>Protein (g)</Text>
                             <TextInput
                                 value={macroOverrides.protein?.toString() ?? ''}
-                                onChangeText={(text) => setMacroOverrides(p => ({ ...p, protein: Number(text) || undefined }))}
+                                onChangeText={(text) => {
+                                    const trimmed = text.trim();
+                                    const parsed = trimmed === '' ? undefined : Number(trimmed);
+                                    setMacroOverrides(p => ({ ...p, protein: parsed !== undefined && !isNaN(parsed) && parsed >= 0 ? parsed : undefined }));
+                                }}
                                 placeholder="0"
                                 placeholderTextColor="#6F6F6F"
                                 keyboardType="number-pad"
@@ -1101,7 +1164,11 @@ export default function MealScannerScreen() {
                             <Text style={styles.macroInputLabel}>Fiber (g)</Text>
                             <TextInput
                                 value={macroOverrides.fibre?.toString() ?? ''}
-                                onChangeText={(text) => setMacroOverrides(p => ({ ...p, fibre: Number(text) || undefined }))}
+                                onChangeText={(text) => {
+                                    const trimmed = text.trim();
+                                    const parsed = trimmed === '' ? undefined : Number(trimmed);
+                                    setMacroOverrides(p => ({ ...p, fibre: parsed !== undefined && !isNaN(parsed) && parsed >= 0 ? parsed : undefined }));
+                                }}
                                 placeholder="0"
                                 placeholderTextColor="#6F6F6F"
                                 keyboardType="number-pad"
@@ -1112,7 +1179,11 @@ export default function MealScannerScreen() {
                             <Text style={styles.macroInputLabel}>Fat (g)</Text>
                             <TextInput
                                 value={macroOverrides.fat?.toString() ?? ''}
-                                onChangeText={(text) => setMacroOverrides(p => ({ ...p, fat: Number(text) || undefined }))}
+                                onChangeText={(text) => {
+                                    const trimmed = text.trim();
+                                    const parsed = trimmed === '' ? undefined : Number(trimmed);
+                                    setMacroOverrides(p => ({ ...p, fat: parsed !== undefined && !isNaN(parsed) && parsed >= 0 ? parsed : undefined }));
+                                }}
                                 placeholder="0"
                                 placeholderTextColor="#6F6F6F"
                                 keyboardType="number-pad"
