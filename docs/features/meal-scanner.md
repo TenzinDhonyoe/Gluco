@@ -39,6 +39,8 @@ Camera-first meal logging interface providing 5 distinct input modes for capturi
 - **Consistent Styling**: Matches app design language (dark theme, pill shapes, shadow buttons)
 - **Progressive Search**: Cache → edge function → Gemini fallback for optimal speed
 - **Source Tracking**: Items marked with `source: 'manual'` or `source: 'matched'` for review UI
+- **Time-Based Meal Type**: Automatically tags meals as breakfast/lunch/dinner/snack based on time of day (5-11 breakfast, 11-15 lunch, 15-18 snack, 18-22 dinner, else snack)
+- **Save Guard**: `isSaving` state prevents double-tap on the save button
 
 ## Data Types
 
@@ -65,6 +67,7 @@ interface SelectedMealItem extends NormalizedFood {
 - `app/components/scanner/ManualAddView.tsx` - Form for custom food entry
 - `app/components/scanner/AnalysisResultsView.tsx` - AI analysis preview with macros and low-anxiety suggestions
 - `app/components/scanner/ScanningOverlay.tsx` - Animated scanning indicator
+- `app/log-detail.tsx` - Post-logging view/edit/delete screen (accessible from Log tab)
 
 ---
 
@@ -170,6 +173,7 @@ Tips are sorted by `benefit_level` (high → medium → low) and split:
 ## Navigation
 - Back button in sub-views → Home screen (`router.dismissTo('/(tabs)')`)
 - Successful save → `log-meal-review.tsx` → Home screen
+- After logging, meals appear in the Log tab and can be tapped to open `log-detail.tsx` for viewing, editing, or deleting
 
 ## Error Handling
 - AI not enabled: Shows "AI Insights Disabled" screen with link to privacy settings
@@ -180,6 +184,8 @@ Tips are sorted by `benefit_level` (high → medium → low) and split:
   - "Add Manually" - switch to manual entry mode
 - API unavailable: Alert with retry option and manual entry fallback
 - Label scan failure: Displays confidence-colored warnings, disables save if invalid
+- Meal item save failure: orphaned meal is cleaned up via `deleteMeal()`, user sees "Save Failed" alert
+- Notification scheduling failure: non-blocking — meal save still succeeds
 
 ---
 

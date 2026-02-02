@@ -50,6 +50,8 @@ app/meal-scanner.tsx (5 input modes: camera, gallery, label scan, food search, m
   → AI analysis via edge functions (meal-photo-analyze, label-parse)
   → app/log-meal-review.tsx (edit & save)
   → supabase: createMeal() + addMealItems()
+app/log-detail.tsx (view, edit, delete any log — meal, glucose, or activity)
+  → accessed by tapping a log entry in app/(tabs)/log.tsx
 ```
 
 ### Food Search

@@ -10,6 +10,7 @@ Capture meals through text, search, label scans, or photos. Then guide the user 
 - `app/log-meal.tsx` (text + photo logging fallback)
 - `app/log-meal-items.tsx` (search, favorites, recents, manual entry - add items to existing meal)
 - `app/log-meal-review.tsx` (final review + save to backend)
+- `app/log-detail.tsx` (view, edit, delete any logged meal — accessed by tapping a log entry)
 
 ## Flow Summary
 
@@ -58,7 +59,8 @@ All paths converge at `log-meal-review.tsx` for final save.
 - Macro summary bubble (expandable)
 - Pre-meal check button (AI insights)
 - Save: `createMeal()` + `addMealItems()` + optional `createGlucoseLog()`
-- Post-meal notification scheduled 1 hour after meal time
+- If `addMealItems()` fails, the orphaned meal is cleaned up via `deleteMeal()`
+- Post-meal notification scheduled 1 hour after meal time (non-blocking — save succeeds even if notification scheduling fails)
 
 ### Text-first meal logging (`app/log-meal.tsx`)
 Fallback flow for text-based meal descriptions:
@@ -66,6 +68,27 @@ Fallback flow for text-based meal descriptions:
 - Each item matched via `searchFoodsWithVariants`
 - Unmatched items created as manual entries
 - Drafts persisted in `AsyncStorage`
+
+## Meal Type Auto-Tagging
+Meal type is automatically assigned based on the time of day when logged:
+
+| Time Window | Meal Type |
+|-------------|-----------|
+| 5:00 AM – 10:59 AM | Breakfast |
+| 11:00 AM – 2:59 PM | Lunch |
+| 3:00 PM – 5:59 PM | Snack |
+| 6:00 PM – 9:59 PM | Dinner |
+| 10:00 PM – 4:59 AM | Snack (fallback) |
+
+This logic runs in both `log-meal-review.tsx` (via `determineMealType()`) and `meal-scanner.tsx` (inline time check). The user can change the meal type after logging via the log detail screen.
+
+## Edit & Delete (`app/log-detail.tsx`)
+Tapping any meal entry in the Log tab opens a detail screen with:
+- **View mode**: meal photo, name, type badge, logged time, notes, food items with per-item macros, total nutrition summary
+- **Edit mode** (pencil icon): inline editing of name, meal type (dropdown), and notes. Meal items are read-only (delete and re-log to change items).
+- **Delete**: confirmation alert → `deleteMeal()` → returns to log list
+
+CRUD functions used: `getMealById()`, `updateMeal()`, `deleteMeal()`, `getMealItems()`, `ensureSignedMealPhotoUrl()`
 
 ## Data Model
 - `meals`: meal metadata and timestamps (notes field stores committed suggestions)
@@ -111,15 +134,16 @@ Manual items display a "Needs Review" badge and are grouped separately in the re
 - `supabase/functions/premeal-analyze/` - Pre-meal check analysis
 
 ## Key Files
-- `app/meal-scanner.tsx` (primary camera-first entry, 1030 lines)
+- `app/meal-scanner.tsx` (primary camera-first entry)
 - `app/components/scanner/FoodSearchResultsView.tsx` (search with cart modal)
 - `app/components/scanner/LabelScanResultsView.tsx` (OCR results display)
 - `app/components/scanner/ManualAddView.tsx` (manual entry form)
 - `app/components/scanner/AnalysisResultsView.tsx` (AI analysis preview)
 - `app/components/scanner/ScanningOverlay.tsx` (animated scan indicator)
 - `app/log-meal.tsx` (text fallback)
-- `app/log-meal-review.tsx` (final review/save, 1415 lines)
+- `app/log-meal-review.tsx` (final review/save)
 - `app/log-meal-items.tsx` (add items screen)
+- `app/log-detail.tsx` (view, edit, delete logged meals)
 - `lib/foodSearch/` (search orchestration, caching, ranking)
 - `lib/labelScan.ts` (label parsing utilities)
-- `lib/supabase.ts` (API calls: createMeal, addMealItems)
+- `lib/supabase.ts` (API calls: createMeal, addMealItems, getMealById, updateMeal, deleteMeal)

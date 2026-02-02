@@ -27,10 +27,23 @@ Describe how the app uses Supabase for auth, storage, SQL schema, and edge funct
 - **Wearables**: `metabolic-score`, `compute-metabolic-profile`
 - **Account**: `delete-account`
 
+## CRUD Functions (`lib/supabase.ts`)
+All log types support full create, read, update, and delete via typed helper functions. Every query scopes by `user_id` to enforce RLS.
+
+| Table | Create | Read | Update | Delete |
+|-------|--------|------|--------|--------|
+| `meals` | `createMeal()` | `getMeals()`, `getMealById()` | `updateMeal()` | `deleteMeal()` |
+| `meal_items` | `addMealItems()` | `getMealItems()` | — | (cascade via meal) |
+| `glucose_logs` | `createGlucoseLog()` | `getGlucoseLogs()`, `getGlucoseLogById()` | `updateGlucoseLog()` | `deleteGlucoseLog()` |
+| `activity_logs` | `createActivityLog()` | `getActivityLogs()`, `getActivityLogById()` | `updateActivityLog()` | `deleteActivityLog()` |
+
+Update functions accept `Partial<Pick<...>>` of editable fields and auto-set `updated_at`. Delete functions return a boolean success flag.
+
 ## Access Patterns
 - Most UI data flows through `lib/supabase.ts` helper functions (CRUD + edge function invocations).
 - Hooks (`hooks/`) batch or cache queries to reduce round trips.
 - RLS is enabled for user-owned tables; service-role functions bypass RLS when needed.
+- The log detail screen (`app/log-detail.tsx`) uses getById + update/delete for inline editing of any log type.
 
 ## Key Files
 - `lib/supabase.ts`
