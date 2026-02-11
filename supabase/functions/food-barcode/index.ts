@@ -3,11 +3,24 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireUser } from '../_shared/auth.ts';
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
+
+function getServiceRoleClient() {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+    if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+    }
+
+    return createClient(supabaseUrl, supabaseKey);
+}
 
 interface NormalizedFood {
     provider: 'fdc' | 'off';
@@ -37,6 +50,10 @@ serve(async (req) => {
     }
 
     try {
+        const supabase = getServiceRoleClient();
+        const { errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
         const { barcode } = await req.json();
 
         if (!barcode || typeof barcode !== 'string') {
@@ -46,8 +63,16 @@ serve(async (req) => {
             );
         }
 
+        const normalizedBarcode = barcode.trim();
+        if (!/^[0-9]{8,14}$/.test(normalizedBarcode)) {
+            return new Response(
+                JSON.stringify({ error: 'Barcode must be 8-14 digits' }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
         // Call Open Food Facts API
-        const url = `https://world.openfoodfacts.org/api/v2/product/${barcode}.json?fields=product_name,brands,nutriments,serving_size,nutrition_data_per,image_url`;
+        const url = `https://world.openfoodfacts.org/api/v2/product/${normalizedBarcode}.json?fields=product_name,brands,nutriments,serving_size,nutrition_data_per,image_url`;
 
         const response = await fetch(url);
         if (!response.ok) {
@@ -82,7 +107,7 @@ serve(async (req) => {
 
         const food: NormalizedFood = {
             provider: 'off',
-            external_id: barcode,
+            external_id: normalizedBarcode,
             display_name: product.product_name || 'Unknown Product',
             brand: product.brands || null,
             serving_size: servingSize,
@@ -104,13 +129,9 @@ serve(async (req) => {
 
         // Cache the result
         try {
-            const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-            const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-            const supabase = createClient(supabaseUrl, supabaseKey);
-
             await supabase.from('foods_cache').upsert({
                 provider: 'off',
-                external_id: barcode,
+                external_id: normalizedBarcode,
                 normalized: food,
                 last_fetched_at: new Date().toISOString(),
             }, { onConflict: 'provider,external_id' });

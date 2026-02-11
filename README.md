@@ -10,7 +10,20 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
-2. Start the app
+2. Configure environment variables
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Required keys:
+   - `EXPO_PUBLIC_SUPABASE_URL`
+   - `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+   - `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`
+   - `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY`
+   - `EXPO_PUBLIC_APP_SCHEME`
+
+3. Start the app
 
    ```bash
    npx expo start

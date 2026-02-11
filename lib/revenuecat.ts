@@ -6,9 +6,8 @@ import { PAYWALL_ENABLED } from '@/app/index';
 import { Platform } from 'react-native';
 
 // RevenueCat API Keys
-const REVENUECAT_IOS_API_KEY = 'appl_bMgbVaBRfaRNdgvZXKAAbjLTBhI';
-// TODO: Add Android API key when available
-// const REVENUECAT_ANDROID_API_KEY = '<your_android_api_key>';
+const REVENUECAT_IOS_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY;
+const REVENUECAT_ANDROID_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY;
 
 let purchasesModule: typeof import('react-native-purchases') | null = null;
 let isConfigured = false;
@@ -49,17 +48,24 @@ export async function initializeRevenueCat(): Promise<boolean> {
         if (!Purchases) return false;
 
         const { LOG_LEVEL } = await import('react-native-purchases');
-
-        Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
+        if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
 
         if (Platform.OS === 'ios') {
+            if (!REVENUECAT_IOS_API_KEY) {
+                console.error('RevenueCat iOS key is missing. Set EXPO_PUBLIC_REVENUECAT_IOS_API_KEY.');
+                return false;
+            }
             Purchases.configure({ apiKey: REVENUECAT_IOS_API_KEY });
             isConfigured = true;
             if (__DEV__) console.log('RevenueCat: Configured for iOS');
         } else if (Platform.OS === 'android') {
-            // TODO: Configure Android when API key is available
-            // Purchases.configure({ apiKey: REVENUECAT_ANDROID_API_KEY });
-            if (__DEV__) console.log('RevenueCat: Android not configured');
+            if (!REVENUECAT_ANDROID_API_KEY) {
+                console.error('RevenueCat Android key is missing. Set EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY.');
+                return false;
+            }
+            Purchases.configure({ apiKey: REVENUECAT_ANDROID_API_KEY });
+            isConfigured = true;
+            if (__DEV__) console.log('RevenueCat: Configured for Android');
         }
 
         return isConfigured;

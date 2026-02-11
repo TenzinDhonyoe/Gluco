@@ -5,16 +5,20 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 // Get Supabase configuration from environment variables or app.json extra config
-// Priority: EXPO_PUBLIC_* env vars > app.json extra > fallback defaults
+// Priority: EXPO_PUBLIC_* env vars > app.json extra
 const supabaseUrl =
     process.env.EXPO_PUBLIC_SUPABASE_URL ||
-    Constants.expoConfig?.extra?.supabaseUrl ||
-    'https://ipodxujhoqbdrgxfphou.supabase.co';
+    Constants.expoConfig?.extra?.supabaseUrl;
 
 const supabaseAnonKey =
     process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
-    Constants.expoConfig?.extra?.supabaseAnonKey ||
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlwb2R4dWpob3FiZHJneGZwaG91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU1NzM3MjMsImV4cCI6MjA4MTE0OTcyM30.WnSQN9CWwSMER8OnPn_j0ms4cTb86G4m6PmV0tN0XZ8';
+    Constants.expoConfig?.extra?.supabaseAnonKey;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error(
+        'Missing Supabase configuration. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.'
+    );
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
@@ -320,14 +324,14 @@ export async function invokeMealPhotoAnalyze(
     mealNotes?: string
 ): Promise<MealPhotoAnalysisResult | null> {
     try {
-        console.log('[meal-photo-analyze] Starting analysis for path:', photoPath);
+        if (__DEV__) console.log('[meal-photo-analyze] Starting analysis for path:', photoPath);
 
         const photoUrl = await ensureSignedMealPhotoUrl(photoPath);
         if (!photoUrl) {
             console.error('[meal-photo-analyze] Failed to get signed URL for:', photoPath);
             return null;
         }
-        console.log('[meal-photo-analyze] Got signed URL, invoking edge function...');
+        if (__DEV__) console.log('[meal-photo-analyze] Got signed URL, invoking edge function...');
 
         const { data, error } = await supabase.functions.invoke('meal-photo-analyze', {
             body: {
@@ -346,7 +350,7 @@ export async function invokeMealPhotoAnalyze(
             throw error;
         }
 
-        console.log('[meal-photo-analyze] Response:', JSON.stringify(data, null, 2));
+        if (__DEV__) console.log('[meal-photo-analyze] Response:', JSON.stringify(data, null, 2));
 
         // Check if response indicates an error from the edge function
         if (data?.error) {

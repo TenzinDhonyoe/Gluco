@@ -111,7 +111,7 @@ export default function ConfirmEmailScreen() {
     const handleOpenEmail = () => {
         Alert.alert(
             'Check Your Email',
-            'Please open your email app and click the confirmation link.\n\nNote: After clicking the link, you may see a page that says "localhost refused to connect" - this is normal! Just close that page and return to this app. We\'ll automatically detect your confirmation.',
+            'Please open your email app and click the confirmation link. After verification, return to Gluco and we will automatically continue setup.',
             [{ text: 'OK' }]
         );
     };
@@ -362,4 +362,3 @@ const styles = StyleSheet.create({
         marginLeft: 8,
     },
 });
-

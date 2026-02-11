@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "47",
+      "buildNumber": "49",
       "bundleIdentifier": "ca.gluco.solutions.gluco",
       "usesAppleSignIn": true,
       "infoPlist": {
@@ -70,8 +70,6 @@
       "typedRoutes": true
     },
     "extra": {
-      "supabaseUrl": "https://ipodxujhoqbdrgxfphou.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlwb2R4dWpob3FiZHJneGZwaG91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU1NzM3MjMsImV4cCI6MjA4MTE0OTcyM30.WnSQN9CWwSMER8OnPn_j0ms4cTb86G4m6PmV0tN0XZ8",
       "eas": {
         "projectId": "5681821f-1ffe-40ab-9339-dd7cb3f409a5"
       }

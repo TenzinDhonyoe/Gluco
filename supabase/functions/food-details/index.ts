@@ -3,11 +3,24 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireUser } from '../_shared/auth.ts';
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
+
+function getServiceRoleClient() {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+    if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+    }
+
+    return createClient(supabaseUrl, supabaseKey);
+}
 
 // Nutrient ID mappings for USDA FDC
 const NUTRIENT_IDS = {
@@ -148,18 +161,32 @@ serve(async (req) => {
     }
 
     try {
+        const supabase = getServiceRoleClient();
+        const { errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
         const { provider, externalId } = await req.json();
 
-        if (!provider || !externalId) {
+        if (!provider || !externalId || typeof provider !== 'string' || typeof externalId !== 'string') {
             return new Response(
                 JSON.stringify({ error: 'Missing provider or externalId' }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
         }
 
+        const normalizedProvider = provider.trim().toLowerCase();
+        const normalizedExternalId = externalId.trim();
+
+        if (!normalizedExternalId || normalizedExternalId.length > 128) {
+            return new Response(
+                JSON.stringify({ error: 'Invalid externalId' }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
         let food: NormalizedFood | null = null;
 
-        if (provider === 'fdc') {
+        if (normalizedProvider === 'fdc') {
             const apiKey = Deno.env.get('FDC_API_KEY');
             if (!apiKey) {
                 return new Response(
@@ -167,9 +194,9 @@ serve(async (req) => {
                     { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
                 );
             }
-            food = await fetchFDCFood(externalId, apiKey);
-        } else if (provider === 'off') {
-            food = await fetchOFFFood(externalId);
+            food = await fetchFDCFood(normalizedExternalId, apiKey);
+        } else if (normalizedProvider === 'off') {
+            food = await fetchOFFFood(normalizedExternalId);
         } else {
             return new Response(
                 JSON.stringify({ error: 'Invalid provider' }),
@@ -186,10 +213,6 @@ serve(async (req) => {
 
         // Cache the result
         try {
-            const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-            const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-            const supabase = createClient(supabaseUrl, supabaseKey);
-
             await supabase.from('foods_cache').upsert({
                 provider: food.provider,
                 external_id: food.external_id,

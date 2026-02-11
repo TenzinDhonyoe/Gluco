@@ -3,6 +3,7 @@ import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { RESET_PASSWORD_REDIRECT_URI } from '@/lib/deeplinks';
 import { deleteUserData, exportUserData, getUserProfile, resetUserLearning, supabase, updateUserProfile, UserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -71,7 +72,7 @@ export default function AccountPrivacyScreen() {
                         }
 
                         const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-                            redirectTo: 'glucofigma://reset-password',
+                            redirectTo: RESET_PASSWORD_REDIRECT_URI,
                         });
 
                         if (error) {

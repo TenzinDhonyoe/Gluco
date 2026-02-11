@@ -5,6 +5,7 @@ import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { RESET_PASSWORD_REDIRECT_URI } from '@/lib/deeplinks';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -110,7 +111,7 @@ export default function SignInScreen() {
                     onPress: async () => {
                         try {
                             const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-                                redirectTo: 'glucofigma://reset-password',
+                                redirectTo: RESET_PASSWORD_REDIRECT_URI,
                             });
 
                             if (error) {

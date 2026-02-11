@@ -3,10 +3,13 @@
 // Supports batched variant searches in a single call for reduced network round trips
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { requireUser } from '../_shared/auth.ts';
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 // Nutrient ID mappings for USDA FDC
@@ -25,6 +28,10 @@ const MAX_CONCURRENCY = 2;  // Reduced from 3 for faster response
 
 // Fetch timeout for external API calls (ms)
 const FETCH_TIMEOUT_MS = 2000;
+const MIN_PAGE_SIZE = 1;
+const MAX_PAGE_SIZE = 50;
+const MAX_VARIANTS = 8;
+const MAX_QUERY_LENGTH = 120;
 
 interface NormalizedFood {
     provider: 'fdc' | 'off';
@@ -41,6 +48,17 @@ interface NormalizedFood {
     sugar_g: number | null;
     sodium_mg: number | null;
     categories?: string | null;
+}
+
+function getServiceRoleClient() {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+    if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+    }
+
+    return createClient(supabaseUrl, supabaseKey);
 }
 
 // =============== FDC (USDA) Helpers ===============
@@ -288,6 +306,10 @@ Deno.serve(async (req) => {
     }
 
     try {
+        const supabase = getServiceRoleClient();
+        const { errorResponse } = await requireUser(req, supabase, corsHeaders);
+        if (errorResponse) return errorResponse;
+
         const { query, pageSize = 25, variants = [] } = await req.json();
 
         if (!query || typeof query !== 'string') {
@@ -297,26 +319,53 @@ Deno.serve(async (req) => {
             );
         }
 
+        const normalizedQuery = query.trim();
+        if (normalizedQuery.length < 2 || normalizedQuery.length > MAX_QUERY_LENGTH) {
+            return new Response(
+                JSON.stringify({ error: `Query length must be 2-${MAX_QUERY_LENGTH} characters` }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
+        const parsedPageSize = Number(pageSize);
+        if (!Number.isFinite(parsedPageSize) || parsedPageSize < MIN_PAGE_SIZE || parsedPageSize > MAX_PAGE_SIZE) {
+            return new Response(
+                JSON.stringify({ error: `pageSize must be between ${MIN_PAGE_SIZE} and ${MAX_PAGE_SIZE}` }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
         const fdcApiKey = Deno.env.get('FDC_API_KEY');
 
         // Check if variants are provided
         const variantsArray = Array.isArray(variants) ? variants : [];
+        if (variantsArray.length > MAX_VARIANTS) {
+            return new Response(
+                JSON.stringify({ error: `Too many variants. Max allowed is ${MAX_VARIANTS}` }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
 
         let results: NormalizedFood[];
 
         if (variantsArray.length > 0) {
             // Use batched search with variants
-            results = await searchWithVariants(query, variantsArray, pageSize, fdcApiKey);
+            const safeVariants = variantsArray
+                .filter((variant) => typeof variant === 'string')
+                .map((variant: string) => variant.trim())
+                .filter((variant: string) => variant.length > 0 && variant.length <= MAX_QUERY_LENGTH);
+
+            results = await searchWithVariants(normalizedQuery, safeVariants, parsedPageSize, fdcApiKey);
         } else {
             // Single query search (backward compatible)
-            results = await searchBothProviders(query, pageSize, fdcApiKey);
+            results = await searchBothProviders(normalizedQuery, parsedPageSize, fdcApiKey);
         }
 
         return new Response(
             JSON.stringify({
                 results,
                 totalHits: results.length,
-                query,
+                query: normalizedQuery,
                 variantsUsed: variantsArray.length > 0,
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

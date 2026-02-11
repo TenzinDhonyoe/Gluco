@@ -367,7 +367,7 @@ export default function LogMealItemsScreen() {
   };
 
   const handleSave = () => {
-    const returnTo = typeof params.returnTo === 'string' ? params.returnTo : '/log-meal';
+    const returnTo = typeof params.returnTo === 'string' ? params.returnTo : '/log-meal-review';
     const replaceIndex = typeof params.replaceIndex === 'string' ? Number(params.replaceIndex) : null;
 
     if (replaceIndex !== null && !Number.isNaN(replaceIndex) && selectedItems.length !== 1) {

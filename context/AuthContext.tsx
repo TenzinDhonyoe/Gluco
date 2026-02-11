@@ -1,4 +1,5 @@
 import { getUserProfile, GlucoseUnit, supabase, UserProfile } from '@/lib/supabase';
+import { RESET_PASSWORD_REDIRECT_URI } from '@/lib/deeplinks';
 import { Session, User } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import React, { createContext, useContext, useEffect, useState } from 'react';
@@ -227,7 +228,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const resetPassword = async (email: string): Promise<{ error: Error | null }> => {
         try {
             const { error } = await supabase.auth.resetPasswordForEmail(email, {
-                redirectTo: 'glucofigma://reset-password',
+                redirectTo: RESET_PASSWORD_REDIRECT_URI,
             });
 
             if (error) {
