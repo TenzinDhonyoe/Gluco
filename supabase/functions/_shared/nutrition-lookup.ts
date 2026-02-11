@@ -16,6 +16,7 @@ import {
     convertToGrams,
     VOLUME_TO_GRAMS,
 } from './portion-estimator.ts';
+import { getReferenceCalorieRange } from './nutrition-validation.ts';
 
 /**
  * Food category for better matching
@@ -314,9 +315,9 @@ function scaleNutritionToPortionSize(
         normalizedNutrition.serving_unit
     );
 
-    // 3. Compute multiplier, clamped to [0.1, 10] for safety
+    // 3. Compute multiplier, clamped to [0.1, 5] for safety
     const rawMultiplier = detectedGrams / servingGrams;
-    const multiplier = Math.max(0.1, Math.min(10, rawMultiplier));
+    const multiplier = Math.max(0.1, Math.min(5, rawMultiplier));
 
     // 4. Scale all nutrition values
     const scaleVal = (v: number | null): number | null => {
@@ -354,6 +355,51 @@ function scaleNutritionToPortionSize(
         nutrition: scaledNutrition,
         portion: scaledPortion,
         serving_description: servingDescription,
+    };
+}
+
+/**
+ * Validate scaled nutrition against known calorie reference ranges.
+ * If calories fall outside the expected range for a known food, clamp them.
+ */
+function validateScaledNutrition(result: NutritionLookupResult): NutritionLookupResult {
+    if (!result.nutrition || result.nutrition.calories === null) {
+        return result;
+    }
+
+    const range = getReferenceCalorieRange(result.name);
+    if (!range) {
+        return result;
+    }
+
+    const calories = result.nutrition.calories;
+    if (calories >= range.min && calories <= range.max) {
+        return result;
+    }
+
+    const clamped = Math.max(range.min, Math.min(range.max, calories));
+    console.log(`Calorie validation: "${result.name}" ${calories} cal → ${clamped} cal (expected ${range.min}-${range.max})`);
+
+    // Scale all macros proportionally
+    const ratio = clamped / calories;
+    const scaleVal = (v: number | null): number | null => {
+        if (v === null) return null;
+        return Math.round(v * ratio * 10) / 10;
+    };
+
+    return {
+        ...result,
+        nutrition: {
+            calories: Math.round(clamped),
+            carbs_g: scaleVal(result.nutrition.carbs_g),
+            protein_g: scaleVal(result.nutrition.protein_g),
+            fat_g: scaleVal(result.nutrition.fat_g),
+            fibre_g: scaleVal(result.nutrition.fibre_g),
+            sugar_g: scaleVal(result.nutrition.sugar_g),
+            sodium_mg: result.nutrition.sodium_mg !== null
+                ? Math.round(result.nutrition.sodium_mg * ratio)
+                : null,
+        },
     };
 }
 
@@ -436,7 +482,7 @@ export async function lookupNutrition(
                                     serving_description: nutrition.serving_description,
                                 };
 
-                                return scaleNutritionToPortionSize(unscaledResult, nutrition);
+                                return validateScaledNutrition(scaleNutritionToPortionSize(unscaledResult, nutrition));
                             }
                         }
                     }
@@ -477,7 +523,7 @@ export async function lookupNutrition(
                         serving_description: best.nutrition.serving_description,
                     };
 
-                    return scaleNutritionToPortionSize(unscaledResult, best.nutrition);
+                    return validateScaledNutrition(scaleNutritionToPortionSize(unscaledResult, best.nutrition));
                 }
             }
         } catch (error) {
@@ -509,7 +555,7 @@ export async function lookupNutrition(
         nutrition_confidence: 0.3,
     };
 
-    return scaleNutritionToPortionSize(unscaledFallback, syntheticNormalized);
+    return validateScaledNutrition(scaleNutritionToPortionSize(unscaledFallback, syntheticNormalized));
 }
 
 /**

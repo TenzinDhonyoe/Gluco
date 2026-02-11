@@ -6,6 +6,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { GoogleGenAI } from 'npm:@google/genai@1.38.0';
 import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { enforceNutrientLimits } from '../_shared/nutrition-validation.ts';
+import { buildGeminiUsageTelemetry, summarizeModalityTokens } from '../_shared/genai-telemetry.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -59,6 +60,12 @@ interface AnalysisResult {
         model: string;
         processingTimeMs: number;
         imageSize: number;
+        promptTokenCount?: number;
+        outputTokenCount?: number;
+        totalTokenCount?: number;
+        promptTextTokens?: number;
+        promptImageTokens?: number;
+        estimatedCostUsd?: number;
         rawResponse?: string;
         error?: string;
     };
@@ -253,7 +260,18 @@ function validateNutrients(item: AnalyzedItem): AnalyzedItem {
 // RESPONSE NORMALIZATION
 // ============================================
 
-function normalizeAnalysisResult(raw: unknown, debug?: { model: string; processingTimeMs: number; imageSize: number; rawResponse?: string }): AnalysisResult {
+function normalizeAnalysisResult(raw: unknown, debug?: {
+    model: string;
+    processingTimeMs: number;
+    imageSize: number;
+    promptTokenCount?: number;
+    outputTokenCount?: number;
+    totalTokenCount?: number;
+    promptTextTokens?: number;
+    promptImageTokens?: number;
+    estimatedCostUsd?: number;
+    rawResponse?: string;
+}): AnalysisResult {
     const source = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {};
     const rawItems = Array.isArray(source.items) ? source.items : [];
 
@@ -379,12 +397,12 @@ function buildSystemPrompt(): string {
 1. **ALWAYS IDENTIFY FOODS** - Even if image quality is imperfect, ALWAYS attempt to identify foods. Identify foods confidently, but estimate portions conservatively.
 
 2. **COMMON FOODS TO RECOGNIZE** (you MUST be able to identify these):
-   - Fruits: apple, banana, orange, grapes, strawberry, blueberry, mango, pineapple, watermelon
+   - Fruits: apple, banana, orange, grapes, strawberry, blueberry, mango, pineapple, watermelon, papaya, kiwi, guava, dragonfruit, pomegranate
    - Vegetables: salad, lettuce, tomato, cucumber, carrot, broccoli, spinach
    - Proteins: chicken, beef, pork, fish, salmon, tuna, egg, tofu
-   - Grains: rice, pasta, bread, noodles, quinoa, oats
+   - Grains: rice, pasta, bread, noodles, quinoa, oats, roti, chapati, naan, dosa, idli
    - Dairy: milk, cheese, yogurt
-   - Prepared: sandwich, burger, pizza, soup, stir-fry, curry
+   - Prepared: sandwich, burger, pizza, soup, stir-fry, curry, dal, sambar
    - Snacks: chips, crackers, cookies, nuts
    - Drinks: coffee, tea, juice, smoothie, soda
 
@@ -393,6 +411,18 @@ function buildSystemPrompt(): string {
    - Default to MEDIUM portions if unclear (not large)
    - Use appropriate units: "piece" for whole fruits, "cup" for rice/pasta, "oz" for meats, "slice" for bread
    - When in doubt, estimate smaller portions - users can adjust up if needed
+   - For cut/sliced foods: count individual pieces, estimate per-piece calories, multiply
+   - Per-piece calorie references for tropical fruits:
+     * Papaya piece/slice: ~35 cal
+     * Mango slice: ~25 cal
+     * Watermelon cube: ~15 cal
+     * Pineapple chunk: ~15 cal
+     * Kiwi (whole): ~45 cal
+     * Guava (whole): ~40 cal
+   - Per-piece references for Indian foods:
+     * Roti/chapati: ~100 cal
+     * Idli (one): ~40 cal
+     * Dosa (one): ~130 cal
 
 4. **CONFIDENCE LEVELS**:
    - "high": Clear view, easily identifiable food (e.g., whole apple, banana)
@@ -498,6 +528,12 @@ async function analyzePhotoWithGemini(
     const startTime = Date.now();
     let imageSize = 0;
     let rawResponseText = '';
+    let promptTokenCount = 0;
+    let outputTokenCount = 0;
+    let totalTokenCount = 0;
+    let promptTextTokens = 0;
+    let promptImageTokens = 0;
+    let estimatedCostUsd = 0;
 
     try {
         const ai = getGenAIClient();
@@ -530,6 +566,26 @@ async function analyzePhotoWithGemini(
                 responseMimeType: 'application/json',
             },
         });
+        const usageTelemetry = buildGeminiUsageTelemetry(response, model);
+        if (usageTelemetry) {
+            const modalitySummary = summarizeModalityTokens(usageTelemetry.usage);
+            promptTokenCount = usageTelemetry.usage.prompt_token_count;
+            outputTokenCount = usageTelemetry.usage.output_token_count;
+            totalTokenCount = usageTelemetry.usage.total_token_count;
+            promptTextTokens = modalitySummary.prompt_text_tokens;
+            promptImageTokens = modalitySummary.prompt_image_tokens;
+            estimatedCostUsd = usageTelemetry.estimated_cost.total_cost_usd;
+
+            log('INFO', 'Gemini usage telemetry', {
+                model,
+                promptTokenCount,
+                outputTokenCount,
+                totalTokenCount,
+                promptTextTokens,
+                promptImageTokens,
+                estimatedCostUsd,
+            });
+        }
 
         const content = response.text || '';
         rawResponseText = content.substring(0, 2000); // Store for debugging
@@ -600,13 +656,23 @@ async function analyzePhotoWithGemini(
             model,
             processingTimeMs,
             imageSize,
+            promptTokenCount,
+            outputTokenCount,
+            totalTokenCount,
+            promptTextTokens,
+            promptImageTokens,
+            estimatedCostUsd,
             rawResponse: rawResponseText,
         });
 
         log('INFO', 'Photo analysis completed', {
             status: result.status,
             itemCount: result.items.length,
-            processingTimeMs
+            processingTimeMs,
+            promptTokenCount,
+            outputTokenCount,
+            totalTokenCount,
+            estimatedCostUsd,
         });
 
         return result;
@@ -630,6 +696,12 @@ async function analyzePhotoWithGemini(
                 model: Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL,
                 processingTimeMs,
                 imageSize,
+                promptTokenCount,
+                outputTokenCount,
+                totalTokenCount,
+                promptTextTokens,
+                promptImageTokens,
+                estimatedCostUsd,
                 error: errorMessage,
                 rawResponse: rawResponseText,
             }
@@ -728,7 +800,9 @@ serve(async (req) => {
         log('INFO', 'Request completed', {
             requestId,
             status: result.status,
-            itemCount: result.items.length
+            itemCount: result.items.length,
+            totalTokenCount: result.debug?.totalTokenCount ?? 0,
+            estimatedCostUsd: result.debug?.estimatedCostUsd ?? 0,
         });
 
         return new Response(

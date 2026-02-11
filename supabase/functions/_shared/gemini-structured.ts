@@ -2,7 +2,8 @@
 // Gemini 2.5 Flash with structured JSON output for food detection only
 
 import { GoogleGenAI, Type as SchemaType } from 'npm:@google/genai@1.38.0';
-import { convertToGrams } from './portion-estimator.ts';
+import { convertToGrams, validatePortionEstimate, PORTION_REFERENCES } from './portion-estimator.ts';
+import { buildGeminiUsageTelemetry, summarizeModalityTokens, type GeminiUsageTelemetry } from './genai-telemetry.ts';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -80,6 +81,7 @@ export interface PhotoQuality {
 export interface FoodDetectionResult {
     items: DetectedFoodItem[];
     photo_quality: PhotoQuality;
+    usage?: GeminiUsageTelemetry;
 }
 
 /**
@@ -174,12 +176,22 @@ const DETECTION_SYSTEM_PROMPT = `You are an expert food recognition assistant. Y
 
 2. **VISIBLE ITEMS ONLY** - Only identify foods you can clearly see. Do not guess hidden ingredients.
 
-3. **PORTION WEIGHT IN GRAMS** - You MUST always estimate weight in grams for every item:
+3. **CONSERVATIVE ESTIMATION** - When uncertain about portion size, estimate CONSERVATIVELY (smaller). Users can always adjust upward. It is far better to underestimate than overestimate.
+
+4. **PIECE/SLICE AWARENESS** - For cut, sliced, or portioned foods:
+   - Count the individual pieces/slices visible
+   - Estimate the weight of ONE piece
+   - Multiply: total weight = count × per-piece weight
+   - Example: 3 papaya pieces = 3 × 40g = 120g
+   - Example: 2 mango slices = 2 × 30g = 60g
+   - Example: 4 watermelon cubes = 4 × 40g = 160g
+
+5. **PORTION WEIGHT IN GRAMS** - You MUST always estimate weight in grams for every item:
    - ALWAYS set estimate_type to 'weight_g' and unit to 'g'
    - Provide your best numeric estimate in the value field
    - Use these reference weights when estimating:
-     * Apple/orange/pear: 150-200g
-     * Banana: 100-130g
+     * Apple/orange/pear: 150-200g (whole)
+     * Banana: 100-130g (whole, peeled)
      * Chicken breast: 120-200g
      * Steak/beef portion: 150-250g
      * Fish fillet: 120-180g
@@ -197,18 +209,32 @@ const DETECTION_SYSTEM_PROMPT = `You are an expert food recognition assistant. Y
      * Curry (serving): 250-350g
      * Cookie: 30-50g
      * Cup of liquid: ~240g
+     * Papaya piece/slice: 30-50g
+     * Mango slice/piece: 25-40g
+     * Watermelon cube/piece: 30-50g
+     * Pineapple slice/chunk: 30-50g
+     * Avocado half: 70-100g
+     * Kiwi (whole): 70-90g
+     * Guava (whole): 55-90g
+     * Grapes (small bunch): 80-120g
+     * Strawberry (single): 12-20g
+     * Roti/chapati (one): 30-40g
+     * Naan (one): 80-120g
+     * Dosa (one): 80-120g
+     * Idli (one): 30-40g
+     * Dal/sambar (bowl): 150-250g
    - Use plate, bowl, hand, or utensils in the image as size references
    - If truly unable to estimate, set value to null (but try your best)
 
-4. **CONFIDENCE LEVELS** (0-1 scale):
+6. **CONFIDENCE LEVELS** (0-1 scale):
    - 0.9-1.0: Crystal clear, easily identifiable
    - 0.7-0.89: Reasonable certainty
    - 0.5-0.69: Some uncertainty, could be similar foods
    - Below 0.5: Significant uncertainty
 
-5. **SYNONYMS** - Provide 1-3 alternative names that could help with database lookup
+7. **SYNONYMS** - Provide 1-3 alternative names that could help with database lookup
 
-6. **CATEGORIES**:
+8. **CATEGORIES**:
    - fruit: Fresh or processed fruits
    - vegetable: Fresh or cooked vegetables
    - protein: Meat, fish, eggs, tofu, legumes
@@ -220,7 +246,7 @@ const DETECTION_SYSTEM_PROMPT = `You are an expert food recognition assistant. Y
    - prepared_meal: Mixed dishes, meals
    - other: Anything that doesn't fit above
 
-7. **PHOTO QUALITY**:
+9. **PHOTO QUALITY**:
    - is_blurry: Image focus issues
    - has_occlusion: Foods partially hidden
    - has_reference_object: Plate, hand, utensil visible (helps portion estimation)
@@ -366,6 +392,8 @@ For each item, provide:
 5. Estimated weight in grams (estimate_type: 'weight_g', unit: 'g')
 6. Your confidence level
 
+For cut/sliced food, count pieces and estimate per-piece weight. Err on the SMALLER side.
+
 ${contextHints.length > 0 ? `\nContext: ${contextHints.join(', ')}` : ''}
 
 Identify foods confidently. ALWAYS estimate weight in grams for each item.`;
@@ -394,6 +422,20 @@ Identify foods confidently. ALWAYS estimate weight in grams for each item.`;
         });
 
         const content = response.text || '';
+        const usageTelemetry = buildGeminiUsageTelemetry(response, model);
+        if (usageTelemetry) {
+            console.log(JSON.stringify({
+                timestamp: new Date().toISOString(),
+                level: 'INFO',
+                message: 'Gemini detection usage',
+                model: usageTelemetry.model,
+                ...summarizeModalityTokens(usageTelemetry.usage),
+                promptTokenCount: usageTelemetry.usage.prompt_token_count,
+                outputTokenCount: usageTelemetry.usage.output_token_count,
+                totalTokenCount: usageTelemetry.usage.total_token_count,
+                estimatedCostUsd: usageTelemetry.estimated_cost.total_cost_usd,
+            }));
+        }
 
         if (!content) {
             throw new Error('Empty response from Gemini');
@@ -403,7 +445,10 @@ Identify foods confidently. ALWAYS estimate weight in grams for each item.`;
         const parsed = JSON.parse(content) as FoodDetectionResult;
 
         // Validate and normalize
-        return normalizeDetectionResult(parsed);
+        return {
+            ...normalizeDetectionResult(parsed),
+            usage: usageTelemetry ?? undefined,
+        };
     } catch (error) {
         console.error('Food detection failed:', error);
 
@@ -469,6 +514,31 @@ function normalizeDetectionResult(raw: FoodDetectionResult): FoodDetectionResult
             portion.confidence = Math.min(portion.confidence, 0.5);
         }
 
+        // Validate portion against known reference ranges and clamp if out of range
+        if (portion.value !== null) {
+            const validation = validatePortionEstimate(name, {
+                estimate_type: portion.estimate_type,
+                value: portion.value,
+                unit: portion.unit,
+                confidence: portion.confidence,
+                method: 'visual',
+            });
+            if (!validation.isValid) {
+                // Find the matching reference and clamp to range
+                const nameLower = name.toLowerCase();
+                for (const [key, ref] of Object.entries(PORTION_REFERENCES)) {
+                    if (nameLower.includes(key.replace(/_/g, ' '))) {
+                        const [min, max] = ref.range_g;
+                        const clamped = Math.max(min, Math.min(max, portion.value));
+                        console.log(`Portion clamped for "${name}": ${portion.value}g → ${clamped}g (range: ${min}-${max}g)`);
+                        portion.value = clamped;
+                        portion.confidence = Math.min(portion.confidence, 0.5);
+                        break;
+                    }
+                }
+            }
+        }
+
         return {
             name,
             synonyms: Array.isArray(item.synonyms) ? item.synonyms.filter(s => typeof s === 'string') : [],
@@ -518,6 +588,8 @@ For each item, provide:
 5. Estimated weight in grams (estimate_type: 'weight_g', unit: 'g')
 6. Your confidence level
 
+For cut/sliced food, count pieces and estimate per-piece weight. Err on the SMALLER side.
+
 ${contextHints.length > 0 ? `\nContext: ${contextHints.join(', ')}` : ''}
 
 Identify foods confidently. ALWAYS estimate weight in grams for each item.`;
@@ -546,13 +618,30 @@ Identify foods confidently. ALWAYS estimate weight in grams for each item.`;
         });
 
         const content = response.text || '';
+        const usageTelemetry = buildGeminiUsageTelemetry(response, model);
+        if (usageTelemetry) {
+            console.log(JSON.stringify({
+                timestamp: new Date().toISOString(),
+                level: 'INFO',
+                message: 'Gemini detection usage (base64)',
+                model: usageTelemetry.model,
+                ...summarizeModalityTokens(usageTelemetry.usage),
+                promptTokenCount: usageTelemetry.usage.prompt_token_count,
+                outputTokenCount: usageTelemetry.usage.output_token_count,
+                totalTokenCount: usageTelemetry.usage.total_token_count,
+                estimatedCostUsd: usageTelemetry.estimated_cost.total_cost_usd,
+            }));
+        }
 
         if (!content) {
             throw new Error('Empty response from Gemini');
         }
 
         const parsed = JSON.parse(content) as FoodDetectionResult;
-        return normalizeDetectionResult(parsed);
+        return {
+            ...normalizeDetectionResult(parsed),
+            usage: usageTelemetry ?? undefined,
+        };
     } catch (error) {
         console.error('Food detection failed:', error);
 

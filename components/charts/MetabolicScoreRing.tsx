@@ -25,34 +25,47 @@ export const MetabolicScoreRing = ({
         const totalTicks = 60;
         const activeTicks = score !== null ? Math.round((score / 100) * totalTicks) : 0;
 
+        // Background track (inactive ticks)
         for (let i = 0; i < totalTicks; i++) {
-            // Start from 0 degrees (top is -90, so we adjust).
-            // Actually, in standard SVG, 0 is 3 o'clock aka Right.
-            // We want 0 to be top, so -90 degrees.
-            // But let's follow the original implementation:
-            // const angle = (i * 6 - 90) * (Math.PI / 180);
             const angle = (i * 6 - 90) * (Math.PI / 180);
-
             const x1 = center + (radius) * Math.cos(angle);
             const y1 = center + (radius) * Math.sin(angle);
-            const x2 = center + (radius - 3) * Math.cos(angle);
-            const y2 = center + (radius - 3) * Math.sin(angle);
-
-            const isActive = score !== null && i < activeTicks;
-            const tickColor = isActive ? scoreColor : "rgba(255,255,255,0.15)";
-            const tickOpacity = isActive ? 1 : 0.6;
+            const x2 = center + (radius - 8) * Math.cos(angle);
+            const y2 = center + (radius - 8) * Math.sin(angle);
 
             items.push(
                 <Line
-                    key={i}
+                    key={`bg-${i}`}
                     x1={x1}
                     y1={y1}
                     x2={x2}
                     y2={y2}
-                    stroke={tickColor}
-                    strokeWidth="1.5"
+                    stroke="rgba(255,255,255,0.08)"
+                    strokeWidth="3"
                     strokeLinecap="round"
-                    opacity={tickOpacity}
+                />
+            );
+        }
+
+        // Active ticks
+        for (let i = 0; i < activeTicks; i++) {
+            const angle = (i * 6 - 90) * (Math.PI / 180);
+            const x1 = center + (radius) * Math.cos(angle);
+            const y1 = center + (radius) * Math.sin(angle);
+            const x2 = center + (radius - 8) * Math.cos(angle);
+            const y2 = center + (radius - 8) * Math.sin(angle);
+
+            items.push(
+                <Line
+                    key={`fg-${i}`}
+                    x1={x1}
+                    y1={y1}
+                    x2={x2}
+                    y2={y2}
+                    stroke={scoreColor}
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    opacity={0.9} // Slight transparency for glow effect feel
                 />
             );
         }

@@ -145,6 +145,12 @@ export interface AnalysisDebugInfo {
     processingTimeMs: number;
     detectionTimeMs: number;
     nutritionLookupTimeMs: number;
+    aiPromptTokens?: number;
+    aiOutputTokens?: number;
+    aiTotalTokens?: number;
+    aiPromptTextTokens?: number;
+    aiPromptImageTokens?: number;
+    aiEstimatedCostUsd?: number;
 }
 
 /**

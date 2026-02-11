@@ -21,6 +21,7 @@ import {
     NutritionLookupResult,
 } from '../_shared/nutrition-lookup.ts';
 import { convertToGrams, DeviceDepthPayload } from '../_shared/portion-estimator.ts';
+import { summarizeModalityTokens } from '../_shared/genai-telemetry.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
@@ -92,6 +93,17 @@ interface AnalysisResponse {
     };
     followups?: FollowupQuestion[];
     cache_hit: boolean;
+    debug?: {
+        processingTimeMs: number;
+        detectionTimeMs: number;
+        nutritionLookupTimeMs: number;
+        aiPromptTokens: number;
+        aiOutputTokens: number;
+        aiTotalTokens: number;
+        aiPromptTextTokens: number;
+        aiPromptImageTokens: number;
+        aiEstimatedCostUsd: number;
+    };
 }
 
 // ============================================
@@ -285,6 +297,12 @@ async function analyzePhoto(
     let cacheHit = false;
     let detectionTimeMs = 0;
     let nutritionLookupTimeMs = 0;
+    let aiPromptTokens = 0;
+    let aiOutputTokens = 0;
+    let aiTotalTokens = 0;
+    let aiPromptTextTokens = 0;
+    let aiPromptImageTokens = 0;
+    let aiEstimatedCostUsd = 0;
 
     try {
         // Step 1: Check image cache
@@ -315,9 +333,23 @@ async function analyzePhoto(
             setInMemoryCache(imageHash, detection);
             await cacheImageAnalysis(imageHash, detection);
 
+            if (detection.usage) {
+                const modalitySummary = summarizeModalityTokens(detection.usage.usage);
+                aiPromptTokens = detection.usage.usage.prompt_token_count;
+                aiOutputTokens = detection.usage.usage.output_token_count;
+                aiTotalTokens = detection.usage.usage.total_token_count;
+                aiPromptTextTokens = modalitySummary.prompt_text_tokens;
+                aiPromptImageTokens = modalitySummary.prompt_image_tokens;
+                aiEstimatedCostUsd = detection.usage.estimated_cost.total_cost_usd;
+            }
+
             log('INFO', 'Food detection completed', {
                 itemCount: detection.items.length,
                 detectionTimeMs,
+                aiPromptTokens,
+                aiOutputTokens,
+                aiTotalTokens,
+                aiEstimatedCostUsd,
             });
         }
 
@@ -336,6 +368,17 @@ async function analyzePhoto(
                     lighting_issue: detection.photo_quality?.lighting_issue ?? false,
                 },
                 cache_hit: cacheHit,
+                debug: {
+                    processingTimeMs: Date.now() - startTime,
+                    detectionTimeMs,
+                    nutritionLookupTimeMs,
+                    aiPromptTokens,
+                    aiOutputTokens,
+                    aiTotalTokens,
+                    aiPromptTextTokens,
+                    aiPromptImageTokens,
+                    aiEstimatedCostUsd,
+                },
             };
         }
 
@@ -368,6 +411,13 @@ async function analyzePhoto(
             processingTimeMs: Date.now() - startTime,
             detectionTimeMs,
             nutritionLookupTimeMs,
+            cacheHit,
+            aiPromptTokens,
+            aiOutputTokens,
+            aiTotalTokens,
+            aiPromptTextTokens,
+            aiPromptImageTokens,
+            aiEstimatedCostUsd,
         });
 
         return {
@@ -380,6 +430,17 @@ async function analyzePhoto(
             },
             followups: followups.length > 0 ? followups : undefined,
             cache_hit: cacheHit,
+            debug: {
+                processingTimeMs: Date.now() - startTime,
+                detectionTimeMs,
+                nutritionLookupTimeMs,
+                aiPromptTokens,
+                aiOutputTokens,
+                aiTotalTokens,
+                aiPromptTextTokens,
+                aiPromptImageTokens,
+                aiEstimatedCostUsd,
+            },
         };
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -394,6 +455,17 @@ async function analyzePhoto(
                 lighting_issue: false,
             },
             cache_hit: false,
+            debug: {
+                processingTimeMs: Date.now() - startTime,
+                detectionTimeMs,
+                nutritionLookupTimeMs,
+                aiPromptTokens,
+                aiOutputTokens,
+                aiTotalTokens,
+                aiPromptTextTokens,
+                aiPromptImageTokens,
+                aiEstimatedCostUsd,
+            },
         };
     }
 }
@@ -473,6 +545,8 @@ serve(async (req) => {
             status: result.status,
             itemCount: result.items.length,
             cacheHit: result.cache_hit,
+            aiTotalTokens: result.debug?.aiTotalTokens ?? 0,
+            aiEstimatedCostUsd: result.debug?.aiEstimatedCostUsd ?? 0,
         });
 
         return new Response(

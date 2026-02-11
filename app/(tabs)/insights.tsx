@@ -9,6 +9,7 @@ import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { usePersonalInsights } from '@/hooks/usePersonalInsights';
+import { usePersonalizedTips } from '@/hooks/usePersonalizedTips';
 import { InsightAction, InsightData, TrackingMode } from '@/lib/insights';
 import {
     ActivityLog,
@@ -51,6 +52,7 @@ import {
     Alert,
     Animated,
     Image,
+    Linking,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -304,6 +306,10 @@ function computeVelocity(scores: MetabolicWeeklyScore[], rangeDays: number): {
 
 export default function InsightsScreen() {
     const { user, profile } = useAuth();
+    const { tips: tipsData, loading: tipsLoading } = usePersonalizedTips({
+        userId: user?.id,
+        aiEnabled: profile?.ai_enabled ?? true,
+    });
     const glucoseUnit = useGlucoseUnit();
     const params = useLocalSearchParams();
     const insets = useSafeAreaInsets();
@@ -1272,6 +1278,41 @@ export default function InsightsScreen() {
         </Animated.ScrollView>
     );
 
+    const renderTipCard = (tip: any) => (
+        <TouchableOpacity
+            key={tip.id}
+            style={styles.tipCard}
+            onPress={() => {
+                if (tip.articleUrl) {
+                    console.log('Opening tip URL:', tip.articleUrl);
+                    // Use Linking as a fallback if WebBrowser is unreliable
+                    Linking.openURL(tip.articleUrl).catch(err =>
+                        console.error('Failed to open URL:', err)
+                    );
+                } else {
+                    console.warn('No article URL for tip:', tip.title);
+                }
+            }}
+            activeOpacity={0.7}
+        >
+            <View style={[styles.tipIconContainer, { backgroundColor: tip.category === 'glucose' ? 'rgba(52, 199, 89, 0.15)' : tip.category === 'meal' ? 'rgba(255, 149, 0, 0.15)' : 'rgba(0, 122, 255, 0.15)' }]}>
+                <Ionicons
+                    name={tip.category === 'glucose' ? 'water' : tip.category === 'meal' ? 'nutrition' : 'walk'}
+                    size={20}
+                    color={tip.category === 'glucose' ? Colors.success : tip.category === 'meal' ? Colors.warning : Colors.primary}
+                />
+            </View>
+            <View style={styles.tipContent}>
+                <View style={styles.tipHeader}>
+                    <Text style={styles.tipTitle}>{tip.title}</Text>
+                    {tip.metric && <Text style={styles.tipMetric}>{tip.metric}</Text>}
+                </View>
+                <Text style={styles.tipDescription}>{tip.description}</Text>
+                <Text style={styles.tipLink}>Learn more <Ionicons name="arrow-forward" size={10} /></Text>
+            </View>
+        </TouchableOpacity>
+    );
+
     const renderProgressTab = () => {
         const score = metabolicScore?.score7d ?? velocity.latest;
         const hasScore = score !== null;
@@ -1285,9 +1326,18 @@ export default function InsightsScreen() {
 
         const getScoreLabel = (s: number | null) => {
             if (s === null) return 'No data';
-            if (s >= 70) return 'Excellent';
-            if (s >= 50) return 'Good';
-            return 'Needs focus';
+            if (s >= 85) return 'Excellent';
+            if (s >= 70) return 'Optimized';
+            if (s >= 50) return 'Fair';
+            return 'Needs Focus';
+        };
+
+        const getScoreDescription = (s: number | null) => {
+            if (s === null) return 'Log 7 days of data to unlock your metabolic score.';
+            if (s >= 85) return 'Your metabolism is firing on all cylinders.';
+            if (s >= 70) return 'You’re maintaining a strong metabolic baseline.';
+            if (s >= 50) return 'A few adjustments could boost your score.';
+            return 'Prioritize sleep and movement to get back on track.';
         };
 
         // Get last 7 days data (sorted oldest first for charts)
@@ -1337,51 +1387,68 @@ export default function InsightsScreen() {
             <Animated.ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16}>
                 {/* Section 1: Hero Score Card */}
                 <LinearGradient
-                    colors={['#2A2C2C', '#212222']}
+                    colors={['#2A2C2C', '#1A1A1E']}
                     start={{ x: 0.5, y: 0 }}
                     end={{ x: 0.5, y: 1 }}
-                    style={[styles.progressCard, { alignItems: 'center', paddingVertical: 28 }]}
+                    style={styles.heroCard}
                 >
-                    {metabolicScoreLoading ? (
-                        <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 40 }} />
-                    ) : hasScore ? (
-                        <>
-                            <MetabolicScoreRing
-                                size={120}
-                                score={score}
-                                scoreColor={getScoreColor(score)}
-                            />
-                            <Text style={styles.heroTitle}>Metabolic Health</Text>
-                            <View style={styles.heroSubtitleRow}>
-                                <Text style={[styles.heroSubtitle, { color: getScoreColor(score) }]}>
-                                    {getScoreLabel(score)}
-                                </Text>
-                                {velocity.delta !== null && (
-                                    <View style={styles.deltaPillInline}>
-                                        <Ionicons
-                                            name={velocity.delta >= 0 ? 'arrow-up' : 'arrow-down'}
-                                            size={10}
-                                            color={velocity.delta >= 0 ? Colors.success : Colors.error}
-                                        />
-                                        <Text style={[
-                                            styles.deltaTextInline,
-                                            { color: velocity.delta >= 0 ? Colors.success : Colors.error }
-                                        ]}>
-                                            {velocity.delta >= 0 ? '+' : ''}{Math.round(velocity.delta)}
-                                        </Text>
-                                    </View>
-                                )}
-                            </View>
-                        </>
-                    ) : (
-                        <>
-                            <MetabolicScoreRing size={120} />
-                            <Text style={styles.heroTitle}>Metabolic Health</Text>
-                            <Text style={styles.heroSubtitle}>
-                                Log more data to unlock your score
+                    <View style={styles.heroHeader}>
+                        <Text style={styles.heroLabel}>METABOLIC HEALTH</Text>
+                        <View style={styles.heroStatusRow}>
+                            <Text style={[styles.heroStatusText, { color: getScoreColor(score) }]}>
+                                {getScoreLabel(score)}
                             </Text>
-                        </>
-                    )}
+                            {velocity.delta !== null && (
+                                <View style={[styles.deltaPillInline, { backgroundColor: 'rgba(0,0,0,0.2)' }]}>
+                                    <Ionicons
+                                        name={velocity.delta >= 0 ? 'arrow-up' : 'arrow-down'}
+                                        size={12}
+                                        color={velocity.delta >= 0 ? Colors.success : Colors.error}
+                                    />
+                                    <Text style={[
+                                        styles.deltaTextInline,
+                                        { color: velocity.delta >= 0 ? Colors.success : Colors.error }
+                                    ]}>
+                                        {velocity.delta >= 0 ? '+' : ''}{Math.round(velocity.delta)}
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+                        <Text style={styles.heroContext}>
+                            {getScoreDescription(score)}
+                        </Text>
+                    </View>
+
+                    <View style={styles.heroRingContainer}>
+                        <MetabolicScoreRing
+                            size={140}
+                            score={score}
+                            scoreColor={getScoreColor(score)}
+                        />
+                    </View>
+
+                    {/* Mini Metrics Row */}
+                    <View style={styles.heroMetricsRow}>
+                        <View style={styles.heroMetricItem}>
+                            <Ionicons name="moon" size={14} color={Colors.sleep} />
+                            <Text style={styles.heroMetricValue}>{computedAggregates.weeklySleep?.toFixed(1) ?? '--'}h</Text>
+                        </View>
+                        <View style={styles.heroMetricDivider} />
+                        <View style={styles.heroMetricItem}>
+                            <Ionicons name="footsteps" size={14} color={Colors.activity} />
+                            <Text style={styles.heroMetricValue}>{computedAggregates.weeklySteps ? (computedAggregates.weeklySteps / 1000).toFixed(1) + 'k' : '--'}</Text>
+                        </View>
+                        <View style={styles.heroMetricDivider} />
+                        <View style={styles.heroMetricItem}>
+                            <Ionicons name="heart" size={14} color={Colors.heartRate} />
+                            <Text style={styles.heroMetricValue}>{Math.round(computedAggregates.weeklyRHR ?? 0) || '--'}</Text>
+                        </View>
+                        <View style={styles.heroMetricDivider} />
+                        <View style={styles.heroMetricItem}>
+                            <Ionicons name="pulse" size={14} color={Colors.primary} />
+                            <Text style={styles.heroMetricValue}>{Math.round(computedAggregates.weeklyHRV ?? 0) || '--'} ms</Text>
+                        </View>
+                    </View>
                 </LinearGradient>
 
                 {/* Section 2: Metric Cards Grid */}
@@ -1433,11 +1500,33 @@ export default function InsightsScreen() {
                     </View>
                 </View>
 
-                {/* Section 3: Simplified Data Coverage */}
-                <DataCoverageCard
-                    confidence={metabolicScore?.confidence || 'insufficient_data'}
-                    daysWithData={daysWithData}
-                />
+                {/* Section 3: Personalized AI Tips */}
+                {/* Only show if AI tips is enabled/available? Assuming yes for now */}
+                <View style={{ marginTop: 24, marginBottom: 8 }}>
+                    <Text style={styles.sectionTitle}>Personalized Tips</Text>
+                    <Text style={styles.sectionDescription}>AI-curated insights based on your recent logs.</Text>
+                </View>
+
+                {tipsLoading ? (
+                    <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 20 }} />
+                ) : tipsData?.tips && tipsData.tips.length > 0 ? (
+                    <View style={styles.tipsContainer}>
+                        {tipsData.tips.map(renderTipCard)}
+                    </View>
+                ) : (
+                    <View style={styles.tipsEmptyStateCard}>
+                        <Text style={styles.tipsEmptyStateTitle}>No tips yet</Text>
+                        <Text style={styles.tipsEmptyStateText}>Log more data to get personalized advice.</Text>
+                    </View>
+                )}
+
+                {/* Section 4: Simplified Data Coverage (shifted down) */}
+                <View style={{ marginTop: 24 }}>
+                    <DataCoverageCard
+                        confidence={metabolicScore?.confidence || 'insufficient_data'}
+                        daysWithData={daysWithData}
+                    />
+                </View>
                 {/* Add habits and data coverage sections back */}
                 <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Compounding Habits</Text>
                 <Text style={styles.sectionDescription}>Habits that build momentum over 30+ days.</Text>
@@ -1992,49 +2081,91 @@ const styles = StyleSheet.create({
         height: '100%',
         borderRadius: 3,
     },
-    heroTitle: {
-        fontFamily: fonts.semiBold,
-        fontSize: 20,
-        color: '#FFFFFF',
-        marginTop: 14,
+    heroCard: {
+        backgroundColor: '#1E1E20',
+        borderRadius: 24,
+        padding: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.4,
+        shadowRadius: 20,
+        elevation: 10,
+        marginBottom: 8,
     },
-    heroSubtitle: {
+    heroHeader: {
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+    heroLabel: {
         fontFamily: fonts.medium,
-        fontSize: 14,
-        color: Colors.textTertiary,
+        fontSize: 11,
+        color: '#878787',
+        letterSpacing: 1.5,
+        textTransform: 'uppercase',
+        marginBottom: 8,
     },
-    heroSubtitleRow: {
+    heroStatusRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
-        marginTop: 4,
+        marginBottom: 6,
     },
-    deltaPill: {
+    heroStatusText: {
+        fontFamily: fonts.bold,
+        fontSize: 24,
+        color: '#FFFFFF',
+    },
+    heroContext: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#B0B0B0',
+        textAlign: 'center',
+    },
+    heroRingContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 24,
+    },
+    heroMetricsRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 4,
-        marginTop: 12,
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0,0,0,0.2)',
+        borderRadius: 16,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        gap: 0, // handling spacing with dividers/padding
+    },
+    heroMetricItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
         paddingHorizontal: 10,
-        paddingVertical: 5,
-        backgroundColor: 'rgba(255,255,255,0.06)',
-        borderRadius: 12,
+    },
+    heroMetricValue: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: '#E0E0E0',
+    },
+    heroMetricDivider: {
+        width: 1,
+        height: 16,
+        backgroundColor: 'rgba(255,255,255,0.1)',
     },
     deltaPillInline: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 2,
-        paddingHorizontal: 6,
-        paddingVertical: 2,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
         backgroundColor: 'rgba(255,255,255,0.06)',
         borderRadius: 8,
     },
-    deltaText: {
-        fontFamily: fonts.medium,
-        fontSize: 12,
-    },
     deltaTextInline: {
         fontFamily: fonts.medium,
-        fontSize: 11,
+        fontSize: 12,
     },
     metricsGrid: {
         gap: 12,
@@ -2053,6 +2184,86 @@ const styles = StyleSheet.create({
         fontFamily: fonts.regular,
         fontSize: 12,
         color: Colors.textTertiary,
+    },
+    tipCard: {
+        backgroundColor: '#22282C',
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 12,
+        flexDirection: 'row',
+        gap: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+    },
+    tipIconContainer: {
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    tipContent: {
+        flex: 1,
+        gap: 4,
+    },
+    tipHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 2,
+    },
+    tipTitle: {
+        fontFamily: fonts.bold,
+        fontSize: 15,
+        color: '#FFFFFF',
+        flex: 1,
+    },
+    tipMetric: {
+        fontFamily: fonts.medium,
+        fontSize: 11,
+        color: '#8E8E93',
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        overflow: 'hidden',
+    },
+    tipDescription: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: '#B0B0B0',
+        lineHeight: 18,
+    },
+    tipLink: {
+        fontFamily: fonts.medium,
+        fontSize: 12,
+        color: Colors.primary,
+        marginTop: 4,
+    },
+    tipsContainer: {
+        gap: 0,
+    },
+    tipsEmptyStateCard: {
+        backgroundColor: '#1C1C1E',
+        borderRadius: 16,
+        padding: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#2C2C2E',
+        borderStyle: 'dashed',
+    },
+    tipsEmptyStateTitle: {
+        fontFamily: fonts.bold,
+        fontSize: 16,
+        color: '#FFFFFF',
+        marginBottom: 4,
+    },
+    tipsEmptyStateText: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: '#8E8E93',
+        textAlign: 'center',
     },
 });
 
