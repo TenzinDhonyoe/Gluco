@@ -2,13 +2,14 @@ import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { isBehaviorV1Experience, SKIP_FRAMEWORK_RESET_GATE } from '@/lib/experience';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ResizeMode, Video } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     Dimensions,
     Image,
@@ -32,73 +33,112 @@ export const PAYWALL_SEEN_KEY = 'paywall_seen';
 export const PAYWALL_ENABLED = false;
 const SPLASH_LOGO = require('../assets/images/mascots/gluco_app_mascott/gluco_splash.png');
 
+// Semantic step routes (new naming)
+const ONBOARDING_STEP_ROUTES: Record<string, string> = {
+    'profile': '/onboarding-profile',
+    'goals': '/onboarding-goals',
+    'body': '/onboarding-body',
+    'tracking': '/onboarding-tracking',
+    'coaching': '/onboarding-coaching',
+    'ai': '/onboarding-ai',
+};
+
+// Legacy numeric step keys → new semantic keys (for users mid-onboarding during update)
+const LEGACY_STEP_MIGRATION: Record<string, string> = {
+    '1': 'profile',
+    '2': 'goals',
+    '3': 'body',
+    '4': 'tracking',
+    '5': 'coaching',
+};
+
+/** Resolve a stored step key (legacy or new) to an onboarding route */
+function getOnboardingResumeRoute(storedStep: string): string | null {
+    // Try new semantic key first
+    if (ONBOARDING_STEP_ROUTES[storedStep]) {
+        return ONBOARDING_STEP_ROUTES[storedStep];
+    }
+    // Migrate legacy numeric key
+    const migrated = LEGACY_STEP_MIGRATION[storedStep];
+    if (migrated && ONBOARDING_STEP_ROUTES[migrated]) {
+        // Persist the migrated key so future launches use the new format
+        AsyncStorage.setItem(ONBOARDING_STEP_KEY, migrated).catch(() => null);
+        return ONBOARDING_STEP_ROUTES[migrated];
+    }
+    return null;
+}
+
 export default function WelcomeScreen() {
     const { user, profile, loading } = useAuth();
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+    const hasNavigated = useRef(false);
 
     // Check auth state and redirect accordingly
     useEffect(() => {
         const checkAuthState = async () => {
             // Wait for auth to finish loading
             if (loading) return;
+            // Prevent double-navigation
+            if (hasNavigated.current) return;
 
             if (user) {
                 // User is logged in
                 if (!user.email_confirmed_at) {
-                    // Email not confirmed yet - go to confirm email screen
+                    hasNavigated.current = true;
                     router.replace({
                         pathname: '/confirm-email',
                         params: { email: user.email || '' },
                     } as never);
                 } else if (!profile || !profile.onboarding_completed) {
                     // Email confirmed but onboarding not complete
-                    // First check AsyncStorage for saved step (more reliable for resume)
                     const storedStep = await AsyncStorage.getItem(ONBOARDING_STEP_KEY);
 
                     if (storedStep) {
-                        // Use stored step for routing
-                        const stepRoutes: Record<string, string> = {
-                            '1': '/onboarding-2',  // Step 1: Profile (screen is onboarding-2)
-                            '2': '/onboarding-1',  // Step 2: Goals (screen is onboarding-1)
-                            '3': '/onboarding-3',  // Step 3: Optional height/weight
-                            '4': '/onboarding-4',  // Step 4: Tracking mode
-                            '5': '/onboarding-5',  // Step 5: Coaching style
-                        };
-                        const route = stepRoutes[storedStep];
+                        const route = getOnboardingResumeRoute(storedStep);
                         if (route) {
+                            hasNavigated.current = true;
                             router.replace(route as never);
                             return;
                         }
                     }
 
                     // Fallback: Profile-based routing if no stored step
-                    // Flow: Step 1 (profile) → Step 2 (goals) → Step 3 (optional) → Step 4 (tracking) → Step 5 (coaching)
+                    hasNavigated.current = true;
                     if (!profile?.first_name || !profile?.last_name) {
-                        router.replace('/onboarding-2' as never);
+                        router.replace('/onboarding-profile' as never);
                     } else if (!profile?.goals || profile.goals.length === 0) {
-                        router.replace('/onboarding-1' as never);
+                        router.replace('/onboarding-goals' as never);
                     } else if (profile?.tracking_mode === undefined) {
-                        router.replace('/onboarding-3' as never);
+                        router.replace('/onboarding-body' as never);
                     } else if (!profile?.coaching_style) {
-                        router.replace('/onboarding-5' as never);
+                        router.replace('/onboarding-coaching' as never);
                     } else {
-                        router.replace('/onboarding-5' as never);
+                        router.replace('/onboarding-ai' as never);
                     }
                 } else {
-                    // Onboarding complete - check if paywall should be shown
+                    // Onboarding complete
                     await AsyncStorage.removeItem(ONBOARDING_STEP_KEY);
 
-                    // If paywall is disabled (beta), go straight to dashboard
+                    const behaviorV1Enabled = isBehaviorV1Experience(profile?.experience_variant);
+
+                    if (
+                        behaviorV1Enabled &&
+                        !profile?.framework_reset_completed_at &&
+                        !SKIP_FRAMEWORK_RESET_GATE
+                    ) {
+                        hasNavigated.current = true;
+                        router.replace('/framework-reset' as never);
+                        return;
+                    }
+
+                    hasNavigated.current = true;
                     if (!PAYWALL_ENABLED) {
                         router.replace('/(tabs)' as never);
                     } else {
-                        // Check if user has already seen/dismissed the paywall
                         const paywallSeen = await AsyncStorage.getItem(PAYWALL_SEEN_KEY);
                         if (!paywallSeen) {
-                            // Show paywall first
                             router.replace('/paywall' as never);
                         } else {
-                            // Paywall already seen, go to dashboard
                             router.replace('/(tabs)' as never);
                         }
                     }
@@ -110,19 +150,19 @@ export default function WelcomeScreen() {
         };
 
         checkAuthState();
+    }, [user, profile, loading]);
 
-        // Safety timeout: If auth check takes too long (e.g. 5 seconds), 
-        // stop loading and show welcome screen to prevent infinite spinner.
-        // If auth eventually resolves to a user, the useEffect above will redirect them.
+    // Separate timeout effect — does not re-trigger the main auth check
+    useEffect(() => {
         const timeoutId = setTimeout(() => {
-            if (loading || isCheckingAuth) {
+            if (!hasNavigated.current) {
                 console.log('Auth check timed out, showing welcome screen fallback');
                 setIsCheckingAuth(false);
             }
         }, 5000);
 
         return () => clearTimeout(timeoutId);
-    }, [user, profile, loading]);
+    }, []);
 
     const handleGetStarted = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

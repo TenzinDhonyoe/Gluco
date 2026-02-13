@@ -9,7 +9,6 @@ import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    ImageBackground,
     SafeAreaView,
     StyleSheet,
     Text,
@@ -65,7 +64,7 @@ export default function ConfirmEmailScreen() {
                 router.replace('/' as never);
             } else {
                 // Go to onboarding
-                router.replace('/onboarding-2' as never);
+                router.replace('/onboarding-profile' as never);
             }
         }
     }, [user, profile]);
@@ -134,11 +133,6 @@ export default function ConfirmEmailScreen() {
 
     return (
         <View style={styles.container}>
-            <ImageBackground
-                source={require('../assets/images/backgrounds/background.png')}
-                style={styles.backgroundImage}
-                resizeMode="cover"
-            >
                 <SafeAreaView style={styles.safeArea}>
                     <View style={styles.content}>
                         {/* Back Button */}
@@ -210,14 +204,13 @@ export default function ConfirmEmailScreen() {
 
                         {/* Waiting indicator */}
                         <View style={styles.waitingContainer}>
-                            <ActivityIndicator size="small" color="#878787" />
+                            <ActivityIndicator size="small" color={Colors.textTertiary} />
                             <Text style={styles.waitingText}>
                                 Auto-checking for confirmation...
                             </Text>
                         </View>
                     </View>
                 </SafeAreaView>
-            </ImageBackground>
         </View>
     );
 }
@@ -225,12 +218,7 @@ export default function ConfirmEmailScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
-    },
-    backgroundImage: {
-        flex: 1,
-        width: '100%',
-        height: '100%',
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -285,14 +273,14 @@ const styles = StyleSheet.create({
         marginBottom: 12,
     },
     emailText: {
-        color: '#3494d9',
+        color: Colors.primary,
         fontFamily: fonts.bold,
     },
     subDescription: {
         fontFamily: fonts.regular,
         fontSize: 14,
         lineHeight: 20,
-        color: '#878787',
+        color: Colors.textTertiary,
         textAlign: 'center',
         marginBottom: 40,
         paddingHorizontal: 20,
@@ -322,7 +310,7 @@ const styles = StyleSheet.create({
         height: 52,
         backgroundColor: 'transparent',
         borderWidth: 1,
-        borderColor: '#3f4243',
+        borderColor: Colors.borderCard,
         borderRadius: 8,
         justifyContent: 'center',
         alignItems: 'center',
@@ -334,12 +322,12 @@ const styles = StyleSheet.create({
     secondaryButtonText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     checkStatusButton: {
         width: '100%',
         height: 48,
-        backgroundColor: '#3494d9',
+        backgroundColor: Colors.primary,
         borderRadius: 8,
         justifyContent: 'center',
         alignItems: 'center',
@@ -358,7 +346,7 @@ const styles = StyleSheet.create({
     waitingText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginLeft: 8,
     },
 });
