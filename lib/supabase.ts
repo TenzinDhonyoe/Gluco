@@ -68,6 +68,41 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     },
 });
 
+type SupabaseErrorLike = { code?: string; message?: string } | null | undefined;
+
+const schemaFallbackWarnings = new Set<string>();
+
+function warnSchemaFallbackOnce(key: string, message: string, error?: SupabaseErrorLike) {
+    if (schemaFallbackWarnings.has(key)) return;
+    schemaFallbackWarnings.add(key);
+    const detail = error?.message ? ` (${error.message})` : '';
+    console.warn(`${message}${detail}`);
+}
+
+function matchesMissingEntity(message: string, entity?: string): boolean {
+    if (!entity) return true;
+    return message.includes(entity.toLowerCase());
+}
+
+function isMissingTableError(error: SupabaseErrorLike, tableName?: string): boolean {
+    if (!error) return false;
+    const message = (error.message || '').toLowerCase();
+
+    if (error.code === 'PGRST205' || error.code === '42P01') {
+        return matchesMissingEntity(message, tableName);
+    }
+
+    if (message.includes('could not find the table')) {
+        return matchesMissingEntity(message, tableName);
+    }
+
+    if (message.includes('relation') && message.includes('does not exist')) {
+        return matchesMissingEntity(message, tableName);
+    }
+
+    return false;
+}
+
 /**
  * Helper to invoke Edge Functions with retry logic
  * Handles transient network errors and cold starts
@@ -119,6 +154,21 @@ export async function invokeWithRetry<T>(
 // Types for user profile
 export type GlucoseUnit = 'mmol/L' | 'mg/dL';
 
+export type ExperienceVariant = 'legacy' | 'behavior_v1';
+export type COMBBarrier = 'capability' | 'opportunity' | 'motivation' | 'unsure';
+export type ReadinessLevel = 'low' | 'medium' | 'high';
+export type PromptWindow = 'morning' | 'midday' | 'evening';
+
+export interface NotificationPreferences {
+    meal_reminders?: boolean;
+    post_meal_reviews?: boolean;
+    daily_insights?: boolean;
+    experiment_updates?: boolean;
+    active_action_midday?: boolean;
+    post_meal_action?: boolean;
+    weekly_summary?: boolean;
+}
+
 // Tracking modes: new wellness-first modes + legacy modes for backward compatibility
 export type TrackingMode =
     | 'meals_wearables'          // Default: Meals + Apple Health
@@ -153,6 +203,17 @@ export interface UserProfile {
     notifications_enabled: boolean;
     ai_enabled: boolean;
     ai_consent_at: string | null;
+    experience_variant: ExperienceVariant;
+    framework_reset_completed_at: string | null;
+    com_b_barrier: COMBBarrier | null;
+    readiness_level: ReadinessLevel | null;
+    primary_habit: string | null;
+    if_then_plan: string | null;
+    prompt_window: PromptWindow | null;
+    show_glucose_advanced: boolean;
+    notification_preferences: NotificationPreferences | null;
+    dietary_preferences: string[];
+    cultural_food_context: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -287,6 +348,19 @@ export async function getMealPhotoAnalysis(
 export async function ensureSignedMealPhotoUrl(photoPath: string): Promise<string | null> {
     // If it's already a full URL (public or signed), just return it
     if (photoPath.startsWith('http')) return photoPath;
+
+    // Local file URIs are not in Supabase Storage yet.
+    // Callers should upload first, then pass storage path.
+    if (
+        photoPath.startsWith('file://') ||
+        photoPath.startsWith('ph://') ||
+        photoPath.startsWith('assets-library://')
+    ) {
+        if (__DEV__) {
+            console.warn('Local meal photo URI is not uploaded to storage yet; skipping signed URL.');
+        }
+        return null;
+    }
 
     // Otherwise, assume it's a storage path and get a signed URL
     try {
@@ -672,6 +746,140 @@ export async function getActivityLogsByDateRange(
     }
 
     return data || [];
+}
+
+// Types for weight logs
+export type WeightSource = 'manual' | 'apple_health' | 'imported';
+
+export interface WeightLog {
+    id: string;
+    user_id: string;
+    weight_kg: number;
+    logged_at: string;
+    source: WeightSource;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CreateWeightLogInput {
+    weight_kg: number;
+    logged_at: string;
+    source?: WeightSource;
+}
+
+export async function createWeightLog(
+    userId: string,
+    input: CreateWeightLogInput
+): Promise<WeightLog | null> {
+    const { data, error } = await supabase
+        .from('weight_logs')
+        .insert({
+            user_id: userId,
+            weight_kg: input.weight_kg,
+            logged_at: input.logged_at,
+            source: input.source ?? 'manual',
+        })
+        .select()
+        .single();
+
+    if (error) {
+        if (isMissingTableError(error, 'weight_logs')) {
+            warnSchemaFallbackOnce(
+                'missing_weight_logs_table',
+                'Weight logging is unavailable until the latest migration is applied.',
+                error
+            );
+            return null;
+        }
+        console.error('Error creating weight log:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function getWeightLogsByDateRange(
+    userId: string,
+    startDate: Date,
+    endDate: Date
+): Promise<WeightLog[]> {
+    const { data, error } = await supabase
+        .from('weight_logs')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('logged_at', startDate.toISOString())
+        .lte('logged_at', endDate.toISOString())
+        .order('logged_at', { ascending: true });
+
+    if (error) {
+        if (isMissingTableError(error, 'weight_logs')) {
+            warnSchemaFallbackOnce(
+                'missing_weight_logs_table',
+                'Weight trends are temporarily unavailable until the latest migration is applied.',
+                error
+            );
+            return [];
+        }
+        console.error('Error fetching weight logs by date range:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+export async function updateWeightLog(
+    logId: string,
+    userId: string,
+    updates: Partial<Pick<WeightLog, 'weight_kg' | 'logged_at' | 'source'>>
+): Promise<WeightLog | null> {
+    const { data, error } = await supabase
+        .from('weight_logs')
+        .update({
+            ...updates,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', logId)
+        .eq('user_id', userId)
+        .select()
+        .single();
+
+    if (error) {
+        if (isMissingTableError(error, 'weight_logs')) {
+            warnSchemaFallbackOnce(
+                'missing_weight_logs_table',
+                'Weight logging updates are unavailable until the latest migration is applied.',
+                error
+            );
+            return null;
+        }
+        console.error('Error updating weight log:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function deleteWeightLog(logId: string, userId: string): Promise<boolean> {
+    const { error } = await supabase
+        .from('weight_logs')
+        .delete()
+        .eq('id', logId)
+        .eq('user_id', userId);
+
+    if (error) {
+        if (isMissingTableError(error, 'weight_logs')) {
+            warnSchemaFallbackOnce(
+                'missing_weight_logs_table',
+                'Weight log deletion is unavailable until the latest migration is applied.',
+                error
+            );
+            return false;
+        }
+        console.error('Error deleting weight log:', error);
+        return false;
+    }
+
+    return true;
 }
 
 // ==========================================
@@ -1579,6 +1787,82 @@ export async function getDailyContextForDate(
     }
 
     return data;
+}
+
+// ==========================================
+// USER APP SESSIONS (retention)
+// ==========================================
+
+export interface UserAppSession {
+    user_id: string;
+    session_date: string;
+    first_opened_at: string;
+    platform: string;
+    app_version: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export async function upsertUserAppSessionForToday(
+    userId: string,
+    appVersion?: string
+): Promise<UserAppSession | null> {
+    const today = new Date().toISOString().split('T')[0];
+    const nowIso = new Date().toISOString();
+
+    const { data, error } = await supabase
+        .from('user_app_sessions')
+        .upsert(
+            {
+                user_id: userId,
+                session_date: today,
+                first_opened_at: nowIso,
+                platform: Platform.OS,
+                app_version: appVersion ?? null,
+                updated_at: nowIso,
+            },
+            { onConflict: 'user_id,session_date', ignoreDuplicates: true }
+        )
+        .select()
+        .maybeSingle();
+
+    if (error) {
+        if (isMissingTableError(error, 'user_app_sessions')) {
+            warnSchemaFallbackOnce(
+                'missing_user_app_sessions_table',
+                'Session retention tracking is unavailable until the latest migration is applied.',
+                error
+            );
+            return null;
+        }
+        console.error('Error upserting user app session:', error);
+        return null;
+    }
+
+    if (data) return data;
+
+    // If conflict ignored, fetch existing row for deterministic return value.
+    const { data: existing, error: fetchError } = await supabase
+        .from('user_app_sessions')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('session_date', today)
+        .maybeSingle();
+
+    if (fetchError) {
+        if (isMissingTableError(fetchError, 'user_app_sessions')) {
+            warnSchemaFallbackOnce(
+                'missing_user_app_sessions_table',
+                'Session retention tracking is unavailable until the latest migration is applied.',
+                fetchError
+            );
+            return null;
+        }
+        console.error('Error fetching existing app session:', fetchError);
+        return null;
+    }
+
+    return existing ?? null;
 }
 
 // ==========================================
@@ -3195,4 +3479,195 @@ export async function invokeMealAdjustments(
         meal_items: mealItems,
         meal_type: mealType,
     });
+}
+
+// ==========================================
+// AI PERSONALIZATION ENGINE
+// ==========================================
+
+export interface NextBestAction {
+    title: string;
+    description: string;
+    action_type: string;
+    time_context: string;
+    because: string;
+    cta: { label: string; route: string };
+}
+
+export interface NextBestActionResponse {
+    action: NextBestAction;
+    source: 'ai' | 'rules' | 'fallback';
+}
+
+export interface WeeklyReview {
+    id: string;
+    text: string;
+    experiment_suggestion: string | null;
+    key_metric: string;
+    metric_direction: 'up' | 'down' | 'stable';
+    week_start: string;
+    dismissed_at: string | null;
+}
+
+export interface WeeklyReviewResponse {
+    review: {
+        text: string;
+        experiment_suggestion: string | null;
+        key_metric: string;
+        metric_direction: 'up' | 'down' | 'stable';
+        week_start: string;
+    };
+    source: 'ai' | 'fallback';
+}
+
+export interface ScoreExplanation {
+    summary: string;
+    top_contributor: string;
+    biggest_opportunity: string;
+    one_thing_this_week: string;
+}
+
+export interface ScoreExplanationResponse {
+    explanation: ScoreExplanation;
+    source: 'ai' | 'fallback';
+}
+
+/**
+ * Invoke next-best-action Edge Function
+ */
+export async function invokeNextBestAction(
+    userId: string,
+    localHour: number
+): Promise<NextBestActionResponse | null> {
+    return invokeWithRetry<NextBestActionResponse>('next-best-action', {
+        user_id: userId,
+        local_hour: localHour,
+    });
+}
+
+/**
+ * Invoke weekly-review Edge Function
+ */
+export async function invokeWeeklyReview(
+    userId: string
+): Promise<WeeklyReviewResponse | null> {
+    return invokeWithRetry<WeeklyReviewResponse>('weekly-review', {
+        user_id: userId,
+    });
+}
+
+/**
+ * Invoke score-explanation Edge Function
+ */
+export async function invokeScoreExplanation(
+    userId: string,
+    score: number,
+    components: { rhr: number; steps: number; sleep: number; hrv: number }
+): Promise<ScoreExplanationResponse | null> {
+    return invokeWithRetry<ScoreExplanationResponse>('score-explanation', {
+        user_id: userId,
+        score,
+        components,
+    });
+}
+
+/**
+ * Get the current week's review from the weekly_reviews table
+ */
+export async function getWeeklyReview(userId: string): Promise<WeeklyReview | null> {
+    // Calculate current week start (Monday)
+    const now = new Date();
+    const day = now.getDay();
+    const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+    const weekStart = new Date(now.setDate(diff));
+    const weekStartStr = weekStart.toISOString().slice(0, 10);
+
+    const { data, error } = await supabase
+        .from('weekly_reviews')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('week_start', weekStartStr)
+        .maybeSingle();
+
+    if (error) {
+        if (isMissingTableError(error, 'weekly_reviews')) {
+            warnSchemaFallbackOnce('weekly_reviews', 'weekly_reviews table not found', error);
+            return null;
+        }
+        console.error('Error fetching weekly review:', error);
+        return null;
+    }
+
+    return data ? {
+        id: data.id,
+        text: data.review_text,
+        experiment_suggestion: data.experiment_suggestion,
+        key_metric: data.key_metric,
+        metric_direction: data.metric_direction,
+        week_start: data.week_start,
+        dismissed_at: data.dismissed_at,
+    } : null;
+}
+
+/**
+ * Dismiss a weekly review by setting dismissed_at
+ */
+export async function dismissWeeklyReview(reviewId: string): Promise<boolean> {
+    const { error } = await supabase
+        .from('weekly_reviews')
+        .update({ dismissed_at: new Date().toISOString() })
+        .eq('id', reviewId);
+
+    if (error) {
+        console.error('Error dismissing weekly review:', error);
+        return false;
+    }
+    return true;
+}
+
+// ==========================================
+// AI SUGGESTION EVENT TRACKING
+// ==========================================
+
+export type AiSuggestionOutputType = 'next_best_action' | 'weekly_review' | 'score_explanation';
+export type AiSuggestionEventType = 'shown' | 'tapped' | 'completed' | 'dismissed';
+
+export interface AiSuggestionEvent {
+    id: string;
+    user_id: string;
+    ai_output_id: string | null;
+    output_type: AiSuggestionOutputType;
+    event_type: AiSuggestionEventType;
+    metadata: Record<string, unknown>;
+    created_at: string;
+}
+
+export async function trackAiSuggestionEvent(
+    userId: string,
+    outputType: AiSuggestionOutputType,
+    eventType: AiSuggestionEventType,
+    aiOutputId?: string | null,
+    metadata?: Record<string, unknown>
+): Promise<void> {
+    try {
+        const { error } = await supabase
+            .from('ai_suggestion_events')
+            .insert({
+                user_id: userId,
+                output_type: outputType,
+                event_type: eventType,
+                ai_output_id: aiOutputId ?? null,
+                metadata: metadata ?? {},
+            });
+
+        if (error) {
+            if (isMissingTableError(error, 'ai_suggestion_events')) {
+                warnSchemaFallbackOnce('ai_suggestion_events', 'ai_suggestion_events table not found', error);
+                return;
+            }
+            console.error('Error tracking AI suggestion event:', error);
+        }
+    } catch {
+        // Silently fail — tracking is non-critical
+    }
 }

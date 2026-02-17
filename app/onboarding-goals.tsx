@@ -1,4 +1,5 @@
 import { ONBOARDING_STEP_KEY } from '@/app/index';
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { OnboardingHeader } from '@/components/onboarding/OnboardingHeader';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
@@ -108,6 +109,7 @@ export default function OnboardingGoalsScreen() {
 
     return (
         <View style={styles.container}>
+            <ForestGlassBackground blurIntensity={18} />
             <SafeAreaView style={styles.safeArea}>
                 <ScrollView
                     ref={scrollViewRef}

@@ -1,4 +1,5 @@
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { CONFIG, searchWithProgressiveResults, shouldTriggerSearch } from '@/lib/foodSearch';
@@ -12,7 +13,6 @@ import {
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -524,12 +524,6 @@ export default function LogMealItemsScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#1a1f24', '#181c20', '#111111']}
-        locations={[0, 0.3, 1]}
-        style={styles.backgroundGradient}
-      />
-
       <SafeAreaView edges={['top']} style={styles.safeArea}>
         {/* Header */}
         <View style={styles.header}>
@@ -813,14 +807,7 @@ export default function LogMealItemsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111111',
-  },
-  backgroundGradient: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 280,
+    backgroundColor: 'transparent',
   },
   safeArea: {
     flex: 1,
@@ -869,7 +856,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
   clearButton: {
     padding: 4,
@@ -898,7 +885,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginTop: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#2A2D30',
+    borderBottomColor: Colors.borderCard,
   },
   tab: {
     paddingVertical: 12,
@@ -912,11 +899,11 @@ const styles = StyleSheet.create({
   tabText: {
     fontFamily: fonts.semiBold,
     fontSize: 12,
-    color: '#878787',
+    color: Colors.textTertiary,
     letterSpacing: 1,
   },
   tabTextActive: {
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
   resultsContainer: {
     flex: 1,
@@ -935,7 +922,7 @@ const styles = StyleSheet.create({
   emptyText: {
     fontFamily: fonts.medium,
     fontSize: 16,
-    color: '#878787',
+    color: Colors.textTertiary,
     marginTop: 16,
   },
   emptySubtext: {
@@ -952,7 +939,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#2A2D30',
+    borderBottomColor: Colors.borderCard,
   },
   foodInfo: {
     flex: 1,
@@ -961,19 +948,19 @@ const styles = StyleSheet.create({
   foodName: {
     fontFamily: fonts.semiBold,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     marginBottom: 2,
   },
   foodBrand: {
     fontFamily: fonts.regular,
     fontSize: 12,
-    color: '#878787',
+    color: Colors.textTertiary,
     marginBottom: 4,
   },
   foodNutrients: {
     fontFamily: fonts.regular,
     fontSize: 13,
-    color: '#878787',
+    color: Colors.textTertiary,
     lineHeight: 18,
   },
   foodActions: {
@@ -989,20 +976,20 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#878787',
+    borderColor: Colors.textTertiary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   checkButtonSelected: {
-    backgroundColor: '#3494D9',
-    borderColor: '#3494D9',
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
   bottomSheet: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#1A1D1F',
+    backgroundColor: Colors.backgroundCard,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 12,
@@ -1026,7 +1013,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#2A2D30',
+    borderBottomColor: Colors.borderCard,
   },
   selectedItemInfo: {
     flex: 1,
@@ -1035,17 +1022,17 @@ const styles = StyleSheet.create({
   selectedItemName: {
     fontFamily: fonts.semiBold,
     fontSize: 14,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
   selectedItemBrand: {
     fontFamily: fonts.regular,
     fontSize: 11,
-    color: '#878787',
+    color: Colors.textTertiary,
   },
   selectedItemNutrients: {
     fontFamily: fonts.regular,
     fontSize: 12,
-    color: '#878787',
+    color: Colors.textTertiary,
   },
   quantityControls: {
     flexDirection: 'row',
@@ -1056,22 +1043,22 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#2A2D30',
+    backgroundColor: Colors.borderCard,
     justifyContent: 'center',
     alignItems: 'center',
   },
   quantityText: {
     fontFamily: fonts.semiBold,
     fontSize: 18,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     minWidth: 32,
     textAlign: 'center',
   },
   saveButton: {
-    backgroundColor: '#285E2A',
+    backgroundColor: Colors.buttonSecondary,
     borderWidth: 1,
-    borderColor: '#448D47',
-    borderRadius: 12,
+    borderColor: Colors.buttonSecondaryBorder,
+    borderRadius: 20,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 16,
@@ -1079,7 +1066,7 @@ const styles = StyleSheet.create({
   saveButtonText: {
     fontFamily: fonts.semiBold,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
   // Manual Entry Button styles
   manualEntryButton: {
@@ -1100,7 +1087,7 @@ const styles = StyleSheet.create({
   manualEntryButtonText: {
     fontFamily: fonts.medium,
     fontSize: 14,
-    color: '#3494D9',
+    color: Colors.primary,
     marginLeft: 6,
   },
   // Modal styles
@@ -1125,12 +1112,12 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontFamily: fonts.semiBold,
     fontSize: 18,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
   modalLabel: {
     fontFamily: fonts.medium,
     fontSize: 14,
-    color: '#878787',
+    color: Colors.textTertiary,
     marginBottom: 8,
     marginTop: 12,
   },
@@ -1141,7 +1128,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontFamily: fonts.regular,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
   modalRow: {
     flexDirection: 'row',
@@ -1151,8 +1138,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modalAddButton: {
-    backgroundColor: '#285E2A',
-    borderRadius: 12,
+    backgroundColor: Colors.buttonSecondary,
+    borderRadius: 20,
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 24,
@@ -1163,6 +1150,6 @@ const styles = StyleSheet.create({
   modalAddButtonText: {
     fontFamily: fonts.semiBold,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
 });

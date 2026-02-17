@@ -10,7 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { rankResults } from '@/lib/foodSearch';
 import { parseLabelFromImage } from '@/lib/labelScan';
-import { schedulePostMealReviewNotification } from '@/lib/notifications';
+import { schedulePostMealActionReminder, schedulePostMealReviewNotification } from '@/lib/notifications';
 import {
     analyzeMealPhotoWithRetry,
     FollowupQuestion,
@@ -844,7 +844,10 @@ export default function MealScannerScreen() {
 
             // Schedule post-meal check-in notification (1 hour from now)
             const checkInTime = new Date(Date.now() + 60 * 60 * 1000);
-            await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime).catch(() => {
+            await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime, user.id).catch(() => {
+                // Non-critical - don't fail the save if notification scheduling fails
+            });
+            await schedulePostMealActionReminder(meal.id, meal.name, user.id).catch(() => {
                 // Non-critical - don't fail the save if notification scheduling fails
             });
 
@@ -904,12 +907,8 @@ export default function MealScannerScreen() {
     if (!permission.granted) {
         return (
             <View style={styles.container}>
-                <LinearGradient
-                    colors={['#1E3A5F', '#111111', '#111111']}
-                    style={styles.backgroundGradient}
-                />
                 <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
-                    <Ionicons name="camera-outline" size={64} color="#878787" />
+                    <Ionicons name="camera-outline" size={64} color={Colors.textTertiary} />
                     <Text style={styles.permissionTitle}>Camera Access Required</Text>
                     <Text style={styles.permissionText}>
                         We need camera access to scan and log your meals.
@@ -929,12 +928,8 @@ export default function MealScannerScreen() {
     if (!profile?.ai_enabled) {
         return (
             <View style={styles.container}>
-                <LinearGradient
-                    colors={['#1E3A5F', '#111111', '#111111']}
-                    style={styles.backgroundGradient}
-                />
                 <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
-                    <Ionicons name="sparkles-outline" size={64} color="#878787" />
+                    <Ionicons name="sparkles-outline" size={64} color={Colors.textTertiary} />
                     <Text style={styles.permissionTitle}>AI Insights Disabled</Text>
                     <Text style={styles.permissionText}>
                         Enable AI insights in Privacy settings to scan food.
@@ -1207,14 +1202,7 @@ export default function MealScannerScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 300,
+        backgroundColor: 'transparent',
     },
     camera: {
         ...StyleSheet.absoluteFillObject,
@@ -1300,7 +1288,7 @@ const styles = StyleSheet.create({
     permissionText: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
         textAlign: 'center',
         marginTop: 8,
     },
@@ -1323,7 +1311,7 @@ const styles = StyleSheet.create({
     cancelButtonText: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
 
     // Targeting frame
@@ -1515,7 +1503,7 @@ const styles = StyleSheet.create({
     // Macro Sheet Styles
     macroSheet: {
         padding: 20,
-        backgroundColor: '#1C1C1E',
+        backgroundColor: Colors.backgroundCard,
     },
     sheetHeader: {
         flexDirection: 'row',

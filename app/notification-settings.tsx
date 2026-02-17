@@ -1,11 +1,11 @@
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -13,7 +13,6 @@ import {
     StyleSheet,
     Switch,
     Text,
-    TouchableOpacity,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -32,20 +31,20 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
     experiment_updates: true,
 };
 
+function isMissingNotificationPrefsColumn(error: { code?: string; message?: string } | null | undefined): boolean {
+    if (!error) return false;
+    const message = (error.message || '').toLowerCase();
+    return (error.code === '42703' || message.includes('does not exist')) && message.includes('notification_preferences');
+}
+
 export default function NotificationSettingsScreen() {
     const { user } = useAuth();
     const [preferences, setPreferences] = useState<NotificationPreferences>(DEFAULT_PREFERENCES);
+    const [preferencesPersistSupported, setPreferencesPersistSupported] = useState(true);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
 
-    useEffect(() => {
-        const task = InteractionManager.runAfterInteractions(() => {
-            loadPreferences();
-        });
-        return () => task.cancel();
-    }, []);
-
-    const loadPreferences = async () => {
+    const loadPreferences = useCallback(async () => {
         if (!user) return;
 
         try {
@@ -55,6 +54,15 @@ export default function NotificationSettingsScreen() {
                 .eq('id', user.id)
                 .single();
 
+            if (error) {
+                if (isMissingNotificationPrefsColumn(error)) {
+                    setPreferencesPersistSupported(false);
+                    setPreferences(DEFAULT_PREFERENCES);
+                    return;
+                }
+                throw error;
+            }
+
             if (data?.notification_preferences) {
                 setPreferences({ ...DEFAULT_PREFERENCES, ...data.notification_preferences });
             }
@@ -63,10 +71,18 @@ export default function NotificationSettingsScreen() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [user]);
+
+    useEffect(() => {
+        const task = InteractionManager.runAfterInteractions(() => {
+            loadPreferences();
+        });
+        return () => task.cancel();
+    }, [loadPreferences]);
 
     const savePreferences = async (newPreferences: NotificationPreferences) => {
         if (!user) return;
+        if (!preferencesPersistSupported) return;
 
         setIsSaving(true);
         try {
@@ -76,6 +92,10 @@ export default function NotificationSettingsScreen() {
                 .eq('id', user.id);
 
             if (error) {
+                if (isMissingNotificationPrefsColumn(error)) {
+                    setPreferencesPersistSupported(false);
+                    return;
+                }
                 Alert.alert('Error', 'Failed to save preferences');
             }
         } catch (error) {
@@ -117,9 +137,9 @@ export default function NotificationSettingsScreen() {
             <Switch
                 value={value}
                 onValueChange={onToggle}
-                trackColor={{ false: '#3F4243', true: '#3494D9' }}
-                thumbColor={value ? '#FFFFFF' : '#878787'}
-                ios_backgroundColor="#3F4243"
+                trackColor={{ false: Colors.borderCard, true: Colors.primary }}
+                thumbColor={value ? '#FFFFFF' : Colors.textTertiary}
+                ios_backgroundColor={Colors.borderCard}
             />
         </View>
     );
@@ -127,20 +147,13 @@ export default function NotificationSettingsScreen() {
     if (isLoading) {
         return (
             <View style={[styles.container, styles.loadingContainer]}>
-                <ActivityIndicator color="#3494D9" size="large" />
+                <ActivityIndicator color={Colors.primary} size="large" />
             </View>
         );
     }
 
     return (
         <View style={styles.container}>
-            {/* Background gradient */}
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.backgroundGradient}
-            />
-
             <SafeAreaView edges={['top']} style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -149,7 +162,7 @@ export default function NotificationSettingsScreen() {
                     </LiquidGlassIconButton>
                     <Text style={styles.headerTitle}>NOTIFICATIONS</Text>
                     <View style={styles.headerSpacer}>
-                        {isSaving && <ActivityIndicator size="small" color="#3494D9" />}
+                        {isSaving && <ActivityIndicator size="small" color={Colors.primary} />}
                     </View>
                 </View>
 
@@ -188,6 +201,11 @@ export default function NotificationSettingsScreen() {
                     <Text style={styles.footerNote}>
                         Notifications help you stay on track with your glucose management goals.
                     </Text>
+                    {!preferencesPersistSupported && (
+                        <Text style={styles.footerNote}>
+                            Notification preferences will sync after the latest database migration is applied.
+                        </Text>
+                    )}
                 </View>
             </SafeAreaView>
         </View>
@@ -197,18 +215,11 @@ export default function NotificationSettingsScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: Colors.background,
     },
     loadingContainer: {
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
     },
     safeArea: {
         flex: 1,
@@ -220,23 +231,10 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 16,
     },
-    backButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
-        elevation: 2,
-    },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
+        fontSize: 18,
+        color: Colors.textPrimary,
         letterSpacing: 2,
     },
     headerSpacer: {
@@ -250,10 +248,10 @@ const styles = StyleSheet.create({
         paddingTop: 8,
     },
     card: {
-        backgroundColor: '#1A1D1F',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#2A2D30',
+        borderColor: Colors.borderCard,
         overflow: 'hidden',
     },
     settingRow: {
@@ -270,23 +268,23 @@ const styles = StyleSheet.create({
     settingLabel: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 4,
     },
     settingDescription: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     divider: {
         height: 1,
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
         marginHorizontal: 16,
     },
     footerNote: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
         textAlign: 'center',
         marginTop: 24,
         paddingHorizontal: 16,

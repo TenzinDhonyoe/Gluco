@@ -3,6 +3,7 @@
  * Camera-based nutrition label scanning with Gemini Vision parsing
  */
 
+import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import {
     LabelScanResult,
@@ -11,7 +12,6 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import {
@@ -43,7 +43,7 @@ export default function ScanLabelScreen() {
     if (!permission) {
         return (
             <View style={styles.container}>
-                <ActivityIndicator size="large" color="#3494D9" />
+                <ActivityIndicator size="large" color={Colors.primary} />
             </View>
         );
     }
@@ -51,13 +51,9 @@ export default function ScanLabelScreen() {
     if (!permission.granted) {
         return (
             <View style={styles.container}>
-                <LinearGradient
-                    colors={['#1E3A5F', '#111111', '#111111']}
-                    style={styles.backgroundGradient}
-                />
                 <SafeAreaView style={styles.safeArea}>
                     <View style={styles.permissionContainer}>
-                        <Ionicons name="camera-outline" size={64} color="#878787" />
+                        <Ionicons name="camera-outline" size={64} color={Colors.textTertiary} />
                         <Text style={styles.permissionTitle}>Camera Access Required</Text>
                         <Text style={styles.permissionText}>
                             We need camera access to scan nutrition labels.
@@ -83,13 +79,9 @@ export default function ScanLabelScreen() {
     if (!profile?.ai_enabled) {
         return (
             <View style={styles.container}>
-                <LinearGradient
-                    colors={['#1E3A5F', '#111111', '#111111']}
-                    style={styles.backgroundGradient}
-                />
                 <SafeAreaView style={styles.safeArea}>
                     <View style={styles.permissionContainer}>
-                        <Ionicons name="sparkles-outline" size={64} color="#878787" />
+                        <Ionicons name="sparkles-outline" size={64} color={Colors.textTertiary} />
                         <Text style={styles.permissionTitle}>AI Insights Disabled</Text>
                         <Text style={styles.permissionText}>
                             Enable AI insights in Privacy settings to scan labels.
@@ -225,7 +217,7 @@ export default function ScanLabelScreen() {
     // Render analyzing state
     const renderAnalyzing = () => (
         <View style={styles.stateContainer}>
-            <ActivityIndicator size="large" color="#3494D9" />
+            <ActivityIndicator size="large" color={Colors.primary} />
             <Text style={styles.stateTitle}>Analyzing Label...</Text>
             <Text style={styles.stateSubtitle}>
                 Extracting nutrition information
@@ -236,7 +228,7 @@ export default function ScanLabelScreen() {
     // Render error state
     const renderError = () => (
         <View style={styles.stateContainer}>
-            <Ionicons name="warning-outline" size={64} color="#F44336" />
+            <Ionicons name="warning-outline" size={64} color={Colors.error} />
             <Text style={styles.stateTitle}>{errorMessage}</Text>
             <Text style={styles.stateSubtitle}>{errorDetail}</Text>
             <View style={styles.buttonRow}>
@@ -279,11 +271,6 @@ export default function ScanLabelScreen() {
 
     return (
         <View style={styles.container}>
-            <LinearGradient
-                colors={['#1E3A5F', '#111111', '#111111']}
-                style={styles.backgroundGradient}
-            />
-
             {scanState === 'ready' && renderCamera()}
             {scanState === 'capturing' && renderCamera()}
             {scanState === 'analyzing' && (
@@ -304,14 +291,7 @@ export default function ScanLabelScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 300,
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -333,12 +313,12 @@ const styles = StyleSheet.create({
     permissionText: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
         textAlign: 'center',
         marginTop: 8,
     },
     permissionButton: {
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
         paddingHorizontal: 32,
         paddingVertical: 14,
         borderRadius: 12,
@@ -347,7 +327,7 @@ const styles = StyleSheet.create({
     permissionButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     cancelButton: {
         marginTop: 16,
@@ -356,7 +336,7 @@ const styles = StyleSheet.create({
     cancelButtonText: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
 
     // Camera styles
@@ -389,7 +369,7 @@ const styles = StyleSheet.create({
         position: 'absolute',
         width: 32,
         height: 32,
-        borderColor: '#3494D9',
+        borderColor: Colors.primary,
         borderWidth: 3,
     },
     cornerTopLeft: {
@@ -425,7 +405,7 @@ const styles = StyleSheet.create({
     instructionText: {
         fontFamily: fonts.regular,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         textAlign: 'center',
     },
     controls: {
@@ -435,7 +415,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 32,
         paddingVertical: 32,
         paddingBottom: 48,
-        backgroundColor: '#111111',
+        backgroundColor: Colors.background,
     },
     cancelBtn: {
         width: 50,
@@ -459,7 +439,7 @@ const styles = StyleSheet.create({
         borderRadius: 30,
         backgroundColor: '#FFFFFF',
         borderWidth: 3,
-        borderColor: '#111111',
+        borderColor: Colors.background,
     },
     placeholder: {
         width: 50,
@@ -543,7 +523,7 @@ const styles = StyleSheet.create({
     servingInfo: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#3494D9',
+        color: Colors.primary,
         marginTop: 8,
     },
     confidenceRow: {
@@ -640,7 +620,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         backgroundColor: '#26A861',
         paddingVertical: 16,
-        borderRadius: 12,
+        borderRadius: 20,
         gap: 8,
     },
     confirmButtonDisabled: {
@@ -649,7 +629,7 @@ const styles = StyleSheet.create({
     confirmButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     retakeButton: {
         flexDirection: 'row',
@@ -658,12 +638,12 @@ const styles = StyleSheet.create({
         paddingVertical: 14,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#3494D9',
+        borderColor: Colors.primary,
         gap: 8,
     },
     retakeButtonText: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#3494D9',
+        color: Colors.primary,
     },
 });

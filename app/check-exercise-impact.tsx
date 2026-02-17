@@ -3,6 +3,7 @@
  * Displays exercise analysis results including calories burned and glucose impact
  */
 
+import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -93,10 +94,6 @@ function ExerciseLoadingScreen({ message }: { message: string }) {
 
     return (
         <View style={loadingStyles.container}>
-            <LinearGradient
-                colors={['#111111', '#1A1B1C', '#111111']}
-                style={loadingStyles.gradient}
-            />
             <Image
                 source={Images.mascots.exercise}
                 style={loadingStyles.mascot}
@@ -131,16 +128,9 @@ function ExerciseLoadingScreen({ message }: { message: string }) {
 const loadingStyles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    gradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
     },
     mascot: {
         width: 180,
@@ -150,7 +140,7 @@ const loadingStyles = StyleSheet.create({
     thinkingText: {
         fontFamily: fonts.semiBold,
         fontSize: 20,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 24,
     },
     dotsContainer: {
@@ -173,7 +163,7 @@ const loadingStyles = StyleSheet.create({
     subText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 8,
     },
 });
@@ -241,7 +231,7 @@ const gaugeStyles = StyleSheet.create({
     labelText: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
 });
@@ -378,11 +368,6 @@ export default function CheckExerciseImpactScreen() {
 
     return (
         <View style={styles.container}>
-            <LinearGradient
-                colors={['#1A231E', '#111111']}
-                style={styles.backgroundGradient}
-            />
-
             <SafeAreaView style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -472,14 +457,7 @@ export default function CheckExerciseImpactScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 300,
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -506,8 +484,8 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
+        fontSize: 18,
+        color: Colors.textPrimary,
         letterSpacing: 2,
     },
     headerSpacer: {
@@ -522,13 +500,13 @@ const styles = StyleSheet.create({
     loadingText: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 16,
     },
     loadingSubtext: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 8,
         textAlign: 'center',
     },
@@ -541,7 +519,7 @@ const styles = StyleSheet.create({
     errorText: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 16,
         textAlign: 'center',
     },
@@ -555,7 +533,7 @@ const styles = StyleSheet.create({
     retryText: {
         fontFamily: fonts.semiBold,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     scrollView: {
         flex: 1,
@@ -565,8 +543,8 @@ const styles = StyleSheet.create({
         paddingBottom: 32,
     },
     summaryCard: {
-        backgroundColor: '#1A1B1C',
-        borderRadius: 16,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         padding: 20,
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -580,7 +558,7 @@ const styles = StyleSheet.create({
     exerciseName: {
         fontFamily: fonts.bold,
         fontSize: 24,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 12,
     },
     exerciseMeta: {
@@ -596,7 +574,7 @@ const styles = StyleSheet.create({
     metaText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     intensityBadge: {
         paddingHorizontal: 10,
@@ -608,8 +586,8 @@ const styles = StyleSheet.create({
         fontSize: 12,
     },
     glucoseCard: {
-        backgroundColor: '#1A1B1C',
-        borderRadius: 16,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         padding: 20,
         marginBottom: 16,
     },
@@ -622,7 +600,7 @@ const styles = StyleSheet.create({
     glucoseTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     glucoseContent: {
         alignItems: 'center',
@@ -636,7 +614,7 @@ const styles = StyleSheet.create({
     glucoseLabel: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 4,
     },
     glucoseTiming: {
@@ -648,7 +626,7 @@ const styles = StyleSheet.create({
     timingText: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
         flex: 1,
     },
     optimalTiming: {
@@ -662,7 +640,7 @@ const styles = StyleSheet.create({
     optimalLabel: {
         fontFamily: fonts.medium,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     optimalValue: {
         fontFamily: fonts.medium,
@@ -696,7 +674,7 @@ const styles = StyleSheet.create({
     dataQualityText: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     tipsSection: {
         marginBottom: 16,
@@ -704,12 +682,12 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 12,
     },
     tipCard: {
-        backgroundColor: '#1A1B1C',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         padding: 16,
         flexDirection: 'row',
         alignItems: 'flex-start',
@@ -730,18 +708,18 @@ const styles = StyleSheet.create({
     tipTitle: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 4,
     },
     tipDetail: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
         lineHeight: 18,
     },
     logButton: {
-        backgroundColor: '#4CAF50',
-        borderRadius: 12,
+        backgroundColor: Colors.success,
+        borderRadius: 20,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 8,
@@ -749,6 +727,6 @@ const styles = StyleSheet.create({
     logButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
 });

@@ -3,6 +3,7 @@
  * Shows privacy assurance before sign-in options
  */
 
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
@@ -13,7 +14,6 @@ import React, { useState } from 'react';
 import {
     Alert,
     Image,
-    ImageBackground,
     Linking,
     Platform,
     StyleSheet,
@@ -35,15 +35,19 @@ export default function PrivacyIntroScreen() {
 
         setIsAppleLoading(true);
         try {
-            const { error } = await signInWithApple();
+            const { error, onboardingComplete } = await signInWithApple();
 
             if (error) {
                 Alert.alert('Apple Sign-In Error', error.message);
                 return;
             }
 
-            // Navigate to index which will handle routing based on profile status
-            router.replace('/' as never);
+            // Navigate directly to the appropriate screen
+            if (onboardingComplete) {
+                router.replace('/(tabs)' as never);
+            } else {
+                router.replace('/onboarding-profile' as never);
+            }
         } catch (err) {
             Alert.alert('Error', 'An unexpected error occurred. Please try again.');
             console.error('Apple sign in error:', err);
@@ -66,11 +70,7 @@ export default function PrivacyIntroScreen() {
 
     return (
         <View style={styles.container}>
-            <ImageBackground
-                source={require('../assets/images/backgrounds/background.png')}
-                style={styles.backgroundImage}
-                resizeMode="cover"
-            >
+                <ForestGlassBackground blurIntensity={18} />
                 <SafeAreaView style={styles.safeArea}>
                     {/* Content */}
                     <View style={styles.content}>
@@ -112,7 +112,7 @@ export default function PrivacyIntroScreen() {
                             activeOpacity={0.8}
                             disabled={isAppleLoading}
                         >
-                            <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
+                            <Ionicons name="logo-apple" size={20} color={Colors.textPrimary} />
                             <Text style={styles.appleButtonText}>
                                 {isAppleLoading ? 'Signing in...' : 'Continue with Apple'}
                             </Text>
@@ -128,7 +128,6 @@ export default function PrivacyIntroScreen() {
                         </TouchableOpacity>
                     </View>
                 </SafeAreaView>
-            </ImageBackground>
         </View>
     );
 }
@@ -136,12 +135,7 @@ export default function PrivacyIntroScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
-    },
-    backgroundImage: {
-        flex: 1,
-        width: '100%',
-        height: '100%',
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -183,7 +177,7 @@ const styles = StyleSheet.create({
     footerText: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
         textAlign: 'center',
         lineHeight: 20,
         marginBottom: 24,
@@ -209,7 +203,7 @@ const styles = StyleSheet.create({
     appleButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     emailButton: {
         alignItems: 'center',
@@ -218,6 +212,6 @@ const styles = StyleSheet.create({
     emailButtonText: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
 });

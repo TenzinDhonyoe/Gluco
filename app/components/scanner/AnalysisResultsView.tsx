@@ -799,7 +799,7 @@ export default function AnalysisResultsView({
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
     },
 
     safeArea: {
@@ -1220,7 +1220,7 @@ const styles = StyleSheet.create({
         right: 0,
         paddingHorizontal: 20,
         paddingTop: 16,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
         borderTopWidth: 1,
         borderTopColor: 'rgba(255, 255, 255, 0.05)',
     },

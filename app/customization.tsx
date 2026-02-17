@@ -1,7 +1,7 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -159,20 +159,13 @@ export default function CustomizationScreen() {
     if (isLoading) {
         return (
             <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#3494D9" />
+                <ActivityIndicator size="large" color={Colors.primary} />
             </View>
         );
     }
 
     return (
         <View style={styles.container}>
-            {/* Background gradient that matches Today tab */}
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.backgroundGradient}
-            />
-
             <SafeAreaView style={styles.safeArea} edges={['top']}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -247,7 +240,7 @@ export default function CustomizationScreen() {
                                         value={targetMin}
                                         onChangeText={setTargetMin}
                                         placeholder={getGlucoseInputPlaceholder(selectedUnit)}
-                                        placeholderTextColor="#878787"
+                                        placeholderTextColor={Colors.textTertiary}
                                         style={styles.textInput}
                                         keyboardType="decimal-pad"
                                         returnKeyType="done"
@@ -266,7 +259,7 @@ export default function CustomizationScreen() {
                                         value={targetMax}
                                         onChangeText={setTargetMax}
                                         placeholder={selectedUnit === 'mg/dL' ? 'e.g., 180' : 'e.g., 10.0'}
-                                        placeholderTextColor="#878787"
+                                        placeholderTextColor={Colors.textTertiary}
                                         style={styles.textInput}
                                         keyboardType="decimal-pad"
                                         returnKeyType="done"
@@ -307,20 +300,13 @@ export default function CustomizationScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: Colors.background,
     },
     loadingContainer: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
     },
     safeArea: {
         flex: 1,
@@ -332,27 +318,10 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 16,
     },
-    backButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
-        elevation: 2,
-    },
-    backButtonPressed: {
-        opacity: 0.7,
-        transform: [{ scale: 0.97 }],
-    },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
+        fontSize: 18,
+        color: Colors.textPrimary,
         letterSpacing: 2,
     },
     headerSpacer: {
@@ -364,22 +333,22 @@ const styles = StyleSheet.create({
         paddingTop: 16,
     },
     card: {
-        backgroundColor: '#1A1D1F',
-        borderRadius: 16,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#2A2D30',
+        borderColor: Colors.borderCard,
         padding: 20,
     },
     cardTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 8,
     },
     cardDescription: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         lineHeight: 20,
         marginBottom: 24,
     },
@@ -389,7 +358,7 @@ const styles = StyleSheet.create({
     label: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 12,
     },
     inputRow: {
@@ -399,23 +368,23 @@ const styles = StyleSheet.create({
     },
     inputShell: {
         flex: 1,
-        backgroundColor: '#1b1b1c',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
         paddingHorizontal: 16,
         paddingVertical: 16,
     },
     textInput: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         padding: 0,
     },
     unitLabel: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         width: 60,
     },
     unitSelector: {
@@ -427,27 +396,27 @@ const styles = StyleSheet.create({
         backgroundColor: '#232527',
         borderRadius: 12,
         borderWidth: 2,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
         padding: 16,
         alignItems: 'center',
     },
     unitOptionSelected: {
-        borderColor: '#3494D9',
-        backgroundColor: 'rgba(52, 148, 217, 0.1)',
+        borderColor: Colors.primary,
+        backgroundColor: Colors.primaryLight,
     },
     unitOptionText: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 4,
     },
     unitOptionTextSelected: {
-        color: '#3494D9',
+        color: Colors.primary,
     },
     unitOptionSubtext: {
         fontFamily: fonts.regular,
         fontSize: 11,
-        color: '#666',
+        color: Colors.textPlaceholder,
         textAlign: 'center',
     },
     saveButtonContainer: {
@@ -455,13 +424,13 @@ const styles = StyleSheet.create({
         paddingBottom: 40,
     },
     saveButton: {
-        backgroundColor: '#285E2A',
+        backgroundColor: Colors.buttonSecondary,
         borderRadius: 12,
         paddingVertical: 16,
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 1,
-        borderColor: '#448D47',
+        borderColor: Colors.buttonSecondaryBorder,
     },
     saveButtonDisabled: {
         opacity: 0.5,
@@ -472,6 +441,6 @@ const styles = StyleSheet.create({
     saveButtonText: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
 });

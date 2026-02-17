@@ -4,6 +4,7 @@
  */
 
 import { Disclaimer } from '@/components/ui/Disclaimer';
+import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -108,10 +109,6 @@ function AILoadingScreen({ message }: { message: string }) {
 
     return (
         <View style={loadingStyles.container}>
-            <LinearGradient
-                colors={['#111111', '#1A1B1C', '#111111']}
-                style={loadingStyles.gradient}
-            />
             <Image
                 source={Images.mascots.cook}
                 style={loadingStyles.mascot}
@@ -146,16 +143,9 @@ function AILoadingScreen({ message }: { message: string }) {
 const loadingStyles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    gradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
     },
     mascot: {
         width: 180,
@@ -165,7 +155,7 @@ const loadingStyles = StyleSheet.create({
     thinkingText: {
         fontFamily: fonts.semiBold,
         fontSize: 20,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 24,
     },
     dotsContainer: {
@@ -188,7 +178,7 @@ const loadingStyles = StyleSheet.create({
     subText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 8,
     },
 });
@@ -283,13 +273,13 @@ const modalStyles = StyleSheet.create({
     optionBrand: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
     optionMacros: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#3494D9',
+        color: Colors.primary,
         marginTop: 4,
     },
     cancelButton: {
@@ -300,7 +290,7 @@ const modalStyles = StyleSheet.create({
     cancelText: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
 });
 
@@ -525,12 +515,6 @@ export default function MealResponseCheckScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Background gradient that matches other screens */}
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.backgroundGradient}
-            />
             <SafeAreaView style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -698,14 +682,7 @@ export default function MealResponseCheckScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -732,8 +709,8 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
+        fontSize: 18,
+        color: Colors.textPrimary,
         letterSpacing: 2,
     },
     headerSpacer: {
@@ -760,8 +737,8 @@ const styles = StyleSheet.create({
         marginBottom: 12,
     },
     textInput: {
-        backgroundColor: '#1A1B1C',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.08)',
         padding: 16,
@@ -782,12 +759,12 @@ const styles = StyleSheet.create({
     errorText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#F44336',
+        color: Colors.error,
         flex: 1,
     },
     analyzeButton: {
-        backgroundColor: '#3494D9',
-        borderRadius: 12,
+        backgroundColor: Colors.primary,
+        borderRadius: 20,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 24,
@@ -798,11 +775,11 @@ const styles = StyleSheet.create({
     analyzeButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     resultCard: {
-        backgroundColor: '#1A1B1C',
-        borderRadius: 16,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         padding: 20,
         marginBottom: 16,
     },
@@ -860,8 +837,8 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     tipCard: {
-        backgroundColor: '#1A1B1C',
-        borderRadius: 16,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         padding: 16,
         marginBottom: 12,
         borderWidth: 1,
@@ -897,8 +874,8 @@ const styles = StyleSheet.create({
         lineHeight: 18,
     },
     logButton: {
-        backgroundColor: '#3494D9',
-        borderRadius: 12,
+        backgroundColor: Colors.primary,
+        borderRadius: 20,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 12,
@@ -906,7 +883,7 @@ const styles = StyleSheet.create({
     logButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     macrosRow: {
         flexDirection: 'row',
@@ -926,7 +903,7 @@ const styles = StyleSheet.create({
     macroLabel: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
     section: {
@@ -940,8 +917,8 @@ const styles = StyleSheet.create({
     },
     tryAgainButton: {
         borderWidth: 1,
-        borderColor: '#3494D9',
-        borderRadius: 12,
+        borderColor: Colors.primary,
+        borderRadius: 20,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 16,
@@ -949,6 +926,6 @@ const styles = StyleSheet.create({
     tryAgainText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#3494D9',
+        color: Colors.primary,
     },
 });

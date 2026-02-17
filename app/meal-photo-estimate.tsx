@@ -156,11 +156,11 @@ export default function MealPhotoEstimateScreen() {
                             <View style={styles.cardRow}>
                                 <View style={styles.qtyControl}>
                                     <Pressable onPress={() => updateQuantity(index, -0.25)} style={styles.qtyBtn}>
-                                        <Ionicons name="remove" size={16} color="#FFF" />
+                                        <Ionicons name="remove" size={16} color={Colors.textPrimary} />
                                     </Pressable>
                                     <Text style={styles.qtyText}>{item.quantity} {item.serving_unit || 'svg'}</Text>
                                     <Pressable onPress={() => updateQuantity(index, 0.25)} style={styles.qtyBtn}>
-                                        <Ionicons name="add" size={16} color="#FFF" />
+                                        <Ionicons name="add" size={16} color={Colors.textPrimary} />
                                     </Pressable>
                                 </View>
 
@@ -181,7 +181,7 @@ export default function MealPhotoEstimateScreen() {
                         style={styles.confirmBtn}
                     >
                         <Text style={styles.confirmText}>Add to Meal</Text>
-                        <Ionicons name="checkmark" size={20} color="#FFF" />
+                        <Ionicons name="checkmark" size={20} color={Colors.textPrimary} />
                     </Pressable>
 
                     <View style={{ height: 40 }} />
@@ -194,7 +194,7 @@ export default function MealPhotoEstimateScreen() {
 const styles = StyleSheet.create({
     safe: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: 'transparent',
     },
     root: {
         flex: 1,
@@ -226,18 +226,18 @@ const styles = StyleSheet.create({
     disclaimer: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 20,
         textAlign: 'center',
         fontStyle: 'italic',
     },
     card: {
-        backgroundColor: '#1b1b1c',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 16,
         padding: 16,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
     },
     cardHeader: {
         flexDirection: 'row',
@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
     itemName: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: '#FFF',
+        color: Colors.textPrimary,
         flex: 1,
         marginRight: 10,
     },
@@ -269,13 +269,13 @@ const styles = StyleSheet.create({
         height: 28,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#3F4243',
+        backgroundColor: Colors.borderCard,
         borderRadius: 6,
     },
     qtyText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFF',
+        color: Colors.textPrimary,
         marginHorizontal: 12,
     },
     macros: {
@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
     macroSub: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     confirmBtn: {
         flexDirection: 'row',
@@ -305,6 +305,6 @@ const styles = StyleSheet.create({
     confirmText: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
 });

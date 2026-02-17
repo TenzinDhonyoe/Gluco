@@ -10,7 +10,8 @@ export const Colors = {
     // ============================================
     background: '#111111',
     backgroundSecondary: '#161616',
-    backgroundCard: '#1A1B1C',
+    backgroundCard: '#1A1A1C', // Base charcoal
+    backgroundCardGlass: 'rgba(26, 26, 28, 0.90)', // Glass effect base
     backgroundElevated: '#1E1E1E',
     backgroundGradientStart: '#1a1f24',
     backgroundGradientMid: '#181c20',
@@ -20,119 +21,128 @@ export const Colors = {
     // TEXT COLORS
     // ============================================
     textPrimary: '#FFFFFF',
-    textSecondary: '#A0A0A0',
-    textTertiary: '#878787',
-    textMuted: '#6B6B6B',
+    textSecondary: '#9CA3AF', // Cool slate grey
+    textTertiary: '#6B7280',
+    textMuted: '#4B5563',
     textPlaceholder: '#666666',
 
     // ============================================
-    // PRIMARY ACCENT (Blue - main action color)
+    // PRIMARY ACCENT
     // ============================================
-    primary: '#3494D9',
-    primaryLight: 'rgba(52, 148, 217, 0.15)',
-    primaryMedium: 'rgba(52, 148, 217, 0.3)',
-    primaryDark: 'rgba(52, 148, 217, 0.5)',
+    primary: '#2DD4BF', // Electric Teal
+    primaryLight: 'rgba(45, 212, 191, 0.15)',
+    primaryMedium: 'rgba(45, 212, 191, 0.3)',
+    primaryDark: 'rgba(45, 212, 191, 0.5)',
 
     // ============================================
-    // SUCCESS / IN RANGE (Green - unified green)
+    // SUCCESS / ON TARGET (Mint)
     // ============================================
-    success: '#4CAF50',
-    successLight: 'rgba(76, 175, 80, 0.12)',
-    successMedium: 'rgba(76, 175, 80, 0.2)',
-    successDark: 'rgba(76, 175, 80, 0.9)',
+    success: '#34D399', // Vibrant Mint
+    successLight: 'rgba(52, 211, 153, 0.12)',
+    successMedium: 'rgba(52, 211, 153, 0.2)',
+    successDark: 'rgba(52, 211, 153, 0.9)',
 
     // ============================================
-    // WARNING (Orange)
+    // WARNING / NEEDS ATTENTION (Peach/Amber)
     // ============================================
-    warning: '#FF9800',
-    warningLight: 'rgba(255, 152, 0, 0.1)',
-    warningMedium: 'rgba(255, 152, 0, 0.2)',
+    warning: '#FFB380', // Warm Peach
+    warningLight: 'rgba(255, 179, 128, 0.1)',
+    warningMedium: 'rgba(255, 179, 128, 0.2)',
 
     // ============================================
-    // ERROR / HIGH (Red)
+    // ERROR / HIGH
     // ============================================
-    error: '#F44336',
-    errorLight: 'rgba(244, 67, 54, 0.12)',
-    errorMedium: 'rgba(244, 67, 54, 0.2)',
+    error: '#F87171', // Softer red
+    errorLight: 'rgba(248, 113, 113, 0.12)',
+    errorMedium: 'rgba(248, 113, 113, 0.2)',
+
+    // ============================================
+    // MOMENTUM / MID-RANGE (Blue)
+    // ============================================
+    blue: '#60A5FA', // Calm Blue
+    blueLight: 'rgba(96, 165, 250, 0.15)',
 
     // ============================================
     // CATEGORY ACCENT COLORS (for visual distinction)
     // ============================================
     // Glucose/Blood - Red tint
-    glucose: '#FF375F',
-    glucoseLight: 'rgba(255, 55, 95, 0.1)',
-    glucoseMedium: 'rgba(255, 55, 95, 0.2)',
+    glucose: '#F87171',
+    glucoseLight: 'rgba(248, 113, 113, 0.1)',
+    glucoseMedium: 'rgba(248, 113, 113, 0.2)',
 
-    // Activity - Cyan
-    activity: '#22EFEF',
-    activityLight: 'rgba(34, 239, 239, 0.15)',
+    // Activity - Cyan (matches primary now)
+    activity: '#22D3EE',
+    activityLight: 'rgba(34, 211, 238, 0.15)',
 
-    // Sleep - Blue (uses primary)
-    sleep: '#3494D9',
-    sleepLight: 'rgba(52, 148, 217, 0.15)',
+    // Sleep - Indigo/Blue
+    sleep: '#818CF8',
+    sleepLight: 'rgba(129, 140, 248, 0.15)',
 
-    // Meals/Food - Golden orange
-    meal: '#EBA914',
-    mealLight: 'rgba(235, 169, 20, 0.15)',
+    // Meals/Food - Amber
+    meal: '#FBBF24',
+    mealLight: 'rgba(251, 191, 36, 0.15)',
 
-    // Fiber/Nutrition - Green (uses success)
-    fiber: '#4CAF50',
-    fiberLight: 'rgba(76, 175, 80, 0.12)',
+    // Fiber/Nutrition - Mint (uses success)
+    fiber: '#34D399',
+    fiberLight: 'rgba(52, 211, 153, 0.12)',
 
-    // Steps - Blue (uses primary)
-    steps: '#3494D9',
-    stepsLight: 'rgba(52, 148, 217, 0.15)',
+    // Steps - Blue
+    steps: '#60A5FA',
+    stepsLight: 'rgba(96, 165, 250, 0.15)',
 
     // Heart Rate - Red tint
-    heartRate: '#FF375F',
-    heartRateLight: 'rgba(255, 55, 95, 0.1)',
+    heartRate: '#F87171',
+    heartRateLight: 'rgba(248, 113, 113, 0.1)',
 
     // ============================================
     // GLUCOSE STATUS COLORS
     // ============================================
-    glucoseGood: '#4CAF50',
-    glucoseWarning: '#FF9800',
-    glucoseHigh: '#F44336',
-    glucoseLow: '#F44336',
+    glucoseGood: '#34D399',
+    glucoseWarning: '#FFB380',
+    glucoseHigh: '#F87171',
+    glucoseLow: '#F87171',
 
     // ============================================
     // CHART COLORS
     // ============================================
-    chartGreen: '#4CAF50',
-    chartYellow: '#FDCB6E',
-    chartRed: '#F06B6B',
-    chartBlue: '#3494D9',
-    chartAreaGreen: 'rgba(56, 118, 58, 0.40)',
-    chartAreaRed: 'rgba(183, 68, 68, 0.35)',
-    chartAreaBlue: 'rgba(52, 148, 217, 0.4)',
+    chartGreen: '#34D399',
+    chartYellow: '#FCD34D',
+    chartRed: '#F87171',
+    chartBlue: '#60A5FA',
+    chartAreaGreen: 'rgba(52, 211, 153, 0.40)',
+    chartAreaRed: 'rgba(248, 113, 113, 0.35)',
+    chartAreaBlue: 'rgba(96, 165, 250, 0.4)',
 
     // ============================================
     // BUTTON COLORS
     // ============================================
-    buttonPrimary: '#3494D9',
-    buttonPrimaryText: '#FFFFFF',
-    buttonSecondary: '#285E2A',
-    buttonSecondaryBorder: '#448D47',
-    buttonBorder: 'rgba(255, 255, 255, 0.1)',
+    buttonPrimary: '#2DD4BF', // Electric Teal
+    buttonPrimaryText: '#042F2E', // Deep Teal/Black
+    buttonSecondary: 'rgba(255, 255, 255, 0.12)',
+    buttonSecondaryBorder: 'rgba(255, 255, 255, 0.08)',
+    buttonBorder: 'rgba(255, 255, 255, 0.08)',
     buttonDisabled: '#2A3036',
-    buttonDestructive: '#FF3B30',
+    buttonDestructive: '#EF4444',
+    buttonDestructiveText: '#FFFFFF',
 
     // ============================================
     // INPUT COLORS
     // ============================================
-    inputBackground: 'rgba(63, 66, 67, 0.3)',
-    inputBorder: 'rgba(255, 255, 255, 0.05)',
-    inputBorderFocused: 'rgba(52, 148, 217, 0.5)',
-    inputPlaceholder: '#878787',
+    inputBackground: 'rgba(26, 26, 28, 0.5)',
+    inputBackgroundSolid: '#1A1A1C',
+    inputBorder: 'rgba(255, 255, 255, 0.08)',
+    inputBorderSolid: '#313135',
+    inputBorderFocused: 'rgba(45, 212, 191, 0.5)',
+    inputPlaceholder: '#9CA3AF',
 
     // ============================================
     // BORDER COLORS
     // ============================================
-    border: 'rgba(255, 255, 255, 0.05)',
+    border: 'rgba(255, 255, 255, 0.08)',
     borderLight: 'rgba(255, 255, 255, 0.08)',
-    borderMedium: 'rgba(255, 255, 255, 0.1)',
+    borderMedium: 'rgba(255, 255, 255, 0.12)',
     borderStrong: 'rgba(255, 255, 255, 0.15)',
-    borderCard: '#3F4243',
+    borderCard: 'rgba(255, 255, 255, 0.08)',
 
     // ============================================
     // SOCIAL BUTTONS
@@ -144,12 +154,13 @@ export const Colors = {
     // ============================================
     // SPECIAL COLORS
     // ============================================
-    gold: '#D4AF37',
-    premium: '#D4AF37',
+    gold: '#FCD34D',
+    premium: '#FCD34D',
 
     // ============================================
     // OVERLAY COLORS
     // ============================================
+    glassButton: 'rgba(255, 255, 255, 0.12)',
     overlayLight: 'rgba(0, 0, 0, 0.3)',
     overlayMedium: 'rgba(0, 0, 0, 0.5)',
     overlayDark: 'rgba(0, 0, 0, 0.7)',
@@ -157,12 +168,12 @@ export const Colors = {
     // ============================================
     // TAB BAR
     // ============================================
-    tabBarInactive: '#6B6B6B',
+    tabBarInactive: '#9CA3AF',
     tabBarActive: '#FFFFFF',
 };
 
 export const Gradients = {
     headerGradient: ['#11111100', '#656570'],
     backgroundGradient: ['#1a1f24', '#181c20', '#111111'],
-    cardGradient: ['rgba(40, 44, 48, 0.95)', 'rgba(30, 33, 36, 0.98)', 'rgba(35, 38, 41, 0.95)'],
+    cardGradient: ['rgba(32, 44, 38, 0.95)', 'rgba(24, 35, 30, 0.98)', 'rgba(28, 40, 34, 0.95)'],
 };

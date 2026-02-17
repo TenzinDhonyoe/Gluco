@@ -261,7 +261,7 @@ export default function PaywallScreen() {
                             disabled={isRestoring}
                         >
                             {isRestoring ? (
-                                <ActivityIndicator size="small" color="#878787" />
+                                <ActivityIndicator size="small" color={Colors.textTertiary} />
                             ) : (
                                 <Text style={styles.restoreButtonText}>Restore Purchases</Text>
                             )}
@@ -305,7 +305,7 @@ const styles = StyleSheet.create({
     skipButtonText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     content: {
         flex: 1,
@@ -334,7 +334,7 @@ const styles = StyleSheet.create({
     heroSubtitle: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         textAlign: 'center',
         maxWidth: 280,
     },
@@ -392,14 +392,14 @@ const styles = StyleSheet.create({
     packagePrice: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     radioOuter: {
         width: 22,
         height: 22,
         borderRadius: 11,
         borderWidth: 2,
-        borderColor: '#878787',
+        borderColor: Colors.textTertiary,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -419,7 +419,7 @@ const styles = StyleSheet.create({
     errorText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     buttonContainer: {
         paddingBottom: 16,
@@ -452,7 +452,7 @@ const styles = StyleSheet.create({
     restoreButtonText: {
         fontFamily: fonts.medium,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     devResetButton: {
         width: '100%',

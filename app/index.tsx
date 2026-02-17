@@ -5,6 +5,7 @@ import { fonts } from '@/hooks/useFonts';
 import { isBehaviorV1Experience, SKIP_FRAMEWORK_RESET_GATE } from '@/lib/experience';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useIsFocused } from '@react-navigation/native';
 import { ResizeMode, Video } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -72,6 +73,14 @@ export default function WelcomeScreen() {
     const { user, profile, loading } = useAuth();
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
     const hasNavigated = useRef(false);
+    const isFocused = useIsFocused();
+
+    // Reset hasNavigated when screen regains focus so it re-evaluates auth state
+    useEffect(() => {
+        if (isFocused) {
+            hasNavigated.current = false;
+        }
+    }, [isFocused]);
 
     // Check auth state and redirect accordingly
     useEffect(() => {
@@ -80,6 +89,8 @@ export default function WelcomeScreen() {
             if (loading) return;
             // Prevent double-navigation
             if (hasNavigated.current) return;
+            // Don't navigate if this screen is not focused (another screen is on top)
+            if (!isFocused) return;
 
             if (user) {
                 // User is logged in
@@ -150,7 +161,7 @@ export default function WelcomeScreen() {
         };
 
         checkAuthState();
-    }, [user, profile, loading]);
+    }, [user, profile, loading, isFocused]);
 
     // Separate timeout effect — does not re-trigger the main auth check
     useEffect(() => {
@@ -177,8 +188,8 @@ export default function WelcomeScreen() {
         Linking.openURL(LEGAL_URLS.privacyPolicy);
     };
 
-    // Show loading while checking auth
-    if (loading || isCheckingAuth) {
+    // Show loading while checking auth or while a signed-in user is being routed
+    if (loading || isCheckingAuth || user) {
         return (
             <View style={[styles.container, styles.loadingContainer]}>
                 <Image source={SPLASH_LOGO} style={styles.loadingLogo} />

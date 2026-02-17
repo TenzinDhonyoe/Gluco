@@ -1,3 +1,4 @@
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { runLocalExperimentAnalysis } from '@/lib/experiment-analysis';
@@ -9,7 +10,6 @@ import {
     VariantMetrics,
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -103,10 +103,6 @@ export default function ExperimentResultsScreen() {
 
     return (
         <View style={styles.container}>
-            <LinearGradient
-                colors={['#1a1f24', '#111111']}
-                style={styles.background}
-            />
             <SafeAreaView style={styles.safeArea}>
                 <ScrollView contentContainerStyle={styles.content}>
 
@@ -189,10 +185,7 @@ export default function ExperimentResultsScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    background: {
-        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -204,7 +197,7 @@ const styles = StyleSheet.create({
     eyebrow: {
         fontFamily: fonts.bold,
         fontSize: 12,
-        color: '#3494D9',
+        color: Colors.primary,
         letterSpacing: 1.5,
         textAlign: 'center',
         marginBottom: 8,
@@ -212,7 +205,7 @@ const styles = StyleSheet.create({
     title: {
         fontFamily: fonts.bold,
         fontSize: 28,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         textAlign: 'center',
         marginBottom: 32,
     },
@@ -222,7 +215,7 @@ const styles = StyleSheet.create({
         padding: 24,
         marginBottom: 32,
         borderWidth: 1,
-        borderColor: '#2A2D30',
+        borderColor: Colors.borderCard,
         alignItems: 'center',
     },
     cardHeader: {
@@ -234,7 +227,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: 100,
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
     },
     badgeHigh: { backgroundColor: 'rgba(76, 175, 80, 0.2)' },
     badgeMod: { backgroundColor: 'rgba(255, 152, 0, 0.2)' },
@@ -251,7 +244,7 @@ const styles = StyleSheet.create({
     outcomeTitle: {
         fontFamily: fonts.bold,
         fontSize: 24,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 16,
         marginBottom: 12,
     },
@@ -265,14 +258,14 @@ const styles = StyleSheet.create({
     sectionHeader: {
         fontFamily: fonts.bold,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 16,
         marginLeft: 4,
     },
     actionCard: {
         flexDirection: 'row',
-        backgroundColor: '#1E1E1E',
-        borderRadius: 16,
+        backgroundColor: Colors.backgroundElevated,
+        borderRadius: 20,
         padding: 20,
         marginBottom: 24,
         gap: 16,
@@ -284,7 +277,7 @@ const styles = StyleSheet.create({
     actionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 4,
     },
     actionDesc: {
@@ -293,12 +286,12 @@ const styles = StyleSheet.create({
         color: '#B0B3B5',
     },
     primaryButton: {
-        backgroundColor: '#3494D9',
-        borderRadius: 16,
+        backgroundColor: Colors.primary,
+        borderRadius: 20,
         paddingVertical: 18,
         alignItems: 'center',
         marginBottom: 16,
-        shadowColor: '#3494D9',
+        shadowColor: Colors.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
@@ -306,7 +299,7 @@ const styles = StyleSheet.create({
     primaryButtonText: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     secondaryButton: {
         paddingVertical: 16,
@@ -315,10 +308,10 @@ const styles = StyleSheet.create({
     secondaryButtonText: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#3494D9',
+        color: Colors.primary,
     },
     errorText: {
-        color: '#F44336',
+        color: Colors.error,
         textAlign: 'center',
     },
 });

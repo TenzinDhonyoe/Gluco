@@ -4,6 +4,7 @@
 import { AnimatedScreen } from '@/components/animations/animated-screen';
 import { SegmentedControl } from '@/components/controls/segmented-control';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import {
@@ -15,7 +16,6 @@ import {
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
@@ -225,12 +225,6 @@ export default function ExperimentsListScreen() {
     return (
         <AnimatedScreen>
             <View style={styles.container}>
-                <LinearGradient
-                    colors={['#1a1f24', '#181c20', '#111111']}
-                    locations={[0, 0.3, 1]}
-                    style={styles.backgroundGradient}
-                />
-
                 <SafeAreaView edges={['top']} style={styles.safeArea}>
                     {/* Header */}
                     <View style={styles.header}>
@@ -352,14 +346,7 @@ export default function ExperimentsListScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -380,7 +367,7 @@ const styles = StyleSheet.create({
         flex: 1,
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         textAlign: 'center',
     },
     headerSpacer: {
@@ -401,7 +388,7 @@ const styles = StyleSheet.create({
     },
     experimentCard: {
         backgroundColor: '#1E2124',
-        borderRadius: 16,
+        borderRadius: 20,
         padding: 16,
     },
     cardHeader: {
@@ -421,19 +408,19 @@ const styles = StyleSheet.create({
     statusBadgeText: {
         fontFamily: fonts.semiBold,
         fontSize: 10,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         letterSpacing: 0.5,
     },
     cardTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 4,
     },
     cardSubtitle: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 12,
     },
     progressSection: {
@@ -453,7 +440,7 @@ const styles = StyleSheet.create({
     progressPct: {
         fontFamily: fonts.semiBold,
         fontSize: 13,
-        color: '#3494D9',
+        color: Colors.primary,
     },
     progressBar: {
         height: 6,
@@ -463,7 +450,7 @@ const styles = StyleSheet.create({
     },
     progressFill: {
         height: '100%',
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
         borderRadius: 3,
     },
     completedSection: {
@@ -481,7 +468,7 @@ const styles = StyleSheet.create({
         marginTop: 16,
     },
     viewProgressButton: {
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
         borderRadius: 8,
         flexDirection: 'row',
         alignItems: 'center',
@@ -492,7 +479,7 @@ const styles = StyleSheet.create({
     viewProgressText: {
         fontFamily: fonts.semiBold,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     cardDate: {
         fontFamily: fonts.regular,
@@ -507,14 +494,14 @@ const styles = StyleSheet.create({
     emptyTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 16,
         marginBottom: 8,
     },
     emptySubtitle: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         textAlign: 'center',
         lineHeight: 20,
     },
@@ -524,7 +511,7 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 16,
     },
     templatesList: {
@@ -532,7 +519,7 @@ const styles = StyleSheet.create({
     },
     templateCard: {
         backgroundColor: '#1E2124',
-        borderRadius: 12,
+        borderRadius: 20,
         padding: 16,
         flexDirection: 'row',
         alignItems: 'center',
@@ -553,13 +540,13 @@ const styles = StyleSheet.create({
     templateTitle: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 2,
     },
     templateSubtitle: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     seeAllButton: {
         flexDirection: 'row',
@@ -572,18 +559,18 @@ const styles = StyleSheet.create({
     seeAllText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#3494D9',
+        color: Colors.primary,
     },
     statsCard: {
         backgroundColor: '#1E2124',
-        borderRadius: 16,
+        borderRadius: 20,
         padding: 20,
         marginTop: 32,
     },
     statsTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 16,
         textAlign: 'center',
     },
@@ -599,12 +586,12 @@ const styles = StyleSheet.create({
     statValue: {
         fontFamily: fonts.bold,
         fontSize: 28,
-        color: '#3494D9',
+        color: Colors.primary,
     },
     statLabel: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 4,
     },
     statDivider: {

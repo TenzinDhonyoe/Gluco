@@ -3,6 +3,7 @@
 
 import { AnimatedScreen } from '@/components/animations/animated-screen';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { runLocalExperimentAnalysis } from '@/lib/experiment-analysis';
@@ -19,7 +20,6 @@ import {
 } from '@/lib/supabase';
 import { formatGlucose } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -317,12 +317,6 @@ export default function ExperimentDetailScreen() {
     return (
         <AnimatedScreen>
             <View style={styles.container}>
-                <LinearGradient
-                    colors={['#1a1f24', '#181c20', '#111111']}
-                    locations={[0, 0.3, 1]}
-                    style={styles.backgroundGradient}
-                />
-
                 <SafeAreaView edges={['top']} style={styles.safeArea}>
                     {/* Header */}
                     <View style={styles.header}>
@@ -694,14 +688,7 @@ export default function ExperimentDetailScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -710,12 +697,12 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
     },
     loadingText: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 16,
     },
     header: {
@@ -740,7 +727,7 @@ const styles = StyleSheet.create({
     headerTitle: {
         fontFamily: fonts.bold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         letterSpacing: 1,
     },
     scrollView: {
@@ -755,7 +742,7 @@ const styles = StyleSheet.create({
     },
     statusBadge: {
         alignSelf: 'flex-start',
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: 4,
@@ -766,12 +753,12 @@ const styles = StyleSheet.create({
     statusBadgeText: {
         fontFamily: fonts.semiBold,
         fontSize: 11,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         letterSpacing: 0.5,
     },
     card: {
         backgroundColor: '#1E2124',
-        borderRadius: 16,
+        borderRadius: 20,
         padding: 16,
         marginBottom: 16,
     },
@@ -784,7 +771,7 @@ const styles = StyleSheet.create({
     cardTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 12,
     },
     progressInfo: {
@@ -801,7 +788,7 @@ const styles = StyleSheet.create({
     progressPct: {
         fontFamily: fonts.semiBold,
         fontSize: 14,
-        color: '#3494D9',
+        color: Colors.primary,
     },
     progressBar: {
         height: 8,
@@ -811,7 +798,7 @@ const styles = StyleSheet.create({
     },
     progressFill: {
         height: '100%',
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
         borderRadius: 4,
     },
     variantBreakdown: {
@@ -826,12 +813,12 @@ const styles = StyleSheet.create({
     variantName: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     variantCount: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     actionsCard: {
         backgroundColor: '#1E2124',
@@ -851,7 +838,7 @@ const styles = StyleSheet.create({
     actionButtonText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#3494D9',
+        color: Colors.primary,
     },
     actionDivider: {
         width: 1,
@@ -864,8 +851,8 @@ const styles = StyleSheet.create({
     },
     metricCard: {
         flex: 1,
-        backgroundColor: '#2A2D30',
-        borderRadius: 12,
+        backgroundColor: Colors.borderCard,
+        borderRadius: 20,
         padding: 12,
         alignItems: 'center',
     },
@@ -884,25 +871,25 @@ const styles = StyleSheet.create({
     winnerBadgeText: {
         fontFamily: fonts.semiBold,
         fontSize: 9,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         letterSpacing: 0.5,
     },
     metricName: {
         fontFamily: fonts.medium,
         fontSize: 13,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 4,
         marginBottom: 8,
     },
     metricValue: {
         fontFamily: fonts.bold,
         fontSize: 24,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     metricLabel: {
         fontFamily: fonts.regular,
         fontSize: 11,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
     metricSubtext: {
@@ -920,7 +907,7 @@ const styles = StyleSheet.create({
     confidenceLabel: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     confidenceBadge: {
         backgroundColor: '#666',
@@ -935,12 +922,12 @@ const styles = StyleSheet.create({
         backgroundColor: '#FF9800',
     },
     confidenceBadgeLow: {
-        backgroundColor: '#F44336',
+        backgroundColor: Colors.error,
     },
     confidenceBadgeText: {
         fontFamily: fonts.semiBold,
         fontSize: 10,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         letterSpacing: 0.5,
     },
     summarySection: {
@@ -949,13 +936,13 @@ const styles = StyleSheet.create({
     summaryTitle: {
         fontFamily: fonts.medium,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 8,
     },
     summaryText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         lineHeight: 20,
     },
     suggestionsSection: {
@@ -966,7 +953,7 @@ const styles = StyleSheet.create({
     suggestionsTitle: {
         fontFamily: fonts.medium,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 12,
     },
     suggestionRow: {
@@ -1001,13 +988,13 @@ const styles = StyleSheet.create({
         gap: 12,
         paddingVertical: 8,
         borderBottomWidth: 1,
-        borderBottomColor: '#2A2D30',
+        borderBottomColor: Colors.borderCard,
     },
     activityIcon: {
         width: 32,
         height: 32,
         borderRadius: 16,
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -1017,7 +1004,7 @@ const styles = StyleSheet.create({
     activityTitle: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     activityTime: {
         fontFamily: fonts.regular,
@@ -1049,20 +1036,20 @@ const styles = StyleSheet.create({
     modalTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 20,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     modalSubtitle: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 20,
     },
     variantOptions: {
         gap: 12,
     },
     variantOption: {
-        backgroundColor: '#2A2D30',
-        borderRadius: 12,
+        backgroundColor: Colors.borderCard,
+        borderRadius: 20,
         padding: 16,
         flexDirection: 'row',
         alignItems: 'center',
@@ -1070,13 +1057,13 @@ const styles = StyleSheet.create({
     variantOptionName: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         flex: 1,
     },
     variantOptionDescription: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
         flex: 2,
         marginRight: 8,
     },
@@ -1086,7 +1073,7 @@ const styles = StyleSheet.create({
     checkinLabel: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 12,
         marginTop: 16,
     },
@@ -1099,20 +1086,20 @@ const styles = StyleSheet.create({
         flex: 1,
         paddingVertical: 12,
         paddingHorizontal: 16,
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
         borderRadius: 8,
         alignItems: 'center',
     },
     variantTabActive: {
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
     },
     variantTabText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     variantTabTextActive: {
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     scoreRow: {
         marginTop: 16,
@@ -1120,7 +1107,7 @@ const styles = StyleSheet.create({
     scoreLabel: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 12,
     },
     scoreButtons: {
@@ -1131,21 +1118,21 @@ const styles = StyleSheet.create({
     scoreButton: {
         flex: 1,
         height: 44,
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
         borderRadius: 8,
         justifyContent: 'center',
         alignItems: 'center',
     },
     scoreButtonActive: {
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
     },
     scoreButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     scoreButtonTextActive: {
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     scoreLabels: {
         flexDirection: 'row',
@@ -1158,18 +1145,18 @@ const styles = StyleSheet.create({
         color: '#666',
     },
     notesInput: {
-        backgroundColor: '#2A2D30',
-        borderRadius: 12,
+        backgroundColor: Colors.borderCard,
+        borderRadius: 20,
         padding: 16,
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         minHeight: 80,
         textAlignVertical: 'top',
     },
     submitButton: {
-        backgroundColor: '#3494D9',
-        borderRadius: 12,
+        backgroundColor: Colors.primary,
+        borderRadius: 20,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 24,
@@ -1180,7 +1167,7 @@ const styles = StyleSheet.create({
     submitButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     footerActions: {
         flexDirection: 'row',
@@ -1188,13 +1175,13 @@ const styles = StyleSheet.create({
         gap: 12,
         backgroundColor: 'rgba(26, 31, 36, 0.95)',
         borderTopWidth: 1,
-        borderTopColor: '#2A2D30',
+        borderTopColor: Colors.borderCard,
         paddingBottom: Platform.OS === 'ios' ? 34 : 16,
     },
     footerButton: {
         flex: 1,
-        backgroundColor: '#3494D9',
-        borderRadius: 12,
+        backgroundColor: Colors.primary,
+        borderRadius: 20,
         height: 50,
         flexDirection: 'row',
         alignItems: 'center',
@@ -1204,14 +1191,14 @@ const styles = StyleSheet.create({
     footerButtonSecondary: {
         backgroundColor: 'transparent',
         borderWidth: 1,
-        borderColor: '#3494D9',
+        borderColor: Colors.primary,
     },
     footerButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     footerButtonTextSecondary: {
-        color: '#3494D9',
+        color: Colors.primary,
     },
 });

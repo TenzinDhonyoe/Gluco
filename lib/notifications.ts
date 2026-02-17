@@ -6,6 +6,7 @@
 import type * as NotificationsType from 'expo-notifications';
 import { router } from 'expo-router';
 import { Platform } from 'react-native';
+import { supabase } from './supabase';
 
 // Helper to check if we are in a server environment (SSR)
 const IS_SERVER = Platform.OS === 'web' && typeof window === 'undefined';
@@ -44,11 +45,125 @@ export async function initNotifications() {
 }
 
 // Types
-export interface PostMealReviewNotificationData {
-    mealId: string;
-    mealName: string;
+export interface NotificationRouteData {
+    mealId?: string;
+    mealName?: string;
     route: string;
-    ts: number;
+    ts?: number;
+    tab?: string;
+    category?: string;
+    scheduleDay?: string;
+}
+
+type ReminderCategory =
+    | 'meal_reminders'
+    | 'post_meal_reviews'
+    | 'daily_insights'
+    | 'experiment_updates'
+    | 'active_action_midday'
+    | 'post_meal_action'
+    | 'weekly_summary';
+
+const DAILY_NOTIFICATION_CAP = 2;
+const DEFAULT_NOTIFICATION_PREFS: Record<ReminderCategory, boolean> = {
+    meal_reminders: true,
+    post_meal_reviews: true,
+    daily_insights: true,
+    experiment_updates: true,
+    active_action_midday: true,
+    post_meal_action: true,
+    weekly_summary: true,
+};
+
+let notificationPrefsColumnAvailable: boolean | null = null;
+let notificationPrefsColumnWarned = false;
+
+function isMissingNotificationPrefsColumn(error: { code?: string; message?: string } | null | undefined): boolean {
+    if (!error) return false;
+    const message = (error.message || '').toLowerCase();
+    const mentionsColumn = message.includes('notification_preferences');
+    return (error.code === '42703' || message.includes('column') || message.includes('does not exist')) && mentionsColumn;
+}
+
+function toDateKey(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+async function isReminderEnabled(userId: string | undefined, category: ReminderCategory): Promise<boolean> {
+    if (!userId) return true;
+    if (notificationPrefsColumnAvailable === false) return DEFAULT_NOTIFICATION_PREFS[category];
+
+    try {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('notification_preferences')
+            .eq('id', userId)
+            .single();
+
+        if (error) {
+            if (isMissingNotificationPrefsColumn(error)) {
+                notificationPrefsColumnAvailable = false;
+                if (!notificationPrefsColumnWarned) {
+                    notificationPrefsColumnWarned = true;
+                    console.warn('notification_preferences column missing; using default notification settings until migration is applied.');
+                }
+                return DEFAULT_NOTIFICATION_PREFS[category];
+            }
+            console.warn('Failed to load notification preferences, using defaults:', error.message);
+            return DEFAULT_NOTIFICATION_PREFS[category];
+        }
+
+        notificationPrefsColumnAvailable = true;
+        const prefs = data?.notification_preferences || {};
+        const value = prefs[category];
+        if (typeof value === 'boolean') return value;
+        return DEFAULT_NOTIFICATION_PREFS[category];
+    } catch (error) {
+        console.warn('Error reading notification preferences, using defaults:', error);
+        return DEFAULT_NOTIFICATION_PREFS[category];
+    }
+}
+
+async function isUnderDailyCap(targetDate: Date): Promise<boolean> {
+    const scheduled = await getScheduledNotifications();
+    const dateKey = toDateKey(targetDate);
+
+    const countForDate = scheduled.filter((request) => {
+        const data = (request.content?.data || {}) as Record<string, unknown>;
+        const scheduleDay = typeof data.scheduleDay === 'string' ? data.scheduleDay : null;
+        return scheduleDay === dateKey;
+    }).length;
+
+    return countForDate < DAILY_NOTIFICATION_CAP;
+}
+
+async function hasScheduledCategory(
+    targetDate: Date,
+    category: ReminderCategory,
+    mealId?: string
+): Promise<boolean> {
+    const scheduled = await getScheduledNotifications();
+    const dateKey = toDateKey(targetDate);
+
+    return scheduled.some((request) => {
+        const data = (request.content?.data || {}) as Record<string, unknown>;
+        const requestCategory = typeof data.category === 'string' ? data.category : null;
+        const scheduleDay = typeof data.scheduleDay === 'string' ? data.scheduleDay : null;
+        const requestMealId = typeof data.mealId === 'string' ? data.mealId : null;
+
+        if (requestCategory !== category || scheduleDay !== dateKey) {
+            return false;
+        }
+
+        if (mealId) {
+            return requestMealId === mealId;
+        }
+
+        return true;
+    });
 }
 
 /**
@@ -76,13 +191,32 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 export async function schedulePostMealReviewNotification(
     mealId: string,
     mealName: string,
-    scheduledFor: Date
+    scheduledFor: Date,
+    userId?: string
 ): Promise<string | null> {
     if (IS_SERVER) return null;
     const Notifications = await getNotificationsModule();
     if (!Notifications) return null;
 
     try {
+        const enabled = await isReminderEnabled(userId, 'post_meal_reviews');
+        if (!enabled) {
+            if (__DEV__) console.log('Skipping post-meal review reminder: disabled by preference');
+            return null;
+        }
+
+        const duplicate = await hasScheduledCategory(scheduledFor, 'post_meal_reviews', mealId);
+        if (duplicate) {
+            if (__DEV__) console.log('Skipping post-meal review reminder: already scheduled');
+            return null;
+        }
+
+        const underCap = await isUnderDailyCap(scheduledFor);
+        if (!underCap) {
+            if (__DEV__) console.log('Skipping post-meal review reminder: daily cap reached');
+            return null;
+        }
+
         // Request permission if not granted
         const hasPermission = await requestNotificationPermissions();
         if (!hasPermission) {
@@ -104,7 +238,9 @@ export async function schedulePostMealReviewNotification(
                     mealName,
                     route: '/meal-checkin',
                     ts: scheduledFor.getTime(),
-                } as PostMealReviewNotificationData as unknown as Record<string, unknown>,
+                    category: 'post_meal_reviews',
+                    scheduleDay: toDateKey(scheduledFor),
+                } as NotificationRouteData as unknown as Record<string, unknown>,
                 sound: true,
                 badge: 1,
             },
@@ -118,6 +254,174 @@ export async function schedulePostMealReviewNotification(
         return notificationId;
     } catch (error) {
         console.error('Failed to schedule notification:', error);
+        return null;
+    }
+}
+
+/**
+ * Schedule a shorter post-meal action reminder (JITAI-lite).
+ * Defaults to 20 minutes after a meal.
+ */
+export async function schedulePostMealActionReminder(
+    mealId: string,
+    mealName: string,
+    userId?: string,
+    minutesAfterMeal: number = 20
+): Promise<string | null> {
+    if (IS_SERVER) return null;
+    const Notifications = await getNotificationsModule();
+    if (!Notifications) return null;
+
+    const clampedMinutes = Math.min(30, Math.max(15, minutesAfterMeal));
+    const scheduledFor = new Date(Date.now() + clampedMinutes * 60 * 1000);
+
+    try {
+        const enabled = await isReminderEnabled(userId, 'post_meal_action');
+        if (!enabled) return null;
+
+        const duplicate = await hasScheduledCategory(scheduledFor, 'post_meal_action', mealId);
+        if (duplicate) return null;
+
+        const underCap = await isUnderDailyCap(scheduledFor);
+        if (!underCap) return null;
+
+        const hasPermission = await requestNotificationPermissions();
+        if (!hasPermission) return null;
+
+        const secondsUntil = Math.max(1, (scheduledFor.getTime() - Date.now()) / 1000);
+        const notificationId = await Notifications.scheduleNotificationAsync({
+            content: {
+                title: 'Small action right now',
+                body: `Try a short walk after ${mealName}.`,
+                data: {
+                    mealId,
+                    mealName,
+                    route: '/(tabs)/insights',
+                    tab: 'actions',
+                    ts: scheduledFor.getTime(),
+                    category: 'post_meal_action',
+                    scheduleDay: toDateKey(scheduledFor),
+                } as Record<string, unknown>,
+                sound: true,
+            },
+            trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                seconds: secondsUntil,
+            },
+        });
+
+        return notificationId;
+    } catch (error) {
+        console.error('Failed to schedule post-meal action reminder:', error);
+        return null;
+    }
+}
+
+/**
+ * Schedule a midday active-action reminder.
+ */
+export async function scheduleMiddayActiveActionReminder(
+    actionTitle: string,
+    userId?: string
+): Promise<string | null> {
+    if (IS_SERVER) return null;
+    const Notifications = await getNotificationsModule();
+    if (!Notifications) return null;
+
+    const now = new Date();
+    const target = new Date(now);
+    target.setHours(12, 30, 0, 0);
+    if (target.getTime() <= now.getTime()) {
+        target.setDate(target.getDate() + 1);
+    }
+
+    try {
+        const enabled = await isReminderEnabled(userId, 'active_action_midday');
+        if (!enabled) return null;
+
+        const duplicate = await hasScheduledCategory(target, 'active_action_midday');
+        if (duplicate) return null;
+
+        const underCap = await isUnderDailyCap(target);
+        if (!underCap) return null;
+
+        const hasPermission = await requestNotificationPermissions();
+        if (!hasPermission) return null;
+
+        const secondsUntil = Math.max(1, (target.getTime() - now.getTime()) / 1000);
+        return await Notifications.scheduleNotificationAsync({
+            content: {
+                title: 'Midday nudge',
+                body: `Keep momentum: ${actionTitle || 'complete your next tiny action'}`,
+                data: {
+                    route: '/(tabs)/insights',
+                    tab: 'actions',
+                    category: 'active_action_midday',
+                    scheduleDay: toDateKey(target),
+                } as Record<string, unknown>,
+                sound: true,
+            },
+            trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                seconds: secondsUntil,
+            },
+        });
+    } catch (error) {
+        console.error('Failed to schedule midday reminder:', error);
+        return null;
+    }
+}
+
+/**
+ * Schedule a weekly summary reminder (next Sunday 7:30 PM local time).
+ */
+export async function scheduleWeeklySummaryReminder(userId?: string): Promise<string | null> {
+    if (IS_SERVER) return null;
+    const Notifications = await getNotificationsModule();
+    if (!Notifications) return null;
+
+    const now = new Date();
+    const target = new Date(now);
+    const daysUntilSunday = (7 - now.getDay()) % 7;
+    target.setDate(now.getDate() + daysUntilSunday);
+    target.setHours(19, 30, 0, 0);
+    if (target.getTime() <= now.getTime()) {
+        target.setDate(target.getDate() + 7);
+    }
+
+    try {
+        const enabled = await isReminderEnabled(userId, 'weekly_summary');
+        if (!enabled) return null;
+
+        const duplicate = await hasScheduledCategory(target, 'weekly_summary');
+        if (duplicate) return null;
+
+        const underCap = await isUnderDailyCap(target);
+        if (!underCap) return null;
+
+        const hasPermission = await requestNotificationPermissions();
+        if (!hasPermission) return null;
+
+        const secondsUntil = Math.max(1, (target.getTime() - now.getTime()) / 1000);
+        return await Notifications.scheduleNotificationAsync({
+            content: {
+                title: 'Weekly behavior summary',
+                body: 'Check your progress and choose your next best step.',
+                data: {
+                    route: '/(tabs)/insights',
+                    tab: 'progress',
+                    category: 'weekly_summary',
+                    scheduleDay: toDateKey(target),
+                } as Record<string, unknown>,
+                sound: true,
+            },
+            trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                seconds: secondsUntil,
+            },
+        });
+    } catch (error) {
+        console.error('Failed to schedule weekly summary reminder:', error);
         return null;
     }
 }
@@ -142,13 +446,25 @@ export async function cancelScheduledNotification(notificationId: string): Promi
  * Handle notification response (when user taps notification)
  */
 let navigationReady = false;
-let pendingNotification: PostMealReviewNotificationData | null = null;
+let pendingNotification: NotificationRouteData | null = null;
 
-function navigateToNotification(data: PostMealReviewNotificationData): void {
-    router.push({
-        pathname: data.route as any,
-        params: { mealId: data.mealId, mealName: data.mealName },
-    });
+function navigateToNotification(data: NotificationRouteData): void {
+    if (!data?.route) return;
+
+    const params: Record<string, string> = {};
+    if (data.mealId) params.mealId = data.mealId;
+    if (data.mealName) params.mealName = data.mealName;
+    if (data.tab) params.tab = data.tab;
+
+    if (Object.keys(params).length > 0) {
+        router.push({
+            pathname: data.route as any,
+            params,
+        });
+        return;
+    }
+
+    router.push(data.route as any);
 }
 
 export function setNotificationNavigationReady(ready: boolean): void {
@@ -163,9 +479,9 @@ export function setNotificationNavigationReady(ready: boolean): void {
 export function handleNotificationResponse(
     response: NotificationsType.NotificationResponse
 ): void {
-    const data = response.notification.request.content.data as unknown as PostMealReviewNotificationData;
+    const data = response.notification.request.content.data as unknown as NotificationRouteData;
 
-    if (!data?.route || !data?.mealId) {
+    if (!data?.route) {
         return;
     }
 

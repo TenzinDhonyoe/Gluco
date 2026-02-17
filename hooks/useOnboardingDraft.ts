@@ -47,7 +47,7 @@ export function useOnboardingDraft() {
     const [draft, setDraft] = useState<OnboardingDraft>({});
     const [isLoaded, setIsLoaded] = useState(false);
     const draftRef = useRef<OnboardingDraft>({});
-    const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Load draft from AsyncStorage on mount
     useEffect(() => {

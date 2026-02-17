@@ -271,7 +271,7 @@ export default function MealCheckinScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: 'transparent',
     },
     photoHeader: {
         position: 'absolute',
@@ -321,7 +321,7 @@ const styles = StyleSheet.create({
     headerTitle: {
         fontSize: 16,
         fontFamily: fonts.bold,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         letterSpacing: 1,
     },
     headerSpacer: {
@@ -404,7 +404,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     saveButtonDisabled: {
-        backgroundColor: '#3F4243',
+        backgroundColor: Colors.borderCard,
     },
     saveButtonText: {
         fontSize: 16,

@@ -1,4 +1,5 @@
 import { ONBOARDING_STEP_KEY, PAYWALL_ENABLED } from '@/app/index';
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { OnboardingHeader } from '@/components/onboarding/OnboardingHeader';
 import { Disclaimer } from '@/components/ui/Disclaimer';
 import { Colors } from '@/constants/Colors';
@@ -76,6 +77,7 @@ export default function OnboardingAiScreen() {
 
     return (
         <View style={styles.container}>
+            <ForestGlassBackground blurIntensity={18} />
             <SafeAreaView style={styles.safeArea}>
                 <ScrollView
                     ref={scrollViewRef}

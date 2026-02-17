@@ -5,13 +5,14 @@
  * All insights use safe, behavioural language without medical claims.
  */
 
-import { GlucoseLog, MealWithCheckin } from './supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { GlucoseLog, MealWithCheckin, supabase } from './supabase';
 
 // ============================================
 // TYPES
 // ============================================
 
-export type InsightCategory = 'meals' | 'activity' | 'sleep' | 'glucose';
+export type InsightCategory = 'meals' | 'activity' | 'sleep' | 'glucose' | 'weight';
 export type ConfidenceLevel = 'high' | 'moderate' | 'low';
 
 export interface InsightAction {
@@ -83,6 +84,15 @@ export interface InsightData {
     lowFibreMealsAboveZone?: boolean;
     userTargetMin?: number;
     userTargetMax?: number;
+    // Weight behavior (for cadence actions)
+    weightLogsCount?: number;
+}
+
+export interface InsightGenerationOptions {
+    experienceVariant?: 'legacy' | 'behavior_v1';
+    readinessLevel?: 'low' | 'medium' | 'high' | null;
+    comBBarrier?: 'capability' | 'opportunity' | 'motivation' | 'unsure' | null;
+    showGlucoseAdvanced?: boolean | null;
 }
 
 // ============================================
@@ -159,6 +169,7 @@ const GRADIENTS: Record<InsightCategory, [string, string]> = {
     activity: ['#E65100', '#BF360C'],   // Orange
     sleep: ['#1565C0', '#0D47A1'],      // Blue
     glucose: ['#7B1FA2', '#4A148C'],    // Purple
+    weight: ['#37474F', '#263238'],     // Slate
 };
 
 // ============================================
@@ -181,6 +192,7 @@ const TIME_CONTEXTS: Record<string, string> = {
     'sleep_consistency': 'Tonight',
     'log_glucose': 'Before your next meal',
     'meal_pairing': 'At your next meal',
+    'log_weight': 'In the next 24 hours',
 };
 
 /**
@@ -199,6 +211,83 @@ const OUTCOME_TEXTS: Record<string, string> = {
     'sleep_consistency': 'Supports metabolic recovery',
     'log_glucose': 'Builds your personal zone data',
     'meal_pairing': 'Helps moderate glucose response',
+    'log_weight': 'Builds your weekly momentum trend',
+};
+
+const ACTION_TYPE_PRIORITY: Record<string, number> = {
+    post_meal_walk: 100,
+    steps_boost: 95,
+    log_activity: 92,
+    sleep_window: 90,
+    meal_checkin: 88,
+    sleep_consistency: 86,
+    fiber_boost: 84,
+    log_meal: 82,
+    sleep_logging: 80,
+    log_weight: 79,
+    meal_pairing: 74,
+    log_glucose: 60,
+};
+
+const CATEGORY_PRIORITY: Record<InsightCategory, number> = {
+    activity: 8,
+    sleep: 6,
+    meals: 5,
+    weight: 4,
+    glucose: -10,
+};
+
+const CONFIDENCE_PRIORITY: Record<ConfidenceLevel, number> = {
+    high: 7,
+    moderate: 3,
+    low: 0,
+};
+
+const BARRIER_BONUS: Record<NonNullable<InsightGenerationOptions['comBBarrier']>, Partial<Record<string, number>>> = {
+    capability: {
+        log_meal: 6,
+        meal_checkin: 5,
+        sleep_window: 4,
+        log_weight: 4,
+    },
+    opportunity: {
+        post_meal_walk: 7,
+        steps_boost: 6,
+        log_activity: 5,
+        sleep_window: 3,
+    },
+    motivation: {
+        meal_checkin: 6,
+        sleep_consistency: 5,
+        post_meal_walk: 4,
+        log_weight: 4,
+    },
+    unsure: {
+        post_meal_walk: 4,
+        log_meal: 3,
+        sleep_window: 3,
+    },
+};
+
+const READINESS_BONUS: Record<NonNullable<InsightGenerationOptions['readinessLevel']>, Partial<Record<string, number>>> = {
+    low: {
+        log_meal: 5,
+        post_meal_walk: 5,
+        sleep_window: 4,
+        log_weight: 3,
+    },
+    medium: {
+        post_meal_walk: 3,
+        steps_boost: 3,
+        meal_checkin: 3,
+        sleep_consistency: 2,
+    },
+    high: {
+        sleep_consistency: 4,
+        steps_boost: 4,
+        meal_checkin: 3,
+        log_weight: 3,
+    },
 };
 
 // ============================================
@@ -358,7 +447,7 @@ function generateMealRecommendations(data: InsightData): PersonalInsight[] {
             id: 'meals-checkin-progress',
             category: 'meals',
             title: 'Check-in Streak',
-            recommendation: 'Keep checking in to build your personal patterns.',
+            recommendation: 'Do one meal check-in within 20 minutes after your next meal to keep your pattern streak going.',
             because: `You completed ${data.checkinsThisWeek} check-ins this week.`,
             microStep: 'Check in after your next 2 meals.',
             confidence: checkInConfidence,
@@ -366,8 +455,8 @@ function generateMealRecommendations(data: InsightData): PersonalInsight[] {
             gradient: GRADIENTS.meals,
             action: buildAction({
                 id: 'action-checkin-streak',
-                title: 'Add another check-in',
-                description: 'Complete one more check-in in the next 72 hours.',
+                title: 'Check in after your next meal',
+                description: 'Complete one check-in within 20 minutes after your next meal.',
                 actionType: 'meal_checkin',
                 metricKey: 'checkin_count',
                 windowHours: 72,
@@ -451,7 +540,7 @@ function generateActivityRecommendations(data: InsightData): PersonalInsight[] {
             category: 'activity',
             title: 'Daily Steps',
             recommendation: data.avgSteps < 5000
-                ? 'Try adding a short walk to reach 5,000 steps.'
+                ? 'Walk 10 minutes after lunch today to move toward 5,000 steps.'
                 : 'Keep up the great daily movement.',
             because: `You averaged ${stepsFormatted} steps/day this week.`,
             microStep: data.avgSteps < 5000
@@ -462,8 +551,8 @@ function generateActivityRecommendations(data: InsightData): PersonalInsight[] {
             gradient: GRADIENTS.activity,
             action: buildAction({
                 id: 'action-step-boost',
-                title: 'Add a short walk',
-                description: 'Add a 10-minute walk in the next 48 hours.',
+                title: 'Walk 10 minutes after lunch',
+                description: 'Take a 10-minute walk after lunch in the next 48 hours.',
                 actionType: 'steps_boost',
                 metricKey: 'steps',
                 windowHours: 48,
@@ -656,6 +745,138 @@ function generateGlucoseRecommendations(data: InsightData): PersonalInsight[] {
     return insights;
 }
 
+function generateWeightRecommendations(data: InsightData): PersonalInsight[] {
+    const insights: PersonalInsight[] = [];
+    const weightLogs = data.weightLogsCount ?? 0;
+
+    if (weightLogs <= 0) {
+        insights.push({
+            id: 'weight-setup',
+            category: 'weight',
+            title: 'Start a Weight Cadence',
+            recommendation: 'Log your weight twice this week to build a simple trend.',
+            because: 'A small cadence helps you track behavior momentum over time.',
+            microStep: 'Log one weight entry in the next 24 hours.',
+            confidence: 'low',
+            icon: 'scale-outline',
+            gradient: GRADIENTS.weight,
+            action: buildAction({
+                id: 'action-log-weight',
+                title: 'Log weight once',
+                description: 'Add one weight entry in the next 24 hours.',
+                actionType: 'log_weight',
+                metricKey: 'weight_logs_count',
+                windowHours: 24,
+                cta: { label: 'Log weight', route: '/log-weight' },
+            }),
+            cta: { label: 'Log weight', route: '/log-weight' },
+            timeContext: TIME_CONTEXTS['log_weight'],
+            outcomeText: OUTCOME_TEXTS['log_weight'],
+        });
+        return insights;
+    }
+
+    if (weightLogs < 3) {
+        insights.push({
+            id: 'weight-cadence-build',
+            category: 'weight',
+            title: 'Build Consistency',
+            recommendation: 'Keep a twice-weekly weigh-in rhythm.',
+            because: `You logged ${weightLogs} weight entr${weightLogs === 1 ? 'y' : 'ies'} this week.`,
+            microStep: 'Pick one fixed day/time for your next weigh-in.',
+            confidence: weightLogs >= 2 ? 'moderate' : 'low',
+            icon: 'scale-outline',
+            gradient: GRADIENTS.weight,
+            action: buildAction({
+                id: 'action-weight-cadence',
+                title: 'Log one more weight entry',
+                description: 'Add one more entry this week to keep cadence.',
+                actionType: 'log_weight',
+                metricKey: 'weight_logs_count',
+                windowHours: 72,
+                cta: { label: 'Log weight', route: '/log-weight' },
+            }),
+            cta: { label: 'Log weight', route: '/log-weight' },
+            timeContext: TIME_CONTEXTS['log_weight'],
+            outcomeText: OUTCOME_TEXTS['log_weight'],
+        });
+    }
+
+    return insights;
+}
+
+function shouldIncludeGlucoseRecommendations(
+    data: InsightData,
+    trackingMode: TrackingMode,
+    options?: InsightGenerationOptions
+): boolean {
+    const glucoseEnabledModes: TrackingMode[] = ['manual_glucose_optional', 'glucose_tracking'];
+    if (!glucoseEnabledModes.includes(trackingMode)) return false;
+
+    if (options?.experienceVariant !== 'behavior_v1') {
+        return true;
+    }
+
+    // In behavior_v1, glucose is optional and only shown if explicitly enabled
+    // and sufficient logs exist to avoid noisy low-signal prompts.
+    const showAdvanced = !!options.showGlucoseAdvanced;
+    const logs = data.glucoseLogsCount ?? data.glucoseLogs?.length ?? 0;
+    return showAdvanced && logs >= 5;
+}
+
+function getInsightPriorityScore(
+    insight: PersonalInsight,
+    options?: InsightGenerationOptions
+): number {
+    const actionType = insight.action?.actionType || 'unknown';
+    const readiness = options?.readinessLevel || 'medium';
+    const barrier = options?.comBBarrier || 'unsure';
+
+    let score = ACTION_TYPE_PRIORITY[actionType] ?? 50;
+    score += CATEGORY_PRIORITY[insight.category] ?? 0;
+    score += CONFIDENCE_PRIORITY[insight.confidence] ?? 0;
+
+    score += READINESS_BONUS[readiness]?.[actionType] ?? 0;
+    score += BARRIER_BONUS[barrier]?.[actionType] ?? 0;
+
+    if (options?.experienceVariant === 'behavior_v1') {
+        if (insight.category === 'glucose' || actionType === 'log_glucose') {
+            score -= 18;
+        }
+
+        if (readiness === 'low' && (insight.action?.windowHours || 48) > 48) {
+            score -= 6;
+        }
+    }
+
+    return score;
+}
+
+function applyBehaviorOverloadLimits(
+    sortedInsights: PersonalInsight[],
+    options?: InsightGenerationOptions
+): PersonalInsight[] {
+    const readiness = options?.readinessLevel || 'medium';
+    const maxInsights = readiness === 'low' ? 4 : 6;
+    const maxPerCategory = readiness === 'low' ? 1 : 2;
+
+    const categoryCounts: Record<string, number> = {};
+    const selected: PersonalInsight[] = [];
+
+    for (const insight of sortedInsights) {
+        if (selected.length >= maxInsights) break;
+
+        const category = insight.category;
+        const currentCount = categoryCounts[category] ?? 0;
+        if (currentCount >= maxPerCategory) continue;
+
+        selected.push(insight);
+        categoryCounts[category] = currentCount + 1;
+    }
+
+    return selected;
+}
+
 // ============================================
 // MAIN GENERATOR
 // ============================================
@@ -666,7 +887,8 @@ function generateGlucoseRecommendations(data: InsightData): PersonalInsight[] {
  */
 export function generateInsights(
     data: InsightData,
-    trackingMode: TrackingMode
+    trackingMode: TrackingMode,
+    options?: InsightGenerationOptions
 ): PersonalInsight[] {
     const insights: PersonalInsight[] = [];
 
@@ -674,10 +896,10 @@ export function generateInsights(
     insights.push(...generateMealRecommendations(data));
     insights.push(...generateActivityRecommendations(data));
     insights.push(...generateSleepRecommendations(data));
+    insights.push(...generateWeightRecommendations(data));
 
-    // Only include glucose insights for glucose-enabled modes
-    const glucoseEnabledModes: TrackingMode[] = ['manual_glucose_optional', 'glucose_tracking'];
-    if (glucoseEnabledModes.includes(trackingMode)) {
+    // Only include glucose insights for glucose-enabled modes and optional behavior_v1 gating.
+    if (shouldIncludeGlucoseRecommendations(data, trackingMode, options)) {
         insights.push(...generateGlucoseRecommendations(data));
     }
 
@@ -692,7 +914,19 @@ export function generateInsights(
         return isSafe;
     });
 
-    // Limit to 6 insights max (4-6 cards per spec)
+    if (options?.experienceVariant === 'behavior_v1') {
+        const ranked = safeInsights
+            .map((insight) => ({
+                insight,
+                score: getInsightPriorityScore(insight, options),
+            }))
+            .sort((a, b) => b.score - a.score)
+            .map((entry) => entry.insight);
+
+        return applyBehaviorOverloadLimits(ranked, options);
+    }
+
+    // Legacy ordering stays stable.
     return safeInsights.slice(0, 6);
 }
 
@@ -705,6 +939,7 @@ const ICONS: Record<InsightCategory, string> = {
     activity: 'walk-outline',
     sleep: 'moon-outline',
     glucose: 'analytics-outline',
+    weight: 'scale-outline',
 };
 
 const CTA_ROUTES: Record<InsightCategory, { label: string; route: string }> = {
@@ -712,6 +947,7 @@ const CTA_ROUTES: Record<InsightCategory, { label: string; route: string }> = {
     activity: { label: 'Log activity', route: '/log-activity' },
     sleep: { label: 'View patterns', route: '/insights' },
     glucose: { label: 'Log glucose', route: '/log-glucose' },
+    weight: { label: 'Log weight', route: '/log-weight' },
 };
 
 function getDefaultAction(category: InsightCategory): InsightAction {
@@ -745,9 +981,27 @@ function getDefaultAction(category: InsightCategory): InsightAction {
                 cta: CTA_ROUTES.sleep,
             });
         case 'glucose':
-        default:
             return buildAction({
                 id: 'action-default-glucose',
+                title: 'Log glucose',
+                description: 'Add a glucose reading in the next 48 hours.',
+                actionType: 'log_glucose',
+                metricKey: 'glucose_logs_count',
+                cta: CTA_ROUTES.glucose,
+            });
+        case 'weight':
+            return buildAction({
+                id: 'action-default-weight',
+                title: 'Log weight',
+                description: 'Add one weight entry in the next 24 hours.',
+                actionType: 'log_weight',
+                metricKey: 'weight_logs_count',
+                windowHours: 24,
+                cta: CTA_ROUTES.weight,
+            });
+        default:
+            return buildAction({
+                id: 'action-default-glucose-fallback',
                 title: 'Log glucose',
                 description: 'Add a glucose reading in the next 48 hours.',
                 actionType: 'log_glucose',
@@ -789,9 +1043,6 @@ export function mapToPersonalInsight(
 // ============================================
 // SUPABASE EDGE FUNCTION CALL
 // ============================================
-
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from './supabase';
 
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 

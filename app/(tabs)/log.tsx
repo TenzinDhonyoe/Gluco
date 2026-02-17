@@ -1,6 +1,6 @@
-import { AnimatedScreen } from '@/components/animations/animated-screen';
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
-import { LiquidGlassButton } from '@/components/ui/LiquidGlassButton';
+import { behaviorV1Theme } from '@/constants/behaviorV1Theme';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -9,6 +9,7 @@ import { ActivityLog, getActivityLogs, getGlucoseLogs, getMeals, GlucoseLog, Mea
 import { formatGlucoseWithUnit, GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
@@ -155,11 +156,11 @@ function getCategoryIcon(category: TipCategory) {
 function getLogIcon(type: LogType) {
     switch (type) {
         case 'activity':
-            return <ActivityIcon color={Colors.textTertiary} />;
+            return <ActivityIcon color="rgba(129, 199, 132, 0.8)" />;
         case 'meal':
-            return <MealIcon color={Colors.textTertiary} />;
+            return <MealIcon color="rgba(255, 183, 77, 0.8)" />;
         case 'glucose':
-            return <GlucoseIcon color={Colors.textTertiary} />;
+            return <GlucoseIcon color="rgba(255, 82, 82, 0.8)" />;
     }
 }
 
@@ -427,14 +428,8 @@ export default function LogScreen() {
     };
 
     return (
-        <AnimatedScreen>
-            <View style={styles.container}>
-                {/* Background gradient */}
-                <LinearGradient
-                    colors={['#1a1f24', '#181c20', '#111111']}
-                    locations={[0, 0.3, 1]}
-                    style={styles.backgroundGradient}
-                />
+        <View style={styles.container}>
+            <ForestGlassBackground blurIntensity={12} />
 
                 <Animated.ScrollView
                     style={styles.scrollView}
@@ -459,42 +454,84 @@ export default function LogScreen() {
 
                     {/* Quick Action Buttons */}
                     <View style={styles.quickActionsContainer}>
-                        <LiquidGlassButton
+                        <AnimatedPressable
                             style={styles.quickActionButton}
                             onPress={() => router.push('/meal-scanner')}
                         >
-                            <View style={[styles.quickActionIcon, { backgroundColor: 'transparent' }]}>
-                                <Ionicons name="restaurant" size={24} color="#FFB74D" />
+                            <LinearGradient
+                                colors={[behaviorV1Theme.surfaceAction, 'rgba(16, 30, 24, 0.86)', 'rgba(12, 24, 18, 0.90)']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 0.9, y: 1 }}
+                                style={styles.quickActionGradient}
+                            />
+                            <BlurView tint="dark" intensity={28} style={StyleSheet.absoluteFillObject} />
+                            <LinearGradient
+                                colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.01)']}
+                                locations={[0, 0.42, 1]}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 0.85, y: 1 }}
+                                style={styles.quickActionSheen}
+                            />
+                            <View style={styles.quickActionIconWrap}>
+                                <Ionicons name="restaurant" size={22} color="#FFB74D" />
                             </View>
                             <Text style={styles.quickActionText}>Log Meal</Text>
-                        </LiquidGlassButton>
+                        </AnimatedPressable>
 
-                        <LiquidGlassButton
+                        <AnimatedPressable
                             style={styles.quickActionButton}
                             onPress={() => router.push('/log-glucose')}
                         >
-                            <View style={[styles.quickActionIcon, { backgroundColor: 'transparent' }]}>
-                                <Ionicons name="water" size={24} color="#FF5252" />
+                            <LinearGradient
+                                colors={[behaviorV1Theme.surfaceAction, 'rgba(16, 30, 24, 0.86)', 'rgba(12, 24, 18, 0.90)']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 0.9, y: 1 }}
+                                style={styles.quickActionGradient}
+                            />
+                            <BlurView tint="dark" intensity={28} style={StyleSheet.absoluteFillObject} />
+                            <LinearGradient
+                                colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.01)']}
+                                locations={[0, 0.42, 1]}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 0.85, y: 1 }}
+                                style={styles.quickActionSheen}
+                            />
+                            <View style={styles.quickActionIconWrap}>
+                                <Ionicons name="water" size={22} color="#FF5252" />
                             </View>
                             <Text style={styles.quickActionText}>Log Glucose</Text>
-                        </LiquidGlassButton>
+                        </AnimatedPressable>
 
-                        <LiquidGlassButton
+                        <AnimatedPressable
                             style={styles.quickActionButton}
                             onPress={() => router.push('/log-activity')}
                         >
-                            <View style={[styles.quickActionIcon, { backgroundColor: 'transparent' }]}>
-                                <Ionicons name="walk" size={24} color="#81C784" />
+                            <LinearGradient
+                                colors={[behaviorV1Theme.surfaceAction, 'rgba(16, 30, 24, 0.86)', 'rgba(12, 24, 18, 0.90)']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 0.9, y: 1 }}
+                                style={styles.quickActionGradient}
+                            />
+                            <BlurView tint="dark" intensity={28} style={StyleSheet.absoluteFillObject} />
+                            <LinearGradient
+                                colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.01)']}
+                                locations={[0, 0.42, 1]}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 0.85, y: 1 }}
+                                style={styles.quickActionSheen}
+                            />
+                            <View style={styles.quickActionIconWrap}>
+                                <Ionicons name="walk" size={22} color="#81C784" />
                             </View>
                             <Text style={styles.quickActionText}>Log Activity</Text>
-                        </LiquidGlassButton>
+                        </AnimatedPressable>
                     </View>
 
                     {/* Recent Logs Section */}
                     <View style={styles.logsSection}>
                         {/* Section Header */}
                         <View style={styles.logsSectionHeader}>
-                            <Text style={styles.logsSectionTitle}>RECENT LOGS</Text>
+                            <Text style={styles.logsSectionTitle}>Recent Logs</Text>
                             <AnimatedPressable
                                 style={styles.filterButton}
                                 onPress={() => setShowFilterDropdown(true)}
@@ -626,15 +663,14 @@ export default function LogScreen() {
                         </Pressable>
                     </Pressable>
                 </Modal>
-            </View>
-        </AnimatedScreen>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: 'transparent',
     },
     backgroundGradient: {
         position: 'absolute',
@@ -655,7 +691,7 @@ const styles = StyleSheet.create({
     },
     headerBackground: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: '#1a1f24',
+        backgroundColor: 'rgba(10, 21, 17, 0.42)',
     },
     header: {
         flexDirection: 'row',
@@ -666,7 +702,7 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 24,
+        fontSize: 18,
         color: Colors.textPrimary,
         letterSpacing: 1,
     },
@@ -684,7 +720,7 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     scrollContent: {
-        paddingBottom: Platform.OS === 'ios' ? 170 : 150,
+        paddingBottom: Platform.OS === 'ios' ? 170 : 160,
     },
     // Tips Section
     tipsScroll: {
@@ -697,9 +733,11 @@ const styles = StyleSheet.create({
     tipCard: {
         width: TIP_CARD_WIDTH,
         height: TIP_CARD_HEIGHT,
-        borderRadius: 16,
+        borderRadius: 18,
         overflow: 'hidden',
         position: 'relative',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.12)',
     },
     tipCardImage: {
         ...StyleSheet.absoluteFillObject,
@@ -752,27 +790,42 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         paddingHorizontal: 16,
-        marginBottom: 24,
-        gap: 12,
+        marginBottom: 28,
+        gap: 10,
     },
     quickActionButton: {
         flex: 1,
-        paddingVertical: 16,
+        paddingVertical: 18,
         alignItems: 'center',
-        gap: 8,
-        // Visual styles handled by LiquidGlassButton
+        gap: 10,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: 'rgba(168, 197, 160, 0.40)',
+        overflow: 'hidden',
+        shadowColor: '#0A1610',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.35,
+        shadowRadius: 20,
+        elevation: 10,
     },
-    quickActionIcon: {
-        width: 44,
-        height: 44,
-        borderRadius: 12,
+    quickActionGradient: {
+        ...StyleSheet.absoluteFillObject,
+    },
+    quickActionSheen: {
+        ...StyleSheet.absoluteFillObject,
+    },
+    quickActionIconWrap: {
+        width: 46,
+        height: 46,
+        borderRadius: 23,
         justifyContent: 'center',
         alignItems: 'center',
     },
     quickActionText: {
-        fontFamily: fonts.medium,
-        fontSize: 12,
-        color: Colors.textPrimary,
+        fontFamily: fonts.semiBold,
+        fontSize: 13,
+        color: behaviorV1Theme.textPrimary,
+        letterSpacing: 0.2,
     },
     // Logs Section
     logsSection: {
@@ -785,9 +838,10 @@ const styles = StyleSheet.create({
         marginBottom: 16,
     },
     logsSectionTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
         color: Colors.textPrimary,
+        letterSpacing: 0.3,
     },
     filterButton: {
         flexDirection: 'row',
@@ -800,7 +854,7 @@ const styles = StyleSheet.create({
         color: Colors.textPrimary,
     },
     filterDropdown: {
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
         borderRadius: 12,
         marginBottom: 16,
         overflow: 'hidden',
@@ -826,20 +880,23 @@ const styles = StyleSheet.create({
         color: Colors.primary,
     },
     logsCard: {
-        backgroundColor: '#1a1b1c',
+        backgroundColor: 'rgba(16, 28, 22, 0.72)',
         borderRadius: 16,
         padding: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+        shadowColor: '#0A1610',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.10,
+        shadowRadius: 6,
         elevation: 2,
     },
     logEntry: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        paddingVertical: 8,
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 4,
     },
     logEntryLeft: {
         flexDirection: 'row',
@@ -847,26 +904,28 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     logIcon: {
-        width: 24,
-        height: 24,
+        width: 34,
+        height: 34,
+        borderRadius: 10,
         justifyContent: 'center',
         alignItems: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.06)',
     },
     logInfo: {
         flex: 1,
-        gap: 8,
+        gap: 3,
     },
     logLabel: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: Colors.textTertiary,
-        lineHeight: 14 * 1.2,
+        fontFamily: fonts.semiBold,
+        fontSize: 15,
+        color: Colors.textPrimary,
+        lineHeight: 20,
     },
     logDescription: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: Colors.textPrimary,
-        lineHeight: 14 * 0.95,
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textSecondary,
+        lineHeight: 17,
     },
     logEntryRight: {
         flexDirection: 'row',
@@ -875,12 +934,14 @@ const styles = StyleSheet.create({
     },
     logTime: {
         fontFamily: fonts.regular,
-        fontSize: 12,
-        color: Colors.textPrimary,
-        lineHeight: 12 * 1.2,
+        fontSize: 13,
+        color: Colors.textTertiary,
+        lineHeight: 17,
     },
     logDivider: {
-        height: 16,
+        height: 1,
+        backgroundColor: 'rgba(255, 255, 255, 0.06)',
+        marginHorizontal: 4,
     },
     // Loading state styles
     loadingContainer: {
@@ -924,13 +985,13 @@ const styles = StyleSheet.create({
     filterModalContent: {
         width: '100%',
         maxWidth: 320,
-        backgroundColor: '#1a1b1c',
-        borderRadius: 16,
+        backgroundColor: 'rgba(16, 28, 22, 0.92)',
+        borderRadius: 18,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        shadowColor: '#000',
+        borderColor: 'rgba(168, 197, 160, 0.18)',
+        shadowColor: '#0A1610',
         shadowOffset: { width: 0, height: 16 },
-        shadowOpacity: 0.4,
+        shadowOpacity: 0.5,
         shadowRadius: 24,
         elevation: 16,
     },
@@ -951,13 +1012,13 @@ const styles = StyleSheet.create({
         width: 32,
         height: 32,
         borderRadius: 8,
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        backgroundColor: 'rgba(139, 168, 136, 0.12)',
         justifyContent: 'center',
         alignItems: 'center',
     },
     filterModalDivider: {
         height: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: 'rgba(168, 197, 160, 0.12)',
     },
     filterModalOption: {
         flexDirection: 'row',
@@ -966,7 +1027,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingVertical: 16,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+        borderBottomColor: 'rgba(255, 255, 255, 0.04)',
     },
     filterModalOptionPressed: {
         backgroundColor: 'rgba(255, 255, 255, 0.03)',
@@ -984,7 +1045,7 @@ const styles = StyleSheet.create({
         height: 20,
         borderRadius: 10,
         borderWidth: 2,
-        borderColor: '#3F4243',
+        borderColor: 'rgba(168, 197, 160, 0.3)',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -992,7 +1053,7 @@ const styles = StyleSheet.create({
         width: 10,
         height: 10,
         borderRadius: 5,
-        backgroundColor: Colors.primary,
+        backgroundColor: '#A8C5A0',
     },
     filterModalOptionText: {
         fontFamily: fonts.medium,

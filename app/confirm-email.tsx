@@ -1,3 +1,4 @@
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
@@ -5,7 +6,7 @@ import { fonts } from '@/hooks/useFonts';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -21,23 +22,34 @@ export default function ConfirmEmailScreen() {
     const { user, profile } = useAuth();
     const [isResending, setIsResending] = useState(false);
     const [resendCooldown, setResendCooldown] = useState(0);
+    const hasNavigated = useRef(false);
+
+    const navigateToRoot = () => {
+        if (router.canDismiss()) {
+            router.dismissAll();
+        } else {
+            router.replace('/' as never);
+        }
+    };
 
     // Poll for email confirmation status
     useEffect(() => {
         let interval: ReturnType<typeof setInterval>;
 
         const checkEmailConfirmation = async () => {
+            if (hasNavigated.current) return;
             try {
                 const { data: { session } } = await supabase.auth.getSession();
                 if (session?.user?.email_confirmed_at) {
                     // User has confirmed their email
                     clearInterval(interval);
+                    hasNavigated.current = true;
 
                     // Refresh the auth context
                     await supabase.auth.refreshSession();
 
-                    // Navigate to index which will route to appropriate onboarding step
-                    router.replace('/' as never);
+                    // Go directly to onboarding without flashing the index loading screen
+                    router.replace('/onboarding-profile' as never);
                 }
             } catch (error) {
                 console.error('Error checking confirmation:', error);
@@ -57,13 +69,13 @@ export default function ConfirmEmailScreen() {
 
     // Also watch for auth state changes
     useEffect(() => {
+        if (hasNavigated.current) return;
         if (user && user.email_confirmed_at) {
-            // User has confirmed their email
+            hasNavigated.current = true;
             if (profile?.onboarding_completed) {
-                // Already completed onboarding, go to home
-                router.replace('/' as never);
+                navigateToRoot();
             } else {
-                // Go to onboarding
+                // Go directly to onboarding without flashing the index loading screen
                 router.replace('/onboarding-profile' as never);
             }
         }
@@ -104,7 +116,7 @@ export default function ConfirmEmailScreen() {
     };
 
     const handleBack = () => {
-        router.replace('/' as never);
+        router.back();
     };
 
     const handleOpenEmail = () => {
@@ -116,12 +128,14 @@ export default function ConfirmEmailScreen() {
     };
 
     const handleRefreshStatus = async () => {
+        if (hasNavigated.current) return;
         try {
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user?.email_confirmed_at) {
+                hasNavigated.current = true;
                 await supabase.auth.refreshSession();
-                // Navigate to index which will route to appropriate onboarding step
-                router.replace('/' as never);
+                // Go directly to onboarding
+                router.replace('/onboarding-profile' as never);
             } else {
                 Alert.alert('Not Confirmed Yet', 'Please click the confirmation link in your email first.');
             }
@@ -133,6 +147,7 @@ export default function ConfirmEmailScreen() {
 
     return (
         <View style={styles.container}>
+                <ForestGlassBackground blurIntensity={18} />
                 <SafeAreaView style={styles.safeArea}>
                     <View style={styles.content}>
                         {/* Back Button */}

@@ -103,7 +103,7 @@ export function LiquidGlassButton({
         >
             {/* Glass gradient background */}
             <LinearGradient
-                colors={['rgba(60, 65, 70, 0.9)', 'rgba(45, 48, 52, 0.9)', 'rgba(50, 54, 58, 0.9)']}
+                colors={['rgba(48, 62, 52, 0.9)', 'rgba(36, 48, 42, 0.9)', 'rgba(40, 52, 44, 0.9)']}
                 locations={[0, 0.5, 1]}
                 style={[styles.gradient, { borderRadius }]}
             />

@@ -13,9 +13,9 @@ interface AuthContextType {
     session: Session | null;
     profile: UserProfile | null;
     loading: boolean;
-    signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
-    signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-    signInWithApple: () => Promise<{ error: Error | null }>;
+    signUp: (email: string, password: string) => Promise<{ error: Error | null; autoConfirmed?: boolean }>;
+    signIn: (email: string, password: string) => Promise<{ error: Error | null; onboardingComplete?: boolean }>;
+    signInWithApple: () => Promise<{ error: Error | null; onboardingComplete?: boolean }>;
     signOut: () => Promise<void>;
     refreshProfile: () => Promise<void>;
     resetPassword: (email: string) => Promise<{ error: Error | null }>;
@@ -96,12 +96,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
     }, []);
 
-    const loadProfile = async (userId: string) => {
+    const loadProfile = async (userId: string): Promise<UserProfile | null> => {
         try {
             const userProfile = await getUserProfile(userId);
             setProfile(userProfile);
+            return userProfile;
         } catch (error) {
             console.error('Error loading profile:', error);
+            return null;
         } finally {
             setLoading(false);
         }
@@ -113,7 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
-    const signUp = async (email: string, password: string): Promise<{ error: Error | null }> => {
+    const signUp = async (email: string, password: string): Promise<{ error: Error | null; autoConfirmed?: boolean }> => {
         try {
             setLoading(true);
             const { data, error } = await supabase.auth.signUp({
@@ -128,7 +130,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Profile will be created automatically by database trigger
             // when the user confirms their email
 
-            return { error: null };
+            // If Supabase returns a session, email was auto-confirmed (e.g. dev mode)
+            return { error: null, autoConfirmed: !!data.session };
         } catch (error) {
             return { error: error as Error };
         } finally {
@@ -136,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
-    const signIn = async (email: string, password: string): Promise<{ error: Error | null }> => {
+    const signIn = async (email: string, password: string): Promise<{ error: Error | null; onboardingComplete?: boolean }> => {
         try {
             setLoading(true);
             const { data, error } = await supabase.auth.signInWithPassword({
@@ -149,11 +152,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             // Load the user's profile immediately after sign in
+            let userProfile: UserProfile | null = null;
             if (data.user) {
-                await loadProfile(data.user.id);
+                userProfile = await loadProfile(data.user.id);
             }
 
-            return { error: null };
+            return { error: null, onboardingComplete: !!userProfile?.onboarding_completed };
         } catch (error) {
             return { error: error as Error };
         } finally {
@@ -161,7 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
-    const signInWithApple = async (): Promise<{ error: Error | null }> => {
+    const signInWithApple = async (): Promise<{ error: Error | null; onboardingComplete?: boolean }> => {
         // Only available on iOS
         if (Platform.OS !== 'ios') {
             return { error: new Error('Apple Sign-In is only available on iOS') };
@@ -194,11 +198,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             // Load the user's profile
+            let userProfile: UserProfile | null = null;
             if (data.user) {
-                await loadProfile(data.user.id);
+                userProfile = await loadProfile(data.user.id);
             }
 
-            return { error: null };
+            return { error: null, onboardingComplete: !!userProfile?.onboarding_completed };
         } catch (error: any) {
             // Handle user cancellation
             if (error.code === 'ERR_REQUEST_CANCELED') {

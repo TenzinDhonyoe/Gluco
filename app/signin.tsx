@@ -1,3 +1,4 @@
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +13,6 @@ import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
     Alert,
-    ImageBackground,
     KeyboardAvoidingView,
     Platform,
     ScrollView,
@@ -39,15 +39,19 @@ export default function SignInScreen() {
 
         setIsLoading(true);
         try {
-            const { error } = await signIn(email.trim(), password);
+            const { error, onboardingComplete } = await signIn(email.trim(), password);
 
             if (error) {
                 Alert.alert('Sign In Error', error.message);
                 return;
             }
 
-            // Navigate to index which will handle routing based on profile status
-            router.replace('/' as never);
+            // Navigate directly to the appropriate screen
+            if (onboardingComplete) {
+                router.replace('/(tabs)' as never);
+            } else {
+                router.replace('/onboarding-profile' as never);
+            }
         } catch (err) {
             Alert.alert('Error', 'An unexpected error occurred. Please try again.');
             console.error('Sign in error:', err);
@@ -64,15 +68,19 @@ export default function SignInScreen() {
 
         setIsAppleLoading(true);
         try {
-            const { error } = await signInWithApple();
+            const { error, onboardingComplete } = await signInWithApple();
 
             if (error) {
                 Alert.alert('Apple Sign-In Error', error.message);
                 return;
             }
 
-            // Navigate to index which will handle routing based on profile status
-            router.replace('/' as never);
+            // Navigate directly to the appropriate screen
+            if (onboardingComplete) {
+                router.replace('/(tabs)' as never);
+            } else {
+                router.replace('/onboarding-profile' as never);
+            }
         } catch (err) {
             Alert.alert('Error', 'An unexpected error occurred. Please try again.');
             console.error('Apple sign in error:', err);
@@ -85,7 +93,7 @@ export default function SignInScreen() {
 
 
     const handleBack = () => {
-        router.replace('/');
+        router.back();
     };
 
     const handleSignUp = () => {
@@ -132,11 +140,7 @@ export default function SignInScreen() {
 
     return (
         <View style={styles.container}>
-            <ImageBackground
-                source={require('../assets/images/backgrounds/background.png')}
-                style={styles.backgroundImage}
-                resizeMode="cover"
-            >
+                <ForestGlassBackground blurIntensity={18} />
                 <SafeAreaView style={styles.safeArea}>
                     <KeyboardAvoidingView
                         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -192,7 +196,7 @@ export default function SignInScreen() {
                                                 <Ionicons
                                                     name={showPassword ? "eye-off-outline" : "eye-outline"}
                                                     size={22}
-                                                    color="#878787"
+                                                    color={Colors.textTertiary}
                                                 />
                                             </TouchableOpacity>
                                         )}
@@ -237,7 +241,7 @@ export default function SignInScreen() {
                                         disabled={isAppleLoading}
                                     >
                                         <View style={styles.appleIconContainer}>
-                                            <Ionicons name="logo-apple" size={22} color="#FFFFFF" />
+                                            <Ionicons name="logo-apple" size={22} color={Colors.textPrimary} />
                                         </View>
                                         <Text style={styles.appleButtonText}>
                                             {isAppleLoading ? 'Signing in...' : 'Continue with Apple'}
@@ -255,7 +259,6 @@ export default function SignInScreen() {
                         </ScrollView>
                     </KeyboardAvoidingView>
                 </SafeAreaView>
-            </ImageBackground>
         </View>
     );
 }
@@ -263,12 +266,7 @@ export default function SignInScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
-    },
-    backgroundImage: {
-        flex: 1,
-        width: '100%',
-        height: '100%',
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -388,7 +386,7 @@ const styles = StyleSheet.create({
     forgotPasswordText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#3494D9',
+        color: Colors.primary,
     },
     // Coming Soon styling for social buttons
     socialButtonDisabled: {
@@ -397,7 +395,7 @@ const styles = StyleSheet.create({
     comingSoonBadge: {
         position: 'absolute',
         right: 12,
-        backgroundColor: '#3F4243',
+        backgroundColor: Colors.borderCard,
         paddingHorizontal: 8,
         paddingVertical: 3,
         borderRadius: 4,

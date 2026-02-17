@@ -25,7 +25,6 @@ import {
 } from '@/lib/supabase';
 import { formatGlucoseWithUnit, parseGlucoseInput, getGlucoseInputPlaceholder } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -752,7 +751,6 @@ export default function LogDetailScreen() {
     if (!isValidParams && !isLoading) {
         return (
             <View style={styles.root}>
-                <LinearGradient colors={['#1a1f24', '#181c20', '#111111']} locations={[0, 0.3, 1]} style={styles.topGlow} />
                 <SafeAreaView edges={['top']} style={styles.safe}>
                     <View style={styles.header}>
                         <LiquidGlassIconButton size={44} onPress={() => router.back()}>
@@ -775,12 +773,6 @@ export default function LogDetailScreen() {
 
     return (
         <View style={styles.root}>
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.topGlow}
-            />
-
             <SafeAreaView edges={['top']} style={styles.safe}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -875,14 +867,7 @@ export default function LogDetailScreen() {
 const styles = StyleSheet.create({
     root: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    topGlow: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 220,
+        backgroundColor: Colors.background,
     },
     safe: {
         flex: 1,
@@ -970,10 +955,10 @@ const styles = StyleSheet.create({
     },
     // Input styles (match log-activity / log-glucose)
     inputShell: {
-        backgroundColor: '#1b1b1c',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
         paddingHorizontal: 16,
         paddingVertical: 14,
     },
@@ -984,10 +969,10 @@ const styles = StyleSheet.create({
         padding: 0,
     },
     selectShell: {
-        backgroundColor: '#1b1b1c',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
         paddingHorizontal: 16,
         paddingVertical: 16,
         flexDirection: 'row',
@@ -997,7 +982,7 @@ const styles = StyleSheet.create({
     selectText: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     selectTextActive: {
         color: Colors.textPrimary,
@@ -1009,10 +994,10 @@ const styles = StyleSheet.create({
     },
     glucoseInputShell: {
         flex: 1,
-        backgroundColor: '#1b1b1c',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
         paddingHorizontal: 16,
         paddingVertical: 14,
     },
@@ -1023,10 +1008,10 @@ const styles = StyleSheet.create({
     },
     durationInputShell: {
         flex: 1,
-        backgroundColor: '#1b1b1c',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
         paddingHorizontal: 16,
         paddingVertical: 14,
     },
@@ -1059,7 +1044,7 @@ const styles = StyleSheet.create({
         width: '100%',
         height: 200,
         borderRadius: 16,
-        backgroundColor: '#1a1b1c',
+        backgroundColor: Colors.backgroundCard,
     },
     // Section title
     sectionTitle: {
@@ -1141,13 +1126,13 @@ const styles = StyleSheet.create({
         right: 16,
     },
     saveButton: {
-        backgroundColor: '#285E2A',
+        backgroundColor: Colors.buttonSecondary,
         borderRadius: 12,
         paddingVertical: 16,
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 1,
-        borderColor: '#448D47',
+        borderColor: Colors.buttonSecondaryBorder,
     },
     saveButtonDisabled: {
         opacity: 0.5,
@@ -1177,6 +1162,6 @@ const styles = StyleSheet.create({
     deleteButtonText: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: '#FF3B30',
+        color: Colors.buttonDestructive,
     },
 });

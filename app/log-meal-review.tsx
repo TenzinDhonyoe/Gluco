@@ -1,9 +1,10 @@
 import { Input } from '@/components/ui/input';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { schedulePostMealReviewNotification } from '@/lib/notifications';
+import { schedulePostMealActionReminder, schedulePostMealReviewNotification } from '@/lib/notifications';
 import {
   addMealItems,
   createGlucoseLog,
@@ -852,7 +853,10 @@ export default function LogMealReviewScreen() {
       const proposedCheckIn = new Date(mealTime.getTime() + 60 * 60 * 1000);
       const minCheckIn = new Date(Date.now() + 60 * 1000);
       const checkInTime = proposedCheckIn > minCheckIn ? proposedCheckIn : minCheckIn;
-      await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime).catch(() => {
+      await schedulePostMealReviewNotification(meal.id, meal.name, checkInTime, user.id).catch(() => {
+        // Non-critical - don't fail the save if notification scheduling fails
+      });
+      await schedulePostMealActionReminder(meal.id, meal.name, user.id).catch(() => {
         // Non-critical - don't fail the save if notification scheduling fails
       });
 
@@ -1291,7 +1295,7 @@ export default function LogMealReviewScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#111111',
+    backgroundColor: Colors.background,
   },
 
   // Photo section
@@ -1917,9 +1921,9 @@ const styles = StyleSheet.create({
     width: 70,
     height: 132,
     borderRadius: 8,
-    backgroundColor: '#1b1b1c',
+    backgroundColor: Colors.inputBackgroundSolid,
     borderWidth: 1,
-    borderColor: '#313135',
+    borderColor: Colors.inputBorderSolid,
     overflow: 'hidden',
   },
   timeColon: {
@@ -1958,7 +1962,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 12,
-    backgroundColor: '#111111',
+    backgroundColor: 'transparent',
   },
 
   // Main scroll view
@@ -2185,7 +2189,7 @@ const styles = StyleSheet.create({
     right: 0,
     paddingHorizontal: 16,
     paddingTop: 12,
-    backgroundColor: '#111111',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.06)',
   },

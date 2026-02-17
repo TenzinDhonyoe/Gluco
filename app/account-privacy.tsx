@@ -1,5 +1,6 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -7,7 +8,6 @@ import { RESET_PASSWORD_REDIRECT_URI } from '@/lib/deeplinks';
 import { deleteUserData, exportUserData, getUserProfile, resetUserLearning, supabase, updateUserProfile, UserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -307,20 +307,13 @@ export default function AccountPrivacyScreen() {
     if (isLoading) {
         return (
             <View style={[styles.container, styles.loadingContainer]}>
-                <ActivityIndicator color="#3494D9" size="large" />
+                <ActivityIndicator color={Colors.primary} size="large" />
             </View>
         );
     }
 
     return (
         <View style={styles.container}>
-            {/* Background gradient */}
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.backgroundGradient}
-            />
-
             <SafeAreaView edges={['top']} style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -409,9 +402,9 @@ export default function AccountPrivacyScreen() {
                             <Switch
                                 value={aiEnabled}
                                 onValueChange={handleToggleAi}
-                                trackColor={{ false: '#3F4243', true: '#3494D9' }}
-                                thumbColor={aiEnabled ? '#FFFFFF' : '#878787'}
-                                ios_backgroundColor="#3F4243"
+                                trackColor={{ false: Colors.borderCard, true: Colors.primary }}
+                                thumbColor={aiEnabled ? '#FFFFFF' : Colors.textTertiary}
+                                ios_backgroundColor={Colors.borderCard}
                             />
                         </View>
                         <View style={styles.divider} />
@@ -476,18 +469,11 @@ export default function AccountPrivacyScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: Colors.background,
     },
     loadingContainer: {
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
     },
     safeArea: {
         flex: 1,
@@ -514,8 +500,8 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
+        fontSize: 18,
+        color: Colors.textPrimary,
         letterSpacing: 2,
     },
     headerSpacer: {
@@ -531,16 +517,16 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontFamily: fonts.bold,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         letterSpacing: 1,
         marginTop: 24,
         marginBottom: 12,
     },
     card: {
-        backgroundColor: '#1A1D1F',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#2A2D30',
+        borderColor: Colors.borderCard,
         overflow: 'hidden',
     },
     row: {
@@ -553,7 +539,7 @@ const styles = StyleSheet.create({
     rowLabel: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     rowLabelBlock: {
         flex: 1,
@@ -562,7 +548,7 @@ const styles = StyleSheet.create({
     rowSubtext: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 4,
     },
     rowLabelWithIcon: {
@@ -578,11 +564,11 @@ const styles = StyleSheet.create({
     rowValue: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     divider: {
         height: 1,
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
         marginHorizontal: 16,
     },
     expandedContent: {
@@ -592,10 +578,10 @@ const styles = StyleSheet.create({
     expandedText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         lineHeight: 20,
     },
     dangerText: {
-        color: '#F14F4F',
+        color: Colors.buttonDestructiveText,
     },
 });

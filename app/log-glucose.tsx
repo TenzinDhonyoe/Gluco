@@ -7,7 +7,6 @@ import { fonts } from '@/hooks/useFonts';
 import { createGlucoseLog, type GlucoseContext, updatePostMealReviewWithManualGlucose } from '@/lib/supabase';
 import { parseGlucoseInput, getGlucoseInputPlaceholder, formatGlucoseWithUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import {
@@ -210,12 +209,6 @@ export default function LogGlucoseScreen() {
 
   return (
     <View style={styles.root}>
-      <LinearGradient
-        colors={['#1a1f24', '#181c20', '#111111']}
-        locations={[0, 0.3, 1]}
-        style={styles.topGlow}
-      />
-
       <SafeAreaView edges={['top']} style={styles.safe}>
         {/* Header */}
         <View style={styles.header}>
@@ -418,14 +411,7 @@ export default function LogGlucoseScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#111111',
-  },
-  topGlow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 220,
+    backgroundColor: Colors.background,
   },
   safe: {
     flex: 1,
@@ -487,10 +473,10 @@ const styles = StyleSheet.create({
     lineHeight: 16 * 0.95,
   },
   selectShell: {
-    backgroundColor: '#1b1b1c',
+    backgroundColor: Colors.inputBackgroundSolid,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#313135',
+    borderColor: Colors.inputBorderSolid,
     paddingHorizontal: 16,
     paddingVertical: 16,
     flexDirection: 'row',
@@ -500,7 +486,7 @@ const styles = StyleSheet.create({
   selectText: {
     fontFamily: fonts.regular,
     fontSize: 16,
-    color: '#878787',
+    color: Colors.textTertiary,
     lineHeight: 16 * 0.95,
   },
   selectTextActive: {
@@ -513,10 +499,10 @@ const styles = StyleSheet.create({
   },
   glucoseInputShell: {
     flex: 1,
-    backgroundColor: '#1b1b1c',
+    backgroundColor: Colors.inputBackgroundSolid,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#313135',
+    borderColor: Colors.inputBorderSolid,
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
@@ -544,13 +530,13 @@ const styles = StyleSheet.create({
     right: 16,
   },
   saveButton: {
-    backgroundColor: '#285E2A',
+    backgroundColor: Colors.buttonSecondary,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#448D47',
+    borderColor: Colors.buttonSecondaryBorder,
   },
   saveButtonDisabled: {
     opacity: 0.5,
@@ -565,7 +551,7 @@ const styles = StyleSheet.create({
   },
   // Time picker styles (same as meal logging)
   timeSheet: {
-    backgroundColor: '#3F4243',
+    backgroundColor: Colors.borderCard,
     borderWidth: 0,
     left: 16,
     right: 16,
@@ -584,7 +570,7 @@ const styles = StyleSheet.create({
   timeSheetSave: {
     fontFamily: fonts.medium,
     fontSize: 17,
-    color: '#3494D9',
+    color: Colors.primary,
   },
   timePickerRow: {
     flexDirection: 'row',
@@ -597,15 +583,15 @@ const styles = StyleSheet.create({
     width: 70,
     height: 132,
     borderRadius: 8,
-    backgroundColor: '#1b1b1c',
+    backgroundColor: Colors.inputBackgroundSolid,
     borderWidth: 1,
-    borderColor: '#313135',
+    borderColor: Colors.inputBorderSolid,
     overflow: 'hidden',
   },
   timeColon: {
     fontFamily: fonts.medium,
     fontSize: 18,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     marginHorizontal: 2,
   },
   wheelItem: {
@@ -622,7 +608,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.45)',
   },
   wheelTextActive: {
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     fontFamily: fonts.semiBold,
   },
 });

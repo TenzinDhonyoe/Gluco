@@ -1,4 +1,5 @@
 import { ONBOARDING_STEP_KEY } from '@/app/index';
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { OnboardingHeader } from '@/components/onboarding/OnboardingHeader';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
@@ -243,6 +244,7 @@ export default function OnboardingBodyScreen() {
 
     return (
         <View style={styles.container}>
+            <ForestGlassBackground blurIntensity={18} />
             <SafeAreaView style={styles.safeArea}>
                 <ScrollView
                     ref={scrollViewRef}
@@ -565,16 +567,20 @@ const styles = StyleSheet.create({
     },
     buttonContainer: {
         position: 'absolute',
-        bottom: 42,
-        left: 16,
-        right: 16,
+        bottom: 0,
+        left: 0,
+        right: 0,
         flexDirection: 'row',
         gap: 12,
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        paddingBottom: 42,
+        backgroundColor: 'rgba(0, 0, 0, 0.85)',
     },
     skipButton: {
         flex: 1,
         height: 48,
-        backgroundColor: 'transparent',
+        backgroundColor: 'rgba(30, 30, 30, 0.9)',
         borderWidth: 1,
         borderColor: Colors.borderCard,
         borderRadius: 8,

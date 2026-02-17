@@ -1,15 +1,18 @@
-import { AnimatedScreen } from '@/components/animations/animated-screen';
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { MetabolicScoreRing } from '@/components/charts/MetabolicScoreRing';
 import { SegmentedControl } from '@/components/controls/segmented-control';
 import { DataCoverageCard } from '@/components/progress/DataCoverageCard';
 import { MetricCard } from '@/components/progress/MetricCard';
 import { Disclaimer } from '@/components/ui/Disclaimer';
+import { behaviorV1Theme } from '@/constants/behaviorV1Theme';
 import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { usePersonalInsights } from '@/hooks/usePersonalInsights';
-import { InsightAction, InsightData, TrackingMode } from '@/lib/insights';
+import { useWeeklyReview } from '@/hooks/useWeeklyReview';
+import { isBehaviorV1Experience } from '@/lib/experience';
+import { InsightAction, InsightCategory, InsightData, PersonalInsight, TrackingMode } from '@/lib/insights';
 import {
     ActivityLog,
     CarePathwayTemplate,
@@ -21,6 +24,7 @@ import {
     UserAction,
     UserCarePathway,
     UserExperiment,
+    WeightLog,
     createUserAction,
     getActiveCarePathway,
     getActivityLogsByDateRange,
@@ -33,6 +37,7 @@ import {
     getSuggestedExperiments,
     getUserActionsByStatus,
     getUserExperiments,
+    getWeightLogsByDateRange,
     startCarePathway,
     startUserExperiment,
     supabase,
@@ -59,6 +64,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type TabKey = 'actions' | 'progress' | 'experiments';
+type ActionFocusKey = 'glucose' | 'activity' | 'sleep';
 
 type MetricKey =
     | 'meal_count'
@@ -67,7 +73,8 @@ type MetricKey =
     | 'glucose_avg'
     | 'glucose_logs_count'
     | 'steps'
-    | 'sleep_hours';
+    | 'sleep_hours'
+    | 'weight_logs_count';
 
 // Metabolic score API response type
 interface MetabolicScoreResponse {
@@ -140,6 +147,36 @@ interface MetabolicScoreData {
 const ACTION_BASELINE_DAYS = 7;
 const DEFAULT_TARGET_MIN = 3.9;
 const DEFAULT_TARGET_MAX = 10.0;
+const ACTION_FOCUS_OPTIONS: { label: string; value: ActionFocusKey }[] = [
+    { label: 'GLUCOSE', value: 'glucose' },
+    { label: 'ACTIVITY', value: 'activity' },
+    { label: 'SLEEP', value: 'sleep' },
+];
+
+const BEHAVIOR_SEGMENTED_PALETTE = {
+    containerBg: 'rgba(14, 24, 20, 0.72)',
+    containerBorder: behaviorV1Theme.borderSoft,
+    sliderColors: ['rgba(168, 197, 160, 0.38)', 'rgba(168, 197, 160, 0.22)', 'rgba(168, 197, 160, 0.3)'] as [string, string, string],
+    sliderBorder: 'rgba(168, 197, 160, 0.45)',
+    inactiveText: 'rgba(198, 215, 199, 0.8)',
+    activeText: behaviorV1Theme.textPrimary,
+};
+const ACTION_TYPE_TO_FOCUS: Record<string, ActionFocusKey> = {
+    post_meal_walk: 'activity',
+    log_activity: 'activity',
+    steps_boost: 'activity',
+    light_activity: 'activity',
+    sleep_window: 'sleep',
+    sleep_logging: 'sleep',
+    sleep_consistency: 'sleep',
+    log_glucose: 'glucose',
+    meal_pairing: 'glucose',
+    pre_meal_fibre: 'glucose',
+    fiber_boost: 'glucose',
+    log_meal: 'glucose',
+    meal_checkin: 'glucose',
+    log_weight: 'activity',
+};
 
 const PROGRESS_RANGES = [30, 90, 180];
 
@@ -155,6 +192,29 @@ function clamp(value: number, min: number, max: number): number {
 
 function clamp01(value: number): number {
     return clamp(value, 0, 1);
+}
+
+function mapInsightCategoryToFocus(category: InsightCategory): ActionFocusKey {
+    if (category === 'sleep') return 'sleep';
+    if (category === 'activity' || category === 'weight') return 'activity';
+    return 'glucose';
+}
+
+function mapActionTypeToFocus(actionType: string): ActionFocusKey {
+    const normalized = actionType.toLowerCase();
+    const mapped = ACTION_TYPE_TO_FOCUS[normalized];
+    if (mapped) return mapped;
+
+    if (normalized.includes('sleep')) return 'sleep';
+    if (
+        normalized.includes('glucose') ||
+        normalized.includes('meal') ||
+        normalized.includes('fiber') ||
+        normalized.includes('fibre')
+    ) {
+        return 'glucose';
+    }
+    return 'activity';
 }
 
 // Calculate component score (0-100) based on "badness" formulas
@@ -255,6 +315,7 @@ function formatMetricValue(metricKey: MetricKey, value: number | null, glucoseUn
         case 'meal_count':
         case 'checkin_count':
         case 'glucose_logs_count':
+        case 'weight_logs_count':
             return `${Math.round(value)}`;
         case 'sleep_hours':
             return `${value.toFixed(1)}h`;
@@ -307,9 +368,13 @@ export default function InsightsScreen() {
     const glucoseUnit = useGlucoseUnit();
     const params = useLocalSearchParams();
     const insets = useSafeAreaInsets();
-    const HEADER_HEIGHT = 120 + insets.top;
+    const isBehaviorV1 = isBehaviorV1Experience(profile?.experience_variant);
+    const HEADER_HEIGHT = (isBehaviorV1 ? 132 : 120) + insets.top;
 
-    const [activeTab, setActiveTab] = useState<TabKey>('progress');
+    const [activeTab, setActiveTab] = useState<TabKey>(
+        profile?.experience_variant === 'behavior_v1' ? 'actions' : 'progress'
+    );
+    const [activeFocusTab, setActiveFocusTab] = useState<ActionFocusKey>('activity');
     const insightsRangeDays = 30;
 
     // Scroll-based header animation
@@ -332,6 +397,7 @@ export default function InsightsScreen() {
     const [glucoseLogs, setGlucoseLogs] = useState<GlucoseLog[]>([]);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
     const [meals, setMeals] = useState<MealWithCheckin[]>([]);
+    const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
     const [dailyContext, setDailyContext] = useState<DailyContext[]>([]);
     const [actions, setActions] = useState<UserAction[]>([]);
     const [avgFibrePerDay, setAvgFibrePerDay] = useState<number | undefined>(undefined);
@@ -345,6 +411,12 @@ export default function InsightsScreen() {
     const [pathwayLoading, setPathwayLoading] = useState(false);
     const [metabolicScore, setMetabolicScore] = useState<MetabolicScoreData | null>(null);
     const [metabolicScoreLoading, setMetabolicScoreLoading] = useState(false);
+
+    const {
+        review: weeklyReview,
+        loading: weeklyReviewLoading,
+        dismiss: dismissWeeklyReview,
+    } = useWeeklyReview(user?.id, isBehaviorV1);
 
 
 
@@ -369,10 +441,19 @@ export default function InsightsScreen() {
 
     const syncingActionsRef = useRef(false);
     const syncingFeaturesRef = useRef(false);
+    const behaviorDefaultAppliedRef = useRef(false);
+    const behaviorFocusDefaultAppliedRef = useRef(false);
 
     const targetMin = profile?.target_min ?? DEFAULT_TARGET_MIN;
     const targetMax = profile?.target_max ?? DEFAULT_TARGET_MAX;
     const trackingMode = (profile?.tracking_mode || 'meals_wearables') as TrackingMode;
+
+    React.useEffect(() => {
+        if (isBehaviorV1 && !behaviorDefaultAppliedRef.current) {
+            setActiveTab('actions');
+            behaviorDefaultAppliedRef.current = true;
+        }
+    }, [isBehaviorV1]);
 
     const { startDate, endDate } = useMemo(() => getDateRange(insightsRangeDays), [insightsRangeDays]);
     const startDateKey = useMemo(() => toDateKey(startDate), [startDate]);
@@ -404,6 +485,7 @@ export default function InsightsScreen() {
             userTargetMin: targetMin,
             userTargetMax: targetMax,
             meals,
+            weightLogsCount: weightLogs.length,
             avgSleepHours: avgSleep,
             avgSteps,
             avgActiveMinutes,
@@ -412,7 +494,7 @@ export default function InsightsScreen() {
             totalMealsThisWeek: meals.length,
             checkinsThisWeek: mealsWithCheckins.length,
         };
-    }, [glucoseLogs, meals, dailyContext, targetMin, targetMax, avgFibrePerDay]);
+    }, [glucoseLogs, meals, weightLogs.length, dailyContext, targetMin, targetMax, avgFibrePerDay]);
 
     const { insights: personalInsights, loading: personalInsightsLoading } = usePersonalInsights({
         userId: user?.id,
@@ -420,6 +502,12 @@ export default function InsightsScreen() {
         rangeKey: getRangeKey(insightsRangeDays),
         enabled: !!user?.id,
         fallbackData,
+        generationOptions: {
+            experienceVariant: isBehaviorV1 ? 'behavior_v1' : 'legacy',
+            readinessLevel: profile?.readiness_level ?? undefined,
+            comBBarrier: profile?.com_b_barrier ?? undefined,
+            showGlucoseAdvanced: profile?.show_glucose_advanced ?? false,
+        },
     });
 
     const fetchCoreData = useCallback(async () => {
@@ -430,10 +518,11 @@ export default function InsightsScreen() {
 
         setInsightsLoading(true);
         try {
-            const [logs, activities, mealsData, dailyData, fibreSummary, pathway, templates, weekly] = await Promise.all([
+            const [logs, activities, mealsData, weightData, dailyData, fibreSummary, pathway, templates, weekly] = await Promise.all([
                 getGlucoseLogsByDateRange(user.id, startDate, endDate),
                 getActivityLogsByDateRange(user.id, startDate, endDate),
                 getMealsWithCheckinsByDateRange(user.id, startDate, endDate),
+                getWeightLogsByDateRange(user.id, startDate, endDate),
                 getDailyContextByRange(user.id, startDateKey, endDateKey),
                 getFibreIntakeSummary(user.id, 'month'),
                 getActiveCarePathway(user.id),
@@ -444,6 +533,7 @@ export default function InsightsScreen() {
             setGlucoseLogs(logs);
             setActivityLogs(activities);
             setMeals(mealsData);
+            setWeightLogs(weightData);
             setDailyContext(dailyData);
             setCarePathway(pathway);
             setPathwayTemplates(templates);
@@ -543,17 +633,23 @@ export default function InsightsScreen() {
         useCallback(() => {
             fetchCoreData();
             fetchActions();
-            fetchExperimentsData();
+            if (!isBehaviorV1) {
+                fetchExperimentsData();
+            }
             fetchMetabolicScore();
-        }, [fetchCoreData, fetchActions, fetchExperimentsData, fetchMetabolicScore])
+        }, [fetchCoreData, fetchActions, fetchExperimentsData, fetchMetabolicScore, isBehaviorV1])
     );
 
     useFocusEffect(
         useCallback(() => {
+            if (isBehaviorV1) {
+                setActiveTab('actions');
+                return;
+            }
             if (params.tab && ['actions', 'progress', 'experiments'].includes(params.tab as string)) {
                 setActiveTab(params.tab as TabKey);
             }
-        }, [params.tab])
+        }, [params.tab, isBehaviorV1])
     );
 
     const computeMetricValue = useCallback((
@@ -601,10 +697,12 @@ export default function InsightsScreen() {
                 if (!values.length) return null;
                 return values.reduce((sum, value) => sum + value, 0) / values.length;
             }
+            case 'weight_logs_count':
+                return weightLogs.filter(log => isWithinWindow(log.logged_at, windowStart, windowEnd)).length;
             default:
                 return null;
         }
-    }, [meals, glucoseLogs, dailyContext, targetMin, targetMax]);
+    }, [meals, glucoseLogs, dailyContext, weightLogs, targetMin, targetMax]);
 
     // Component score calculations (moved to top level to avoid hook errors)
     const last7DaysEnd = useMemo(() => new Date(), []);
@@ -647,6 +745,8 @@ export default function InsightsScreen() {
                 return activityLogs.some(log => isWithinWindow(log.logged_at, windowStart, windowEnd));
             case 'log_glucose':
                 return glucoseLogs.some(log => isWithinWindow(log.logged_at, windowStart, windowEnd));
+            case 'log_weight':
+                return weightLogs.some(log => isWithinWindow(log.logged_at, windowStart, windowEnd));
             case 'sleep_logging':
             case 'sleep_window':
             case 'sleep_consistency': {
@@ -657,7 +757,7 @@ export default function InsightsScreen() {
             default:
                 return false;
         }
-    }, [meals, activityLogs, glucoseLogs, dailyContext]);
+    }, [meals, activityLogs, glucoseLogs, weightLogs, dailyContext]);
 
     const syncActionOutcomes = useCallback(async () => {
         if (!user || syncingActionsRef.current || actionsLoading) return;
@@ -959,13 +1059,89 @@ export default function InsightsScreen() {
 
     const actionCandidates = useMemo(() => {
         const activeActionTypes = new Set(actions.filter(a => a.status === 'active').map(a => a.action_type));
-        return personalInsights.filter(insight => !activeActionTypes.has(insight.action.actionType)).slice(0, 4);
+        return personalInsights.filter(insight => !activeActionTypes.has(insight.action.actionType));
     }, [personalInsights, actions]);
 
     const activeActions = useMemo(() => actions.filter(action => action.status === 'active'), [actions]);
     const recentActions = useMemo(() => actions.filter(action => action.status !== 'active').slice(0, 3), [actions]);
+    const legacyActionCandidates = useMemo(() => actionCandidates.slice(0, 4), [actionCandidates]);
+    const focusedActionCandidates = useMemo(
+        () => actionCandidates
+            .filter(insight => mapInsightCategoryToFocus(insight.category) === activeFocusTab)
+            .slice(0, 4),
+        [actionCandidates, activeFocusTab]
+    );
+    const focusedActiveActions = useMemo(
+        () => activeActions.filter(action => mapActionTypeToFocus(action.action_type) === activeFocusTab),
+        [activeActions, activeFocusTab]
+    );
+    const focusedRecentActions = useMemo(
+        () => recentActions.filter(action => mapActionTypeToFocus(action.action_type) === activeFocusTab),
+        [recentActions, activeFocusTab]
+    );
 
     const glucoseStats = useMemo(() => computeGlucoseStats(glucoseLogs, targetMin, targetMax), [glucoseLogs, targetMin, targetMax]);
+
+    const defaultFocusTab = useMemo<ActionFocusKey>(() => {
+        const firstActive = activeActions[0];
+        if (firstActive) return mapActionTypeToFocus(firstActive.action_type);
+        const firstCandidate = actionCandidates[0];
+        if (firstCandidate) return mapInsightCategoryToFocus(firstCandidate.category);
+        return 'activity';
+    }, [activeActions, actionCandidates]);
+
+    React.useEffect(() => {
+        if (!isBehaviorV1 || behaviorFocusDefaultAppliedRef.current) return;
+        if (actionsLoading || personalInsightsLoading) return;
+        setActiveFocusTab(defaultFocusTab);
+        behaviorFocusDefaultAppliedRef.current = true;
+    }, [isBehaviorV1, actionsLoading, personalInsightsLoading, defaultFocusTab]);
+
+    const focusPanel = useMemo(() => {
+        if (activeFocusTab === 'glucose') {
+            const inRange = glucoseStats.timeInRange;
+            const hasZone = inRange !== null && inRange !== undefined;
+            return {
+                title: 'Glucose Plan',
+                icon: 'water-outline' as const,
+                metric: hasZone ? `${Math.round(inRange)}% in zone` : 'Optional signal',
+                detail: hasZone
+                    ? `Personalized next steps from ${glucoseStats.count} readings this range.`
+                    : 'Use glucose actions when you want deeper feedback. Meal-based actions still personalize this plan.',
+                emptyTitle: 'No glucose actions queued',
+                emptyText: 'Add one signal to unlock your next personalized glucose step.',
+                cta: { label: 'Log glucose', route: '/log-glucose' },
+            };
+        }
+
+        if (activeFocusTab === 'sleep') {
+            const hasSleep = avgSleep7d !== null && avgSleep7d !== undefined;
+            return {
+                title: 'Sleep Plan',
+                icon: 'moon-outline' as const,
+                metric: hasSleep ? `${avgSleep7d.toFixed(1)}h avg` : 'Build baseline',
+                detail: hasSleep
+                    ? 'Personalized bedtime consistency actions tuned to your recent sleep pattern.'
+                    : 'Log sleep for a few nights to unlock more precise sleep actions.',
+                emptyTitle: 'No sleep actions queued',
+                emptyText: 'Start with one simple sleep action tonight to build momentum.',
+                cta: { label: 'View patterns', route: '/insights?tab=progress' },
+            };
+        }
+
+        const hasSteps = avgSteps7d !== null && avgSteps7d !== undefined;
+        return {
+            title: 'Activity Plan',
+            icon: 'walk-outline' as const,
+            metric: hasSteps ? `${Math.round(avgSteps7d).toLocaleString()} avg steps` : 'Build baseline',
+            detail: hasSteps
+                ? 'Personalized movement actions based on your current weekly activity rhythm.'
+                : 'Log activity to unlock personalized movement targets and pacing.',
+            emptyTitle: 'No activity actions queued',
+            emptyText: 'Add one movement log to generate your next activity action.',
+            cta: { label: 'Log activity', route: '/log-activity' },
+        };
+    }, [activeFocusTab, glucoseStats.timeInRange, glucoseStats.count, avgSleep7d, avgSteps7d]);
 
     const shouldRecommendPathway = useMemo(() => {
         if (glucoseStats.timeInRange === null || glucoseStats.timeInRange === undefined || glucoseStats.count < 7) {
@@ -1024,30 +1200,34 @@ export default function InsightsScreen() {
                 : styles.deltaNegative;
 
         return (
-            <View key={action.id} style={styles.actionCard}>
+            <View key={action.id} style={[styles.actionCard, isBehaviorV1 && styles.behaviorActionCard]}>
                 <View style={styles.actionHeaderRow}>
-                    <Text style={styles.actionTitleHero}>{action.title}</Text>
+                    <Text style={[styles.actionTitleHero, isBehaviorV1 && styles.behaviorActionTitleHero]}>{action.title}</Text>
                     <TouchableOpacity onPress={() => toggleCardExpanded(action.id)} hitSlop={10}>
-                        <Ionicons name={isExpanded ? "information-circle" : "information-circle-outline"} size={22} color="#878787" />
+                        <Ionicons
+                            name={isExpanded ? "information-circle" : "information-circle-outline"}
+                            size={22}
+                            color={isBehaviorV1 ? behaviorV1Theme.textSecondary : Colors.textTertiary}
+                        />
                     </TouchableOpacity>
                 </View>
 
-                <Text style={styles.actionDescription}>{action.description}</Text>
+                <Text style={[styles.actionDescription, isBehaviorV1 && styles.behaviorActionDescription]}>{action.description}</Text>
 
                 {isExpanded && (
-                    <View style={styles.expandedContent}>
-                        <Text style={styles.actionMeta}>Window ends in {timeLeft}h</Text>
+                    <View style={[styles.expandedContent, isBehaviorV1 && styles.behaviorExpandedContent]}>
+                        <Text style={[styles.actionMeta, isBehaviorV1 && styles.behaviorActionMeta]}>Window ends in {timeLeft}h</Text>
                         <View style={styles.actionOutcomeRow}>
                             <View>
-                                <Text style={styles.actionOutcomeLabel}>Baseline</Text>
-                                <Text style={styles.actionOutcomeValue}>{formatMetricValue(metricKey, baselineValue, glucoseUnit)}</Text>
+                                <Text style={[styles.actionOutcomeLabel, isBehaviorV1 && styles.behaviorActionOutcomeLabel]}>Baseline</Text>
+                                <Text style={[styles.actionOutcomeValue, isBehaviorV1 && styles.behaviorActionOutcomeValue]}>{formatMetricValue(metricKey, baselineValue, glucoseUnit)}</Text>
                             </View>
                             <View>
-                                <Text style={styles.actionOutcomeLabel}>Outcome</Text>
-                                <Text style={styles.actionOutcomeValue}>{formatMetricValue(metricKey, outcomeValue, glucoseUnit)}</Text>
+                                <Text style={[styles.actionOutcomeLabel, isBehaviorV1 && styles.behaviorActionOutcomeLabel]}>Outcome</Text>
+                                <Text style={[styles.actionOutcomeValue, isBehaviorV1 && styles.behaviorActionOutcomeValue]}>{formatMetricValue(metricKey, outcomeValue, glucoseUnit)}</Text>
                             </View>
                             <View>
-                                <Text style={styles.actionOutcomeLabel}>Delta</Text>
+                                <Text style={[styles.actionOutcomeLabel, isBehaviorV1 && styles.behaviorActionOutcomeLabel]}>Delta</Text>
                                 <Text style={[styles.actionOutcomeValue, deltaStyle]}>
                                     {improvementLabel}
                                 </Text>
@@ -1065,21 +1245,21 @@ export default function InsightsScreen() {
                          */}
                         {action.cta ? (
                             <TouchableOpacity
-                                style={styles.primaryButton}
+                                style={[styles.primaryButton, isBehaviorV1 && styles.behaviorPrimaryButton]}
                                 onPress={() => {
                                     if (action.cta?.route) {
                                         router.push(action.cta.route as any);
                                     }
                                 }}
                             >
-                                <Text style={styles.primaryButtonText}>{action.cta.label}</Text>
+                                <Text style={[styles.primaryButtonText, isBehaviorV1 && styles.behaviorPrimaryButtonText]}>{action.cta.label}</Text>
                             </TouchableOpacity>
                         ) : (
                             <TouchableOpacity
-                                style={styles.primaryButton}
+                                style={[styles.primaryButton, isBehaviorV1 && styles.behaviorPrimaryButton]}
                                 onPress={() => handleMarkActionDone(action)}
                             >
-                                <Text style={styles.primaryButtonText}>Mark done</Text>
+                                <Text style={[styles.primaryButtonText, isBehaviorV1 && styles.behaviorPrimaryButtonText]}>Mark done</Text>
                             </TouchableOpacity>
                         )}
                         {/* Option to mark done if CTA exists? Maybe secondary. Keeping simple for now. */}
@@ -1089,49 +1269,68 @@ export default function InsightsScreen() {
         );
     };
 
-    const renderActionCandidates = () => {
+    const renderActionCandidates = (
+        candidates: PersonalInsight[],
+        emptyState: { title: string; text: string; cta?: { label: string; route: string } }
+    ) => {
         if (personalInsightsLoading) {
-            return <ActivityIndicator color="#878787" style={{ marginVertical: 12 }} />;
+            return <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 12 }} />;
         }
 
-        if (actionCandidates.length === 0) {
+        if (candidates.length === 0) {
             return (
-                <View style={styles.emptyStateCard}>
+                <View style={[styles.emptyStateCard, isBehaviorV1 && styles.behaviorEmptyStateCard]}>
                     <Image source={Images.mascots.thinking} style={styles.emptyStateImage} />
-                    <Text style={styles.emptyStateTitle}>No new actions right now</Text>
-                    <Text style={styles.emptyStateText}>Keep logging to unlock the next step.</Text>
+                    <Text style={[styles.emptyStateTitle, isBehaviorV1 && styles.behaviorEmptyStateTitle]}>{emptyState.title}</Text>
+                    <Text style={[styles.emptyStateText, isBehaviorV1 && styles.behaviorEmptyStateText]}>{emptyState.text}</Text>
+                    {emptyState.cta && (
+                        <TouchableOpacity
+                            style={[styles.emptyStateCtaButton, isBehaviorV1 && styles.behaviorEmptyStateCtaButton]}
+                            onPress={() => router.push(emptyState.cta?.route as any)}
+                        >
+                            <Text style={[styles.emptyStateCtaText, isBehaviorV1 && styles.behaviorEmptyStateCtaText]}>
+                                {emptyState.cta.label}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
             );
         }
 
-        return actionCandidates.map(insight => {
+        return candidates.map(insight => {
             const isExpanded = expandedCardIds.has(insight.id);
             return (
-                <View key={insight.id} style={styles.actionCard}>
+                <View key={insight.id} style={[styles.actionCard, isBehaviorV1 && styles.behaviorActionCard]}>
                     <View style={styles.actionHeaderRow}>
-                        <Text style={styles.actionTitleHero}>{insight.action.title}</Text>
+                        <Text style={[styles.actionTitleHero, isBehaviorV1 && styles.behaviorActionTitleHero]}>{insight.action.title}</Text>
                         <TouchableOpacity onPress={() => toggleCardExpanded(insight.id)} hitSlop={10}>
-                            <Ionicons name={isExpanded ? "information-circle" : "information-circle-outline"} size={22} color="#878787" />
+                            <Ionicons
+                                name={isExpanded ? "information-circle" : "information-circle-outline"}
+                                size={22}
+                                color={isBehaviorV1 ? behaviorV1Theme.textSecondary : Colors.textTertiary}
+                            />
                         </TouchableOpacity>
                     </View>
 
-                    <Text style={styles.actionDescription}>{insight.action.description}</Text>
+                    <Text style={[styles.actionDescription, isBehaviorV1 && styles.behaviorActionDescription]}>{insight.action.description}</Text>
 
                     {isExpanded && (
-                        <View style={styles.expandedContent}>
-                            <Text style={styles.actionMeta}>Insight: {insight.because}</Text>
-                            <View style={styles.statusPill}>
-                                <Text style={styles.statusPillText}>Duration: {insight.action.windowHours}h</Text>
+                        <View style={[styles.expandedContent, isBehaviorV1 && styles.behaviorExpandedContent]}>
+                            <Text style={[styles.actionMeta, isBehaviorV1 && styles.behaviorActionMeta]}>Insight: {insight.because}</Text>
+                            <View style={[styles.statusPill, isBehaviorV1 && styles.behaviorStatusPill]}>
+                                <Text style={[styles.statusPillText, isBehaviorV1 && styles.behaviorStatusPillText]}>
+                                    Duration: {insight.action.windowHours}h
+                                </Text>
                             </View>
                         </View>
                     )}
 
                     <View style={styles.actionButtons}>
                         <TouchableOpacity
-                            style={styles.primaryButton}
+                            style={[styles.primaryButton, isBehaviorV1 && styles.behaviorPrimaryButton]}
                             onPress={() => handleStartAction(insight.id, insight.action)}
                         >
-                            <Text style={styles.primaryButtonText}>Start action</Text>
+                            <Text style={[styles.primaryButtonText, isBehaviorV1 && styles.behaviorPrimaryButtonText]}>Start action</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -1154,17 +1353,23 @@ export default function InsightsScreen() {
             const steps = template.steps || [];
 
             return (
-                <View style={styles.pathwayCard}>
+                <View style={[styles.pathwayCard, isBehaviorV1 && styles.behaviorPathwayCard]}>
                     <View style={styles.pathwayHeader}>
                         <View>
-                            <Text style={styles.pathwayTitle}>{template.title}</Text>
-                            <Text style={styles.pathwayMeta}>Day {dayIndex} of {totalDays} · ends {toDateKey(endAt)}</Text>
+                            <Text style={[styles.pathwayTitle, isBehaviorV1 && styles.behaviorPathwayTitle]}>{template.title}</Text>
+                            <Text style={[styles.pathwayMeta, isBehaviorV1 && styles.behaviorPathwayMeta]}>
+                                Day {dayIndex} of {totalDays} · ends {toDateKey(endAt)}
+                            </Text>
                         </View>
-                        <View style={styles.statusPill}>
-                            <Text style={styles.statusPillText}>{carePathway.status}</Text>
+                        <View style={[styles.statusPill, isBehaviorV1 && styles.behaviorStatusPill]}>
+                            <Text style={[styles.statusPillText, isBehaviorV1 && styles.behaviorStatusPillText]}>
+                                {carePathway.status}
+                            </Text>
                         </View>
                     </View>
-                    <Text style={styles.pathwayDescription}>{template.description}</Text>
+                    <Text style={[styles.pathwayDescription, isBehaviorV1 && styles.behaviorPathwayDescription]}>
+                        {template.description}
+                    </Text>
 
                     <View style={styles.pathwaySteps}>
                         {steps.map(step => {
@@ -1172,17 +1377,25 @@ export default function InsightsScreen() {
                             return (
                                 <TouchableOpacity
                                     key={step.id}
-                                    style={[styles.pathwayStepRow, isDone && styles.pathwayStepRowDone]}
+                                    style={[
+                                        styles.pathwayStepRow,
+                                        isBehaviorV1 && styles.behaviorPathwayStepRow,
+                                        isDone && styles.pathwayStepRowDone,
+                                    ]}
                                     onPress={() => handleTogglePathwayStep(step.id)}
                                 >
                                     <Ionicons
                                         name={isDone ? 'checkmark-circle' : 'ellipse-outline'}
                                         size={18}
-                                        color={isDone ? '#4CAF50' : '#878787'}
+                                        color={isDone ? Colors.success : Colors.textTertiary}
                                     />
                                     <View style={{ flex: 1 }}>
-                                        <Text style={styles.pathwayStepTitle}>{step.title}</Text>
-                                        <Text style={styles.pathwayStepDescription}>{step.description}</Text>
+                                        <Text style={[styles.pathwayStepTitle, isBehaviorV1 && styles.behaviorPathwayStepTitle]}>
+                                            {step.title}
+                                        </Text>
+                                        <Text style={[styles.pathwayStepDescription, isBehaviorV1 && styles.behaviorPathwayStepDescription]}>
+                                            {step.description}
+                                        </Text>
                                     </View>
                                 </TouchableOpacity>
                             );
@@ -1192,14 +1405,18 @@ export default function InsightsScreen() {
                     {carePathway.delta && (
                         <View style={styles.pathwayOutcomeRow}>
                             <View>
-                                <Text style={styles.pathwayOutcomeLabel}>Delta (time-in-zone)</Text>
-                                <Text style={styles.pathwayOutcomeValue}>
+                                <Text style={[styles.pathwayOutcomeLabel, isBehaviorV1 && styles.behaviorPathwayOutcomeLabel]}>
+                                    Delta (time-in-zone)
+                                </Text>
+                                <Text style={[styles.pathwayOutcomeValue, isBehaviorV1 && styles.behaviorPathwayOutcomeValue]}>
                                     {formatMetricValue('time_in_range', carePathway.delta.time_in_range ?? null, glucoseUnit)}
                                 </Text>
                             </View>
                             <View>
-                                <Text style={styles.pathwayOutcomeLabel}>Delta (avg glucose)</Text>
-                                <Text style={styles.pathwayOutcomeValue}>
+                                <Text style={[styles.pathwayOutcomeLabel, isBehaviorV1 && styles.behaviorPathwayOutcomeLabel]}>
+                                    Delta (avg glucose)
+                                </Text>
+                                <Text style={[styles.pathwayOutcomeValue, isBehaviorV1 && styles.behaviorPathwayOutcomeValue]}>
                                     {formatMetricValue('glucose_avg', carePathway.delta.glucose_avg ?? null, glucoseUnit)}
                                 </Text>
                             </View>
@@ -1213,36 +1430,44 @@ export default function InsightsScreen() {
 
         if (shouldRecommendPathway) {
             return (
-                <View style={styles.pathwayCard}>
-                    <Text style={styles.pathwayTitle}>{template.title}</Text>
-                    <Text style={styles.pathwayDescription}>A structured 7-day plan to steady your recent trend.</Text>
-                    <Text style={styles.pathwayMeta}>Triggered by {Math.round(glucoseStats.timeInRange || 0)}% time-in-zone.</Text>
+                <View style={[styles.pathwayCard, isBehaviorV1 && styles.behaviorPathwayCard]}>
+                    <Text style={[styles.pathwayTitle, isBehaviorV1 && styles.behaviorPathwayTitle]}>{template.title}</Text>
+                    <Text style={[styles.pathwayDescription, isBehaviorV1 && styles.behaviorPathwayDescription]}>
+                        A structured 7-day plan to steady your recent trend.
+                    </Text>
+                    <Text style={[styles.pathwayMeta, isBehaviorV1 && styles.behaviorPathwayMeta]}>
+                        Triggered by {Math.round(glucoseStats.timeInRange || 0)}% time-in-zone.
+                    </Text>
                     <TouchableOpacity
-                        style={styles.primaryButton}
+                        style={[styles.primaryButton, isBehaviorV1 && styles.behaviorPrimaryButton]}
                         onPress={() => handleStartPathway(template)}
                         disabled={pathwayLoading}
                     >
-                        <Text style={styles.primaryButtonText}>Start 7-day pathway</Text>
+                        <Text style={[styles.primaryButtonText, isBehaviorV1 && styles.behaviorPrimaryButtonText]}>
+                            Start 7-day pathway
+                        </Text>
                     </TouchableOpacity>
                 </View>
             );
         }
 
         return (
-            <View style={styles.pathwayCard}>
-                <Text style={styles.pathwayTitle}>{template.title}</Text>
-                <Text style={styles.pathwayDescription}>A structured plan becomes available once a trend needs intervention.</Text>
+            <View style={[styles.pathwayCard, isBehaviorV1 && styles.behaviorPathwayCard]}>
+                <Text style={[styles.pathwayTitle, isBehaviorV1 && styles.behaviorPathwayTitle]}>{template.title}</Text>
+                <Text style={[styles.pathwayDescription, isBehaviorV1 && styles.behaviorPathwayDescription]}>
+                    A structured plan becomes available once a trend needs intervention.
+                </Text>
             </View>
         );
     };
 
-    const renderActionsTab = () => (
+    const renderLegacyActionsTab = () => (
         <Animated.ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16}>
             <Text style={styles.sectionTitle}>Action Loop</Text>
             <Text style={styles.sectionDescription}>Every signal maps to a 24-72 hour next step.</Text>
 
             {actionsLoading ? (
-                <ActivityIndicator color="#878787" style={{ marginVertical: 16 }} />
+                <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 16 }} />
             ) : (
                 <>
                     {activeActions.length > 0 && (
@@ -1254,7 +1479,10 @@ export default function InsightsScreen() {
 
                     <View style={styles.sectionBlock}>
                         <Text style={styles.sectionSubtitle}>Recommended next steps</Text>
-                        {renderActionCandidates()}
+                        {renderActionCandidates(legacyActionCandidates, {
+                            title: 'No new actions right now',
+                            text: 'Keep logging to unlock the next step.',
+                        })}
                     </View>
 
                     {recentActions.length > 0 && (
@@ -1270,6 +1498,117 @@ export default function InsightsScreen() {
             <Text style={styles.sectionDescription}>Structured 7-day plans close the loop from signal to outcome.</Text>
             {renderCarePathway()}
         </Animated.ScrollView>
+    );
+
+    const renderWeeklyReviewCard = () => {
+        if (!weeklyReview || weeklyReviewLoading) return null;
+
+        const directionIcon = weeklyReview.metric_direction === 'up' ? 'trending-up' :
+            weeklyReview.metric_direction === 'down' ? 'trending-down' : 'remove-outline';
+        const directionColor = weeklyReview.metric_direction === 'up' ? behaviorV1Theme.sageBright :
+            weeklyReview.metric_direction === 'down' ? Colors.warning : behaviorV1Theme.textSecondary;
+
+        return (
+            <LinearGradient
+                colors={['rgba(22, 40, 32, 0.88)', 'rgba(14, 28, 22, 0.85)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.weeklyReviewCard}
+            >
+                <View style={styles.weeklyReviewHeader}>
+                    <View style={styles.weeklyReviewBadge}>
+                        <Ionicons name="sparkles-outline" size={14} color={behaviorV1Theme.sageBright} />
+                        <Text style={styles.weeklyReviewBadgeText}>Weekly Pattern</Text>
+                    </View>
+                    <TouchableOpacity onPress={dismissWeeklyReview} hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}>
+                        <Ionicons name="close" size={18} color={behaviorV1Theme.textSecondary} />
+                    </TouchableOpacity>
+                </View>
+                <Text style={styles.weeklyReviewText}>{weeklyReview.text}</Text>
+                {weeklyReview.experiment_suggestion && (
+                    <View style={styles.weeklyReviewExperiment}>
+                        <Ionicons name="flask-outline" size={14} color={behaviorV1Theme.sageMid} />
+                        <Text style={styles.weeklyReviewExperimentText}>{weeklyReview.experiment_suggestion}</Text>
+                    </View>
+                )}
+                <View style={styles.weeklyReviewMetric}>
+                    <Ionicons name={directionIcon as any} size={14} color={directionColor} />
+                    <Text style={[styles.weeklyReviewMetricText, { color: directionColor }]}>
+                        {weeklyReview.key_metric.replace(/_/g, ' ')}
+                    </Text>
+                </View>
+            </LinearGradient>
+        );
+    };
+
+    const renderBehaviorActionsTab = () => (
+        <Animated.ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 4 }]} showsVerticalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16}>
+            {renderWeeklyReviewCard()}
+            <Text style={[styles.sectionDescription, styles.behaviorSectionDescription]}>
+                Focused, personalized actions for glucose, activity, and sleep.
+            </Text>
+
+            <LinearGradient
+                colors={['rgba(16, 28, 22, 0.84)', 'rgba(10, 20, 16, 0.82)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[styles.focusSummaryCard, styles.behaviorFocusSummaryCard]}
+            >
+                <View style={styles.focusSummaryHeader}>
+                    <View style={[styles.focusSummaryIcon, styles.behaviorFocusSummaryIcon]}>
+                        <Ionicons name={focusPanel.icon} size={16} color={behaviorV1Theme.sageBright} />
+                    </View>
+                    <View style={styles.focusSummaryTextWrap}>
+                        <Text style={[styles.focusSummaryTitle, styles.behaviorFocusSummaryTitle]}>{focusPanel.title}</Text>
+                        <Text style={[styles.focusSummaryMetric, styles.behaviorFocusSummaryMetric]}>{focusPanel.metric}</Text>
+                    </View>
+                </View>
+                <Text style={[styles.focusSummaryBody, styles.behaviorFocusSummaryBody]}>{focusPanel.detail}</Text>
+            </LinearGradient>
+
+            {actionsLoading ? (
+                <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 16 }} />
+            ) : (
+                <>
+                    {focusedActiveActions.length > 0 && (
+                        <View style={styles.sectionBlock}>
+                            <Text style={[styles.sectionSubtitle, styles.behaviorSectionSubtitle]}>Active in this focus</Text>
+                            {focusedActiveActions.map(renderActionCard)}
+                        </View>
+                    )}
+
+                    <View style={styles.sectionBlock}>
+                        <Text style={[styles.sectionSubtitle, styles.behaviorSectionSubtitle]}>Recommended next steps</Text>
+                        {renderActionCandidates(focusedActionCandidates, {
+                            title: focusPanel.emptyTitle,
+                            text: focusPanel.emptyText,
+                            cta: focusPanel.cta,
+                        })}
+                    </View>
+
+                    {focusedRecentActions.length > 0 && (
+                        <View style={styles.sectionBlock}>
+                            <Text style={[styles.sectionSubtitle, styles.behaviorSectionSubtitle]}>Recent outcomes in this focus</Text>
+                            {focusedRecentActions.map(renderActionCard)}
+                        </View>
+                    )}
+                </>
+            )}
+
+            {activeFocusTab === 'glucose' && (
+                <>
+                    <Text style={[styles.sectionTitle, styles.behaviorSectionTitle]}>Care Pathway</Text>
+                    <Text style={[styles.sectionDescription, styles.behaviorSectionDescription]}>
+                        Structured 7-day plans close the loop from signal to outcome.
+                    </Text>
+                    {renderCarePathway()}
+                </>
+            )}
+        </Animated.ScrollView>
+    );
+
+    const renderActionsTab = () => (
+        isBehaviorV1 ? renderBehaviorActionsTab() : renderLegacyActionsTab()
     );
 
     const renderProgressTab = () => {
@@ -1499,7 +1838,7 @@ export default function InsightsScreen() {
 
             <Text style={styles.sectionSubtitle}>Suggested next tests</Text>
             {experimentsLoading ? (
-                <ActivityIndicator color="#878787" style={{ marginVertical: 16 }} />
+                <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 16 }} />
             ) : (
                 suggestedExperiments.map(suggestion => (
                     <View key={suggestion.template.id} style={styles.actionCard}>
@@ -1520,27 +1859,28 @@ export default function InsightsScreen() {
     );
 
     return (
-        <AnimatedScreen>
-            <View style={styles.container}>
-                <LinearGradient
-                    colors={['#1a1f24', '#181c20', '#111111']}
-                    locations={[0, 0.35, 1]}
-                    style={StyleSheet.absoluteFillObject}
-                />
+        <View style={styles.container}>
+            <ForestGlassBackground blurIntensity={12} />
 
                 {/* Content - scrolls behind header */}
                 <View style={styles.safeArea}>
                     {insightsLoading ? (
                         <View style={[styles.loadingContainer, { paddingTop: HEADER_HEIGHT + 8 }]}>
-                            <ActivityIndicator color="#878787" />
-                            <Text style={styles.loadingText}>Loading insights...</Text>
+                            <ActivityIndicator color={Colors.textTertiary} />
+                            <Text style={styles.loadingText}>
+                                {isBehaviorV1 ? 'Loading action plans...' : 'Loading insights...'}
+                            </Text>
                         </View>
                     ) : (
-                        <>
-                            {activeTab === 'progress' && renderProgressTab()}
-                            {activeTab === 'actions' && renderActionsTab()}
-                            {activeTab === 'experiments' && renderExperimentsTab()}
-                        </>
+                        isBehaviorV1 ? (
+                            renderBehaviorActionsTab()
+                        ) : (
+                            <>
+                                {activeTab === 'progress' && renderProgressTab()}
+                                {activeTab === 'actions' && renderActionsTab()}
+                                {activeTab === 'experiments' && renderExperimentsTab()}
+                            </>
+                        )
                     )}
                 </View>
 
@@ -1549,31 +1889,54 @@ export default function InsightsScreen() {
                     {/* Animated background - transparent at top, opaque when scrolled */}
                     <Animated.View style={[styles.headerBackground, { opacity: headerBgOpacity }]} />
                     <View style={{ paddingTop: insets.top }}>
-                        <View style={styles.header}>
-                            <Text style={styles.headerTitle}>INSIGHTS</Text>
-                        </View>
-                        <View style={styles.segmentedControlContainer}>
-                            <SegmentedControl
-                                options={[
-                                    { label: 'PROGRESS', value: 'progress' },
-                                    { label: 'ACTIONS', value: 'actions' },
-                                    { label: 'EXPERIMENTS', value: 'experiments' },
-                                ]}
-                                value={activeTab}
-                                onChange={setActiveTab}
-                            />
-                        </View>
+                        {isBehaviorV1 ? (
+                            <View style={styles.behaviorHeaderContainer}>
+                                <View style={styles.planHeaderRow}>
+                                    <Text style={[styles.behaviorHeaderTitle, styles.behaviorHeaderTitleTuned]}>DAILY FOCUS</Text>
+                                    <View style={[styles.betaPill, styles.behaviorBetaPill]}>
+                                        <Text style={[styles.betaPillText, styles.behaviorBetaPillText]}>BETA</Text>
+                                    </View>
+                                </View>
+                                <View style={styles.focusControlWrap}>
+                                    <SegmentedControl
+                                        options={ACTION_FOCUS_OPTIONS}
+                                        value={activeFocusTab}
+                                        onChange={setActiveFocusTab}
+                                        palette={BEHAVIOR_SEGMENTED_PALETTE}
+                                    />
+                                </View>
+                            </View>
+                        ) : (
+                            <>
+                                <View style={styles.header}>
+                                    <Text style={styles.headerTitle}>INSIGHTS</Text>
+                                </View>
+                                <View style={styles.segmentedControlContainer}>
+                                    <SegmentedControl
+                                        options={[
+                                            { label: 'PROGRESS', value: 'progress' },
+                                            { label: 'ACTIONS', value: 'actions' },
+                                            { label: 'EXPERIMENTS', value: 'experiments' },
+                                        ]}
+                                        value={activeTab}
+                                        onChange={setActiveTab}
+                                    />
+                                </View>
+                            </>
+                        )}
                     </View>
                 </View>
-            </View>
-        </AnimatedScreen>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
+    },
+    behaviorScreenVeil: {
+        ...StyleSheet.absoluteFillObject,
     },
     safeArea: {
         flex: 1,
@@ -1587,7 +1950,7 @@ const styles = StyleSheet.create({
     },
     headerBackground: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: '#1a1f24',
+        backgroundColor: 'rgba(10, 21, 17, 0.42)',
     },
     header: {
         flexDirection: 'row',
@@ -1597,8 +1960,8 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 24,
-        color: '#FFFFFF',
+        fontSize: 18,
+        color: Colors.textPrimary,
         letterSpacing: 1,
         textTransform: 'uppercase',
     },
@@ -1606,10 +1969,25 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingBottom: 0,
     },
+    behaviorHeaderContainer: {
+        paddingHorizontal: 16,
+        paddingTop: 20,
+        paddingBottom: 6,
+        gap: 12,
+    },
+    behaviorHeaderTitle: {
+        fontFamily: fonts.bold,
+        fontSize: 18,
+        color: Colors.textPrimary,
+        letterSpacing: 1,
+    },
+    behaviorHeaderTitleTuned: {
+        color: behaviorV1Theme.textPrimary,
+    },
     subtitle: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#B8B8B8',
+        color: Colors.textSecondary,
         textAlign: 'center',
         marginBottom: 10,
     },
@@ -1626,12 +2004,15 @@ const styles = StyleSheet.create({
     loadingText: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     sectionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
+    },
+    behaviorSectionTitle: {
+        color: behaviorV1Theme.textPrimary,
     },
     sectionSubtitle: {
         fontFamily: fonts.semiBold,
@@ -1639,32 +2020,131 @@ const styles = StyleSheet.create({
         color: '#E0E0E0',
         marginBottom: 8,
     },
+    behaviorSectionSubtitle: {
+        color: behaviorV1Theme.textPrimary,
+    },
     sectionDescription: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#A0A0A0',
+        color: Colors.textSecondary,
+    },
+    behaviorSectionDescription: {
+        color: behaviorV1Theme.textSecondary,
     },
     sectionBlock: {
         gap: 12,
     },
+    planHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        alignSelf: 'flex-start',
+    },
+    betaPill: {
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.32)',
+        backgroundColor: 'rgba(255,255,255,0.14)',
+    },
+    betaPillText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 11,
+        color: '#F2F5F4',
+        letterSpacing: 0.4,
+    },
+    behaviorBetaPill: {
+        borderColor: behaviorV1Theme.borderSoft,
+        backgroundColor: 'rgba(139, 168, 136, 0.22)',
+    },
+    behaviorBetaPillText: {
+        color: behaviorV1Theme.textPrimary,
+    },
+    focusControlWrap: {
+        marginTop: 2,
+    },
+    focusSummaryCard: {
+        borderRadius: 18,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.14)',
+        gap: 8,
+    },
+    behaviorFocusSummaryCard: {
+        borderColor: behaviorV1Theme.borderSoft,
+    },
+    focusSummaryHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    focusSummaryIcon: {
+        width: 30,
+        height: 30,
+        borderRadius: 999,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255,255,255,0.14)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.2)',
+    },
+    behaviorFocusSummaryIcon: {
+        backgroundColor: 'rgba(139, 168, 136, 0.16)',
+        borderColor: behaviorV1Theme.borderSoft,
+    },
+    focusSummaryTextWrap: {
+        flex: 1,
+        gap: 2,
+    },
+    focusSummaryTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: '#F5F7F6',
+    },
+    behaviorFocusSummaryTitle: {
+        color: behaviorV1Theme.textPrimary,
+    },
+    focusSummaryMetric: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: '#D1DDD8',
+    },
+    behaviorFocusSummaryMetric: {
+        color: behaviorV1Theme.sageBright,
+    },
+    focusSummaryBody: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        lineHeight: 18,
+        color: '#B5C1BC',
+    },
+    behaviorFocusSummaryBody: {
+        color: behaviorV1Theme.textSecondary,
+    },
     actionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 4,
     },
     actionMeta: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#A0A0A0',
+        color: Colors.textSecondary,
     },
     actionCard: {
-        backgroundColor: '#1A1A1E',
+        backgroundColor: Colors.backgroundCard,
         borderRadius: 16,
         padding: 16,
         gap: 6,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.06)',
+    },
+    behaviorActionCard: {
+        backgroundColor: behaviorV1Theme.surfaceStrong,
+        borderColor: behaviorV1Theme.borderSoft,
     },
     actionHeaderRow: {
         flexDirection: 'row',
@@ -1676,9 +2156,12 @@ const styles = StyleSheet.create({
     actionTitleHero: {
         fontFamily: fonts.bold,
         fontSize: 17,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         flex: 1,
         lineHeight: 22,
+    },
+    behaviorActionTitleHero: {
+        color: behaviorV1Theme.textPrimary,
     },
     actionDescription: {
         fontFamily: fonts.regular,
@@ -1686,12 +2169,21 @@ const styles = StyleSheet.create({
         color: '#B0B0B0',
         lineHeight: 20,
     },
+    behaviorActionDescription: {
+        color: behaviorV1Theme.textSecondary,
+    },
     expandedContent: {
         marginTop: 8,
         paddingTop: 8,
         borderTopWidth: 1,
         borderTopColor: 'rgba(255,255,255,0.06)',
         gap: 8,
+    },
+    behaviorExpandedContent: {
+        borderTopColor: 'rgba(168, 197, 160, 0.25)',
+    },
+    behaviorActionMeta: {
+        color: behaviorV1Theme.textSecondary,
     },
     statusPill: {
         alignSelf: 'flex-start',
@@ -1701,11 +2193,19 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.06)',
         marginTop: 4,
     },
+    behaviorStatusPill: {
+        backgroundColor: 'rgba(139, 168, 136, 0.16)',
+        borderWidth: 1,
+        borderColor: behaviorV1Theme.borderSoft,
+    },
     statusPillText: {
         fontFamily: fonts.medium,
         fontSize: 10,
-        color: '#878787',
+        color: Colors.textTertiary,
         textTransform: 'uppercase',
+    },
+    behaviorStatusPillText: {
+        color: behaviorV1Theme.textSecondary,
     },
     statusActive: {
         backgroundColor: 'rgba(53, 150, 80, 0.15)',
@@ -1721,19 +2221,25 @@ const styles = StyleSheet.create({
     actionOutcomeLabel: {
         fontFamily: fonts.regular,
         fontSize: 11,
-        color: '#878787',
+        color: Colors.textTertiary,
+    },
+    behaviorActionOutcomeLabel: {
+        color: behaviorV1Theme.textSecondary,
     },
     actionOutcomeValue: {
         fontFamily: fonts.semiBold,
         fontSize: 13,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 2,
     },
+    behaviorActionOutcomeValue: {
+        color: behaviorV1Theme.textPrimary,
+    },
     deltaPositive: {
-        color: '#4CAF50',
+        color: Colors.success,
     },
     deltaNegative: {
-        color: '#F44336',
+        color: Colors.error,
     },
     deltaNeutral: {
         color: '#B0B0B0',
@@ -1744,7 +2250,7 @@ const styles = StyleSheet.create({
         marginTop: 8,
     },
     primaryButton: {
-        backgroundColor: '#285E2A',
+        backgroundColor: Colors.buttonSecondary,
         paddingVertical: 10,
         paddingHorizontal: 14,
         borderRadius: 12,
@@ -1752,10 +2258,18 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         flex: 1,
     },
+    behaviorPrimaryButton: {
+        backgroundColor: behaviorV1Theme.ctaPrimary,
+        borderWidth: 1,
+        borderColor: 'rgba(168, 197, 160, 0.42)',
+    },
     primaryButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 13,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
+    },
+    behaviorPrimaryButtonText: {
+        color: behaviorV1Theme.ctaPrimaryText,
     },
     secondaryButton: {
         borderWidth: 1,
@@ -1773,13 +2287,17 @@ const styles = StyleSheet.create({
         color: '#E0E0E0',
     },
     emptyStateCard: {
-        backgroundColor: '#1A1A1E',
+        backgroundColor: Colors.backgroundCard,
         borderRadius: 16,
         padding: 20,
         alignItems: 'center',
         gap: 8,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.06)',
+    },
+    behaviorEmptyStateCard: {
+        backgroundColor: behaviorV1Theme.surfaceStrong,
+        borderColor: behaviorV1Theme.borderSoft,
     },
     emptyStateImage: {
         width: 72,
@@ -1789,21 +2307,52 @@ const styles = StyleSheet.create({
     emptyStateTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
+    },
+    behaviorEmptyStateTitle: {
+        color: behaviorV1Theme.textPrimary,
     },
     emptyStateText: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#A0A0A0',
+        color: Colors.textSecondary,
         textAlign: 'center',
     },
+    behaviorEmptyStateText: {
+        color: behaviorV1Theme.textSecondary,
+    },
+    emptyStateCtaButton: {
+        marginTop: 6,
+        paddingHorizontal: 14,
+        paddingVertical: 9,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.24)',
+        backgroundColor: 'rgba(255,255,255,0.08)',
+    },
+    behaviorEmptyStateCtaButton: {
+        borderColor: behaviorV1Theme.borderSoft,
+        backgroundColor: 'rgba(139, 168, 136, 0.2)',
+    },
+    emptyStateCtaText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 12,
+        color: '#E6EAE8',
+    },
+    behaviorEmptyStateCtaText: {
+        color: behaviorV1Theme.textPrimary,
+    },
     pathwayCard: {
-        backgroundColor: '#1A1A1E',
+        backgroundColor: Colors.backgroundCard,
         borderRadius: 16,
         padding: 16,
         gap: 10,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.06)',
+    },
+    behaviorPathwayCard: {
+        backgroundColor: behaviorV1Theme.surfaceStrong,
+        borderColor: behaviorV1Theme.borderSoft,
     },
     pathwayHeader: {
         flexDirection: 'row',
@@ -1813,17 +2362,26 @@ const styles = StyleSheet.create({
     pathwayTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
+    },
+    behaviorPathwayTitle: {
+        color: behaviorV1Theme.textPrimary,
     },
     pathwayDescription: {
         fontFamily: fonts.regular,
         fontSize: 13,
         color: '#CFCFCF',
     },
+    behaviorPathwayDescription: {
+        color: behaviorV1Theme.textSecondary,
+    },
     pathwayMeta: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#8A8A8A',
+        color: Colors.textTertiary,
+    },
+    behaviorPathwayMeta: {
+        color: behaviorV1Theme.textSecondary,
     },
     pathwaySteps: {
         gap: 8,
@@ -1837,18 +2395,29 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         backgroundColor: 'rgba(255,255,255,0.04)',
     },
+    behaviorPathwayStepRow: {
+        backgroundColor: 'rgba(139, 168, 136, 0.14)',
+        borderWidth: 1,
+        borderColor: 'rgba(168, 197, 160, 0.28)',
+    },
     pathwayStepRowDone: {
         backgroundColor: 'rgba(76, 175, 80, 0.12)',
     },
     pathwayStepTitle: {
         fontFamily: fonts.medium,
         fontSize: 13,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
+    },
+    behaviorPathwayStepTitle: {
+        color: behaviorV1Theme.textPrimary,
     },
     pathwayStepDescription: {
         fontFamily: fonts.regular,
         fontSize: 12,
         color: '#B0B0B0',
+    },
+    behaviorPathwayStepDescription: {
+        color: behaviorV1Theme.textSecondary,
     },
     pathwayOutcomeRow: {
         flexDirection: 'row',
@@ -1859,13 +2428,19 @@ const styles = StyleSheet.create({
     pathwayOutcomeLabel: {
         fontFamily: fonts.regular,
         fontSize: 11,
-        color: '#8A8A8A',
+        color: Colors.textTertiary,
+    },
+    behaviorPathwayOutcomeLabel: {
+        color: behaviorV1Theme.textSecondary,
     },
     pathwayOutcomeValue: {
         fontFamily: fonts.semiBold,
         fontSize: 13,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 2,
+    },
+    behaviorPathwayOutcomeValue: {
+        color: behaviorV1Theme.textPrimary,
     },
     pathwayDisclaimer: {
         marginTop: 6,
@@ -1891,7 +2466,7 @@ const styles = StyleSheet.create({
         color: '#B0B0B0',
     },
     rangeToggleTextActive: {
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     progressCard: {
         backgroundColor: '#22282C',
@@ -1910,17 +2485,17 @@ const styles = StyleSheet.create({
     progressLabel: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#8A8A8A',
+        color: Colors.textTertiary,
     },
     progressValue: {
         fontFamily: fonts.bold,
         fontSize: 28,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     progressMeta: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#A0A0A0',
+        color: Colors.textSecondary,
     },
     habitRow: {
         flexDirection: 'row',
@@ -1928,7 +2503,7 @@ const styles = StyleSheet.create({
     },
     habitCard: {
         flex: 1,
-        backgroundColor: '#1A1A1E',
+        backgroundColor: Colors.backgroundCard,
         borderRadius: 14,
         padding: 14,
         gap: 6,
@@ -1938,12 +2513,12 @@ const styles = StyleSheet.create({
     habitValue: {
         fontFamily: fonts.bold,
         fontSize: 20,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     habitLabel: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#A0A0A0',
+        color: Colors.textSecondary,
     },
     dataCoverageText: {
         fontFamily: fonts.regular,
@@ -1955,7 +2530,7 @@ const styles = StyleSheet.create({
         marginBottom: 12,
     },
     componentRow: {
-        backgroundColor: '#1A1A1E',
+        backgroundColor: Colors.backgroundCard,
         borderRadius: 16,
         padding: 16,
         gap: 12,
@@ -1975,7 +2550,7 @@ const styles = StyleSheet.create({
     componentTitle: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     componentValue: {
         fontFamily: fonts.semiBold,
@@ -1995,7 +2570,7 @@ const styles = StyleSheet.create({
     heroTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 20,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 14,
     },
     heroSubtitle: {
@@ -2054,6 +2629,65 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: Colors.textTertiary,
     },
+    weeklyReviewCard: {
+        borderRadius: 16,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: behaviorV1Theme.borderSoft,
+        marginBottom: 4,
+    },
+    weeklyReviewHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+    weeklyReviewBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: 'rgba(168, 197, 160, 0.12)',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+    weeklyReviewBadgeText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 12,
+        color: behaviorV1Theme.sageBright,
+        letterSpacing: 0.3,
+    },
+    weeklyReviewText: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: behaviorV1Theme.textPrimary,
+        lineHeight: 21,
+        marginBottom: 12,
+    },
+    weeklyReviewExperiment: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+        backgroundColor: 'rgba(168, 197, 160, 0.08)',
+        padding: 10,
+        borderRadius: 10,
+        marginBottom: 10,
+    },
+    weeklyReviewExperimentText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: behaviorV1Theme.textSecondary,
+        flex: 1,
+        lineHeight: 19,
+    },
+    weeklyReviewMetric: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    weeklyReviewMetricText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 12,
+        textTransform: 'capitalize',
+    },
 });
-
-

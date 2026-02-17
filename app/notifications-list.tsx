@@ -4,11 +4,11 @@
  */
 
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { getMealsWithCheckinsByDateRange, MealWithCheckin } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -150,7 +150,6 @@ export default function NotificationsListScreen() {
 
     return (
         <View style={styles.container}>
-            <LinearGradient colors={['#1a1f24', '#181c20', '#111111']} locations={[0, 0.3, 1]} style={styles.gradient} />
             <SafeAreaView style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -190,14 +189,7 @@ export default function NotificationsListScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    gradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 200,
+        backgroundColor: Colors.background,
     },
     safeArea: {
         flex: 1,
@@ -224,7 +216,7 @@ const styles = StyleSheet.create({
     headerTitle: {
         fontFamily: fonts.bold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         letterSpacing: 1,
     },
     headerSpacer: {
@@ -243,7 +235,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: 'rgba(63, 66, 67, 0.3)',
-        borderRadius: 12,
+        borderRadius: 20,
         padding: 14,
         marginBottom: 10,
     },
@@ -271,7 +263,7 @@ const styles = StyleSheet.create({
     reviewTime: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
     statusBadge: {
@@ -299,7 +291,7 @@ const styles = StyleSheet.create({
     emptySubtitle: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 8,
         textAlign: 'center',
         maxWidth: 250,

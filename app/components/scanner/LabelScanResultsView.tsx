@@ -1,3 +1,4 @@
+import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import {
     formatServingDescription,
@@ -94,12 +95,12 @@ export default function LabelScanResultsView({
                     onPress={onConfirm}
                     disabled={!valid}
                 >
-                    <Ionicons name="checkmark" size={22} color="#FFFFFF" />
+                    <Ionicons name="checkmark" size={22} color={Colors.textPrimary} />
                     <Text style={styles.confirmButtonText}>Add to Meal</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.retakeButton} onPress={onRetake}>
-                    <Ionicons name="camera" size={20} color="#3494D9" />
+                    <Ionicons name="camera" size={20} color={Colors.primary} />
                     <Text style={styles.retakeButtonText}>Retake Photo</Text>
                 </TouchableOpacity>
             </View>
@@ -133,7 +134,7 @@ function NutritionRow({
 const styles = StyleSheet.create({
     resultsContainer: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
     },
     resultsContent: {
         padding: 20,
@@ -145,19 +146,19 @@ const styles = StyleSheet.create({
     productName: {
         fontFamily: fonts.bold,
         fontSize: 24,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 4,
     },
     brandName: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 4,
     },
     servingInfo: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#3494D9',
+        color: Colors.primary,
     },
     confidenceRow: {
         flexDirection: 'row',
@@ -168,7 +169,7 @@ const styles = StyleSheet.create({
     confidenceLabel: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     confidenceBadge: {
         paddingHorizontal: 8,
@@ -187,10 +188,10 @@ const styles = StyleSheet.create({
     confidenceText: {
         fontFamily: fonts.bold,
         fontSize: 12,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     nutritionCard: {
-        backgroundColor: '#1C1C1E',
+        backgroundColor: Colors.backgroundCard,
         borderRadius: 16,
         padding: 16,
         marginBottom: 20,
@@ -198,7 +199,7 @@ const styles = StyleSheet.create({
     nutritionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 16,
     },
     nutritionRow: {
@@ -217,13 +218,13 @@ const styles = StyleSheet.create({
         color: '#E7E8E9',
     },
     nutritionLabelIndent: {
-        color: '#878787',
+        color: Colors.textTertiary,
         fontSize: 14,
     },
     nutritionValue: {
         fontFamily: fonts.semiBold,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     warningsCard: {
         backgroundColor: 'rgba(255, 152, 0, 0.1)',
@@ -246,7 +247,7 @@ const styles = StyleSheet.create({
         gap: 12,
     },
     confirmButton: {
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
@@ -261,7 +262,7 @@ const styles = StyleSheet.create({
     confirmButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     retakeButton: {
         flexDirection: 'row',
@@ -270,12 +271,12 @@ const styles = StyleSheet.create({
         paddingVertical: 16,
         borderRadius: 14,
         borderWidth: 1,
-        borderColor: '#3494D9',
+        borderColor: Colors.primary,
         gap: 8,
     },
     retakeButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#3494D9',
+        color: Colors.primary,
     },
 });

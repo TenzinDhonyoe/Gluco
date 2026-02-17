@@ -1,3 +1,4 @@
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,6 @@ import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
     Alert,
-    ImageBackground,
     KeyboardAvoidingView,
     Linking,
     Platform,
@@ -53,18 +53,23 @@ export default function SignUpScreen() {
 
         setIsLoading(true);
         try {
-            const { error } = await signUp(email.trim(), password);
+            const { error, autoConfirmed } = await signUp(email.trim(), password);
 
             if (error) {
                 Alert.alert('Sign Up Error', error.message);
                 return;
             }
 
-            // Navigate to email confirmation screen
-            router.push({
-                pathname: '/confirm-email',
-                params: { email: email.trim() },
-            } as never);
+            if (autoConfirmed) {
+                // Email auto-confirmed (dev mode) — go straight to onboarding
+                router.replace('/onboarding-profile' as never);
+            } else {
+                // Navigate to email confirmation screen
+                router.push({
+                    pathname: '/confirm-email',
+                    params: { email: email.trim() },
+                } as never);
+            }
         } catch (err) {
             Alert.alert('Error', 'An unexpected error occurred. Please try again.');
             console.error('Sign up error:', err);
@@ -85,15 +90,19 @@ export default function SignUpScreen() {
 
         setIsAppleLoading(true);
         try {
-            const { error } = await signInWithApple();
+            const { error, onboardingComplete } = await signInWithApple();
 
             if (error) {
                 Alert.alert('Apple Sign-In Error', error.message);
                 return;
             }
 
-            // Navigate to index/onboarding
-            router.replace('/' as never);
+            // Navigate directly to the appropriate screen
+            if (onboardingComplete) {
+                router.replace('/(tabs)' as never);
+            } else {
+                router.replace('/onboarding-profile' as never);
+            }
         } catch (err) {
             Alert.alert('Error', 'An unexpected error occurred. Please try again.');
             console.error('Apple sign in error:', err);
@@ -118,11 +127,7 @@ export default function SignUpScreen() {
 
     return (
         <View style={styles.container}>
-            <ImageBackground
-                source={require('../assets/images/backgrounds/background.png')}
-                style={styles.backgroundImage}
-                resizeMode="cover"
-            >
+                <ForestGlassBackground blurIntensity={18} />
                 <SafeAreaView style={styles.safeArea}>
                     <KeyboardAvoidingView
                         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -181,7 +186,7 @@ export default function SignUpScreen() {
                                                 <Ionicons
                                                     name={showPassword ? "eye-off-outline" : "eye-outline"}
                                                     size={22}
-                                                    color="#878787"
+                                                    color={Colors.textTertiary}
                                                 />
                                             </TouchableOpacity>
                                         )}
@@ -205,7 +210,7 @@ export default function SignUpScreen() {
                                                 <Ionicons
                                                     name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
                                                     size={22}
-                                                    color="#878787"
+                                                    color={Colors.textTertiary}
                                                 />
                                             </TouchableOpacity>
                                         )}
@@ -270,7 +275,7 @@ export default function SignUpScreen() {
                                             disabled={isAppleLoading}
                                         >
                                             <View style={styles.appleIconContainer}>
-                                                <Ionicons name="logo-apple" size={22} color="#FFFFFF" />
+                                                <Ionicons name="logo-apple" size={22} color={Colors.textPrimary} />
                                             </View>
                                             <Text style={styles.appleButtonText}>
                                                 {isAppleLoading ? 'Signing in...' : 'Sign up with Apple'}
@@ -290,7 +295,6 @@ export default function SignUpScreen() {
                         </ScrollView>
                     </KeyboardAvoidingView>
                 </SafeAreaView>
-            </ImageBackground>
         </View>
     );
 }
@@ -298,12 +302,7 @@ export default function SignUpScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
-    },
-    backgroundImage: {
-        flex: 1,
-        width: '100%',
-        height: '100%',
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -328,7 +327,7 @@ const styles = StyleSheet.create({
         fontFamily: fonts.medium, // Outfit Medium (500)
         fontSize: 16,
         lineHeight: 16 * 1.2, // 1.2 line-height
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 12,
     },
     headerText: {

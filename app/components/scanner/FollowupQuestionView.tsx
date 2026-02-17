@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
     title: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     skipButton: {
         paddingHorizontal: 12,
@@ -348,7 +348,7 @@ const styles = StyleSheet.create({
         flex: 1,
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         lineHeight: 20,
     },
     optionsContainer: {
@@ -374,7 +374,7 @@ const styles = StyleSheet.create({
     optionText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     optionTextDanger: {
         color: '#FF3B30',
@@ -389,7 +389,7 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.15)',
     },
@@ -422,7 +422,7 @@ const styles = StyleSheet.create({
     submitCustomText: {
         fontFamily: fonts.semiBold,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     hintText: {
         fontFamily: fonts.regular,

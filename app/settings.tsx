@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React from 'react';
 import { Alert, Linking, Platform, StyleSheet, Text, View } from 'react-native';
@@ -9,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PAYWALL_ENABLED } from '@/app/index';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -95,13 +95,6 @@ export default function SettingsScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Background gradient that matches Today tab */}
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.backgroundGradient}
-            />
-
             <SafeAreaView style={styles.safeArea} edges={['top']}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -148,14 +141,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
+        backgroundColor: Colors.background,
     },
     safeArea: {
         flex: 1,
@@ -167,26 +153,10 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 16,
     },
-    closeButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: {
-            width: 0,
-            height: 1,
-        },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
-        elevation: 2,
-    },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
+        fontSize: 18,
+        color: Colors.textPrimary,
         letterSpacing: 2,
     },
     headerSpacer: {
@@ -195,10 +165,10 @@ const styles = StyleSheet.create({
     settingsCard: {
         marginHorizontal: 16,
         marginTop: 16,
-        backgroundColor: '#1A1D1F',
-        borderRadius: 16,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#2A2D30',
+        borderColor: Colors.borderCard,
         overflow: 'hidden',
     },
     settingsRow: {
@@ -211,23 +181,23 @@ const styles = StyleSheet.create({
     settingsLabel: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     divider: {
         height: 1,
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
         marginHorizontal: 20,
     },
     logoutCard: {
         marginHorizontal: 16,
         marginTop: 24,
-        backgroundColor: '#1A1D1F',
-        borderRadius: 16,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#2A2D30',
+        borderColor: Colors.borderCard,
         overflow: 'hidden',
     },
     logoutLabel: {
-        color: '#F14F4F',
+        color: Colors.buttonDestructiveText,
     },
 });

@@ -1,5 +1,6 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import {
     getActiveMinutes,
@@ -13,7 +14,6 @@ import {
 } from '@/lib/healthkit';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -184,13 +184,6 @@ export default function DataSourcesScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Background gradient */}
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.backgroundGradient}
-            />
-
             <SafeAreaView style={styles.safeArea} edges={['top']}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -304,14 +297,7 @@ export default function DataSourcesScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
+        backgroundColor: Colors.background,
     },
     safeArea: {
         flex: 1,
@@ -338,8 +324,8 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
+        fontSize: 18,
+        color: Colors.textPrimary,
         letterSpacing: 2,
     },
     headerSpacer: {
@@ -355,7 +341,7 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontFamily: fonts.bold,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         letterSpacing: 1,
         marginTop: 24,
         marginBottom: 12,
@@ -370,14 +356,14 @@ const styles = StyleSheet.create({
     sectionSubtitle: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         fontStyle: 'italic',
     },
     integrationCard: {
-        backgroundColor: '#1A1D1F',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#2A2D30',
+        borderColor: Colors.borderCard,
         overflow: 'hidden',
     },
     integrationRow: {
@@ -403,19 +389,19 @@ const styles = StyleSheet.create({
     integrationLabel: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     integrationDescription: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
     infoCard: {
-        backgroundColor: '#1A1D1F',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#2A2D30',
+        borderColor: Colors.borderCard,
         padding: 16,
         flexDirection: 'row',
         alignItems: 'flex-start',
@@ -425,7 +411,7 @@ const styles = StyleSheet.create({
         flex: 1,
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         lineHeight: 20,
     },
     diagnosticsHeader: {
@@ -443,13 +429,13 @@ const styles = StyleSheet.create({
         marginTop: 12,
         paddingVertical: 10,
         borderRadius: 10,
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
         alignItems: 'center',
     },
     diagnosticsButtonText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     diagnosticsResults: {
         marginTop: 12,
@@ -465,7 +451,7 @@ const styles = StyleSheet.create({
         marginTop: 6,
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#F44336',
+        color: Colors.error,
         flexWrap: 'wrap',
     },
     diagnosticsCard: {

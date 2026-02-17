@@ -10,6 +10,9 @@ import { SubscriptionProvider } from '@/context/SubscriptionContext';
 import { useOutfitFonts } from '@/hooks/useFonts';
 import { isBehaviorV1Experience } from '@/lib/experience';
 import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
+import { AddMenuProvider } from '@/context/AddMenuContext';
+import { AddMenuFAB } from '@/components/overlays/AddMenuFAB';
+import { AddMenuOverlay } from '@/components/overlays/AddMenuOverlay';
 import {
   configureAndroidChannel,
   handleInitialNotification,
@@ -108,49 +111,52 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <SubscriptionProvider>
-        <SessionTracker />
-        <View style={{ flex: 1, backgroundColor: 'transparent' }}>
-          <ForestGlassBackground blurIntensity={18} />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: 'transparent' },
-              animation: 'fade',
-              animationDuration: 150,
-            }}
-          >
-            <Stack.Screen name="index" />
-            <Stack.Screen name="signin" />
-            <Stack.Screen name="signup" />
-            <Stack.Screen name="confirm-email" />
-            <Stack.Screen name="onboarding-profile" />
-            <Stack.Screen name="onboarding-goals" />
-            <Stack.Screen name="onboarding-body" />
-            <Stack.Screen name="onboarding-tracking" />
-            <Stack.Screen name="onboarding-coaching" />
-            <Stack.Screen name="onboarding-ai" />
-            <Stack.Screen name="framework-reset" />
-            <Stack.Screen name="paywall" />
-            <Stack.Screen name="log-meal" options={{ animation: 'fade' }} />
-            <Stack.Screen name="log-meal-review" options={{ animation: 'fade' }} />
-            <Stack.Screen name="log-meal-items" options={{ animation: 'fade' }} />
-            <Stack.Screen name="log-glucose" options={{ animation: 'fade' }} />
-            <Stack.Screen name="log-activity" options={{ animation: 'fade' }} />
-            <Stack.Screen name="log-weight" options={{ animation: 'fade' }} />
-            <Stack.Screen name="log-detail" options={{ animation: 'fade' }} />
-            <Stack.Screen name="settings" />
-            <Stack.Screen name="customization" />
-            <Stack.Screen name="data-sources" />
-            <Stack.Screen name="account-privacy" />
-            <Stack.Screen name="pre-meal-check" />
-            <Stack.Screen name="scan-label" />
-            <Stack.Screen name="meal-scanner" options={{ animation: 'slide_from_bottom' }} />
-            <Stack.Screen name="meal-checkin" />
-            <Stack.Screen name="notifications-list" />
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          </Stack>
-          <StatusBar style="light" />
-        </View>
+        <AddMenuProvider>
+          <SessionTracker />
+          <View style={{ flex: 1, backgroundColor: 'transparent' }}>
+            <ForestGlassBackground blurIntensity={12} />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: 'transparent' },
+                animation: 'slide_from_right',
+              }}
+            >
+              <Stack.Screen name="index" />
+              <Stack.Screen name="signin" />
+              <Stack.Screen name="signup" />
+              <Stack.Screen name="confirm-email" />
+              <Stack.Screen name="onboarding-profile" />
+              <Stack.Screen name="onboarding-goals" />
+              <Stack.Screen name="onboarding-body" />
+              <Stack.Screen name="onboarding-tracking" />
+              <Stack.Screen name="onboarding-coaching" />
+              <Stack.Screen name="onboarding-ai" />
+              <Stack.Screen name="framework-reset" />
+              <Stack.Screen name="paywall" />
+              <Stack.Screen name="log-meal" options={{ animation: 'fade' }} />
+              <Stack.Screen name="log-meal-review" options={{ animation: 'fade' }} />
+              <Stack.Screen name="log-meal-items" options={{ animation: 'fade' }} />
+              <Stack.Screen name="log-glucose" options={{ animation: 'fade' }} />
+              <Stack.Screen name="log-activity" options={{ animation: 'fade' }} />
+              <Stack.Screen name="log-weight" options={{ animation: 'fade' }} />
+              <Stack.Screen name="log-detail" options={{ animation: 'fade' }} />
+              <Stack.Screen name="settings" />
+              <Stack.Screen name="customization" />
+              <Stack.Screen name="data-sources" />
+              <Stack.Screen name="account-privacy" />
+              <Stack.Screen name="pre-meal-check" />
+              <Stack.Screen name="scan-label" />
+              <Stack.Screen name="meal-scanner" options={{ animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="meal-checkin" />
+              <Stack.Screen name="notifications-list" />
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            </Stack>
+            <StatusBar style="light" />
+            <AddMenuFAB />
+            <AddMenuOverlay />
+          </View>
+        </AddMenuProvider>
       </SubscriptionProvider>
     </AuthProvider>
   );

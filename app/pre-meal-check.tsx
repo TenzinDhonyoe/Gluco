@@ -1,3 +1,4 @@
+import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -115,11 +116,6 @@ function AILoadingScreen() {
 
     return (
         <View style={loadingStyles.container}>
-            <LinearGradient
-                colors={['#111111', '#1A1B1C', '#111111']}
-                style={loadingStyles.gradient}
-            />
-
             {/* Mascot Image */}
             <Image
                 source={Images.mascots.cook}
@@ -160,16 +156,9 @@ function AILoadingScreen() {
 const loadingStyles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    gradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
     },
     mascot: {
         width: 180,
@@ -179,7 +168,7 @@ const loadingStyles = StyleSheet.create({
     thinkingText: {
         fontFamily: fonts.semiBold,
         fontSize: 20,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 24,
     },
     dotsContainer: {
@@ -202,7 +191,7 @@ const loadingStyles = StyleSheet.create({
     subText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 8,
     },
 });
@@ -519,12 +508,6 @@ export default function PreMealCheckScreen() {
 
     return (
         <View style={styles.root}>
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.topGlow}
-            />
-
             <SafeAreaView edges={['top']} style={styles.safe}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -670,14 +653,7 @@ export default function PreMealCheckScreen() {
 const styles = StyleSheet.create({
     root: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    topGlow: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
+        backgroundColor: 'transparent',
     },
     safe: {
         flex: 1,
@@ -711,7 +687,7 @@ const styles = StyleSheet.create({
     headerTitle: {
         fontFamily: fonts.bold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         letterSpacing: 1,
     },
     content: {
@@ -721,13 +697,13 @@ const styles = StyleSheet.create({
     mealTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 22,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 8,
     },
     mealSubtitle: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 4,
     },
     mealImage: {
@@ -735,7 +711,7 @@ const styles = StyleSheet.create({
         height: 180,
         borderRadius: 16,
         marginTop: 16,
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
     },
     mealImagePlaceholder: {
         justifyContent: 'center',
@@ -743,8 +719,8 @@ const styles = StyleSheet.create({
     },
     macrosCard: {
         flexDirection: 'row',
-        backgroundColor: '#1A1B1C',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         padding: 16,
         marginTop: 16,
     },
@@ -759,14 +735,14 @@ const styles = StyleSheet.create({
     macroLabel: {
         fontFamily: fonts.medium,
         fontSize: 11,
-        color: '#878787',
+        color: Colors.textTertiary,
         letterSpacing: 0.5,
         marginBottom: 6,
     },
     macroValue: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     itemsSection: {
         marginTop: 20,
@@ -785,18 +761,18 @@ const styles = StyleSheet.create({
     itemName: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     itemBrand: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
     itemQuantity: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     dataSourceRow: {
         flexDirection: 'row',
@@ -859,7 +835,7 @@ const styles = StyleSheet.create({
     unitLabel: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     unitLabelLight: {
         fontFamily: fonts.regular,
@@ -875,18 +851,18 @@ const styles = StyleSheet.create({
         width: 8,
         height: 8,
         borderRadius: 4,
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
     },
     legendDotBlue: {
         width: 8,
         height: 8,
         borderRadius: 4,
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
     },
     legendText: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     legendTextLight: {
         fontFamily: fonts.regular,
@@ -899,7 +875,7 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 12,
     },
     driverRow: {
@@ -911,7 +887,7 @@ const styles = StyleSheet.create({
         width: 6,
         height: 6,
         borderRadius: 3,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: Colors.textPrimary,
         marginTop: 6,
         marginRight: 10,
     },
@@ -926,8 +902,8 @@ const styles = StyleSheet.create({
         marginTop: 24,
     },
     tipCard: {
-        backgroundColor: '#1A1B1C',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         padding: 16,
         marginBottom: 12,
         borderWidth: 1,
@@ -942,7 +918,7 @@ const styles = StyleSheet.create({
     tipTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     tipRisk: {
         fontFamily: fonts.regular,
@@ -960,13 +936,13 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     tipCheckboxSelected: {
-        backgroundColor: '#3494D9',
-        borderColor: '#3494D9',
+        backgroundColor: Colors.primary,
+        borderColor: Colors.primary,
     },
     tipDescription: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         lineHeight: 16,
     },
     insertTipButton: {
@@ -988,7 +964,7 @@ const styles = StyleSheet.create({
     },
     logButton: {
         backgroundColor: '#26A861',
-        borderRadius: 12,
+        borderRadius: 20,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 24,
@@ -997,7 +973,7 @@ const styles = StyleSheet.create({
     logButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     logButtonDisabled: {
         opacity: 0.6,
