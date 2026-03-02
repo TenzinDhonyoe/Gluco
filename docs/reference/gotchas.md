@@ -111,10 +111,22 @@ All typed API helpers, types, and CRUD functions live in `lib/supabase.ts`. This
 ## SDK Version Reality
 
 Despite what some docs may say, the actual versions are:
-- **Expo SDK:** 52 (`"expo": "^52.0.0"`)
-- **React Native:** 0.76.9
-- **React:** 18.3.1
+- **Expo SDK:** 54 (`"expo": "~54.0.0"`)
+- **React Native:** 0.81.5
+- **React:** 19.1
 - **TypeScript:** ~5.9.2
+- **react-native-reanimated:** v4.1.x (v3 is incompatible with RN 0.81 due to Folly header changes)
+- **New Architecture:** Enabled (`newArchEnabled: true` in app.json) — required by reanimated v4
+
+### React 19 `useRef` Change
+
+`useRef()` without an initial value now requires the type to include `undefined`, or you must pass `null`:
+```typescript
+// Before (React 18): const ref = useRef<View>();
+// After (React 19):
+const ref = useRef<View>(null);        // preferred
+const ref = useRef<View | undefined>(); // also valid
+```
 
 ## No Test Suite
 
@@ -133,9 +145,9 @@ Edge functions run in **Deno**, not Node.js. Key differences:
 - TypeScript runs natively (no build step)
 - Excluded from root `tsconfig.json` (`"exclude": ["supabase/functions"]`)
 
-## New Architecture Disabled
+## New Architecture Enabled
 
-`app.json` has `"newArchEnabled": false`. The app uses the old React Native architecture (bridge, not JSI/Fabric). Do not add dependencies that require New Architecture.
+`app.json` has `"newArchEnabled": true`. The app uses the New Architecture (JSI/Fabric). This is required by reanimated v4. When adding new native dependencies, verify they support the New Architecture.
 
 ## RevenueCat Lazy Loading
 

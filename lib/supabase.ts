@@ -918,6 +918,11 @@ export interface Meal {
     logged_at: string;
     photo_path: string | null;
     notes: string | null;
+    calories: number | null;
+    protein_g: number | null;
+    carbs_g: number | null;
+    fat_g: number | null;
+    fiber_g: number | null;
     created_at: string;
     updated_at: string;
 }
@@ -2484,12 +2489,22 @@ export interface ExperimentTemplate {
         meal_type?: string;
         checkin_questions?: string[];
         instructions?: string;
+        science?: {
+            title: string;
+            description: string;
+            steps: string[];
+            study_link?: string;
+        };
         [key: string]: any;
     };
     eligibility_rules: Record<string, any>;
     icon: string | null;
     is_active: boolean;
     sort_order: number;
+    difficulty: 'easy' | 'medium' | 'hard' | null;
+    impact: 'high' | 'medium' | 'low' | null;
+    short_description: string | null;
+    icon_color: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -3669,5 +3684,254 @@ export async function trackAiSuggestionEvent(
         }
     } catch {
         // Silently fail — tracking is non-critical
+    }
+}
+
+// ==========================================
+// WELLNESS CHAT
+// ==========================================
+
+export interface ChatMessagePayload {
+    user_id: string;
+    message: string;
+    conversation_history: Array<{
+        role: 'user' | 'model';
+        content: string;
+    }>;
+    local_hour: number;
+    session_id?: string;
+}
+
+export type ChatBlockType = 'metric_card' | 'meal_summary' | 'score_ring' | 'streak';
+
+export interface ChatBlock {
+    type: ChatBlockType;
+    data: Record<string, unknown>;
+    fallback_text: string;
+}
+
+export interface ChatMessageResponse {
+    reply: string;
+    source: 'ai' | 'fallback';
+    blocks?: ChatBlock[];
+}
+
+/**
+ * Send a message to the chat-wellness Edge Function
+ */
+export async function sendChatMessage(
+    payload: ChatMessagePayload
+): Promise<ChatMessageResponse | null> {
+    return invokeWithRetry<ChatMessageResponse>('chat-wellness', payload);
+}
+
+// ==========================================
+// CHAT PERSISTENCE
+// ==========================================
+
+export interface ChatSession {
+    id: string;
+    user_id: string;
+    is_active: boolean;
+    created_at: string;
+    last_message_at: string;
+}
+
+export interface ChatMessageRow {
+    id: string;
+    session_id: string;
+    user_id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    status: 'sending' | 'sent' | 'error';
+    blocks: ChatBlock[] | null;
+    created_at: string;
+}
+
+/**
+ * Get the user's active chat session, or null if none exists.
+ */
+export async function getActiveChatSession(
+    userId: string
+): Promise<ChatSession | null> {
+    try {
+        const { data, error } = await supabase
+            .from('chat_sessions')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('is_active', true)
+            .order('last_message_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (error) {
+            if (isMissingTableError(error, 'chat_sessions')) {
+                warnSchemaFallbackOnce('missing_chat_sessions', 'Chat persistence unavailable');
+                return null;
+            }
+            console.error('Error fetching chat session:', error);
+            return null;
+        }
+        return data;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Create a new active chat session. Archives any existing active session first.
+ */
+export async function createChatSession(
+    userId: string
+): Promise<ChatSession | null> {
+    try {
+        // Archive existing active sessions
+        await supabase
+            .from('chat_sessions')
+            .update({ is_active: false })
+            .eq('user_id', userId)
+            .eq('is_active', true);
+
+        const { data, error } = await supabase
+            .from('chat_sessions')
+            .insert({ user_id: userId, is_active: true })
+            .select()
+            .single();
+
+        if (error) {
+            if (isMissingTableError(error, 'chat_sessions')) {
+                warnSchemaFallbackOnce('missing_chat_sessions', 'Chat persistence unavailable');
+                return null;
+            }
+            console.error('Error creating chat session:', error);
+            return null;
+        }
+        return data;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Load messages for a session, ordered chronologically.
+ */
+export async function getChatMessages(
+    sessionId: string,
+    limit: number = 50
+): Promise<ChatMessageRow[]> {
+    try {
+        const { data, error } = await supabase
+            .from('chat_messages')
+            .select('*')
+            .eq('session_id', sessionId)
+            .order('created_at', { ascending: true })
+            .limit(limit);
+
+        if (error) {
+            if (isMissingTableError(error, 'chat_messages')) {
+                warnSchemaFallbackOnce('missing_chat_messages', 'Chat persistence unavailable');
+                return [];
+            }
+            console.error('Error fetching chat messages:', error);
+            return [];
+        }
+        return data || [];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Save a single message to the session.
+ * Also updates last_message_at on the session.
+ */
+export async function saveChatMessage(
+    sessionId: string,
+    userId: string,
+    role: 'user' | 'assistant',
+    content: string,
+    status: 'sending' | 'sent' | 'error' = 'sent',
+    blocks?: ChatBlock[]
+): Promise<ChatMessageRow | null> {
+    try {
+        const insertPayload: Record<string, unknown> = {
+            session_id: sessionId,
+            user_id: userId,
+            role,
+            content,
+            status,
+        };
+        if (blocks && blocks.length > 0) {
+            insertPayload.blocks = blocks;
+        }
+
+        let { data, error } = await supabase
+            .from('chat_messages')
+            .insert(insertPayload)
+            .select()
+            .single();
+
+        // If the blocks column doesn't exist yet, retry without it
+        if (error?.code === 'PGRST204' && insertPayload.blocks) {
+            delete insertPayload.blocks;
+            ({ data, error } = await supabase
+                .from('chat_messages')
+                .insert(insertPayload)
+                .select()
+                .single());
+        }
+
+        if (error) {
+            if (isMissingTableError(error, 'chat_messages')) {
+                warnSchemaFallbackOnce('missing_chat_messages', 'Chat persistence unavailable');
+                return null;
+            }
+            console.error('Error saving chat message:', error);
+            return null;
+        }
+
+        // Update session timestamp (fire-and-forget)
+        supabase
+            .from('chat_sessions')
+            .update({ last_message_at: new Date().toISOString() })
+            .eq('id', sessionId)
+            .then(() => {});
+
+        return data;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Update a message's status (e.g., sending -> sent, or sending -> error).
+ */
+export async function updateChatMessageStatus(
+    messageId: string,
+    status: 'sent' | 'error'
+): Promise<void> {
+    try {
+        await supabase
+            .from('chat_messages')
+            .update({ status })
+            .eq('id', messageId);
+    } catch {
+        // Non-critical — best effort
+    }
+}
+
+/**
+ * Archive (deactivate) the current session. Used by "New chat".
+ */
+export async function archiveChatSession(
+    sessionId: string
+): Promise<void> {
+    try {
+        await supabase
+            .from('chat_sessions')
+            .update({ is_active: false })
+            .eq('id', sessionId);
+    } catch {
+        // Non-critical — best effort
     }
 }

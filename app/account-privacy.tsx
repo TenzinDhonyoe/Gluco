@@ -1,5 +1,4 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
-import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
@@ -22,7 +21,6 @@ import {
     Text,
     View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function AccountPrivacyScreen() {
     const { user, signOut, refreshProfile } = useAuth();
@@ -52,10 +50,6 @@ export default function AccountPrivacyScreen() {
         });
         return () => task.cancel();
     }, [loadProfile]);
-
-    const handleBack = () => {
-        router.back();
-    };
 
     const handleChangePassword = () => {
         Alert.alert(
@@ -292,12 +286,12 @@ export default function AccountPrivacyScreen() {
             <Text style={styles.rowLabel}>{label}</Text>
             <View style={styles.rowRight}>
                 {value && <Text style={styles.rowValue}>{value}</Text>}
-                {showChevron && <Ionicons name="chevron-forward" size={16} color="#878787" />}
+                {showChevron && <Ionicons name="chevron-forward" size={16} color={Colors.textSecondary} />}
                 {showDropdown && (
                     <Ionicons
                         name={isExpanded ? "chevron-up" : "chevron-down"}
                         size={16}
-                        color="#878787"
+                        color={Colors.textSecondary}
                     />
                 )}
             </View>
@@ -314,16 +308,7 @@ export default function AccountPrivacyScreen() {
 
     return (
         <View style={styles.container}>
-            <SafeAreaView edges={['top']} style={styles.safeArea}>
-                {/* Header */}
-                <View style={styles.header}>
-                    <LiquidGlassIconButton size={44} onPress={handleBack}>
-                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
-                    </LiquidGlassIconButton>
-                    <Text style={styles.headerTitle}>ACCOUNT & PRIVACY</Text>
-                    <View style={styles.headerSpacer} />
-                </View>
-
+            <View style={styles.safeArea}>
                 <ScrollView
                     style={styles.scrollView}
                     contentContainerStyle={styles.scrollContent}
@@ -364,18 +349,11 @@ export default function AccountPrivacyScreen() {
                             onPress={() => handleEditProfile('Date of Birth', profile?.birth_date ?? null)}
                         />
                         <View style={styles.divider} />
-                        <View style={styles.row}>
-                            <View style={styles.rowLabelWithIcon}>
-                                <Text style={styles.rowLabel}>Biological sex</Text>
-                                <Ionicons name="information-circle-outline" size={16} color="#878787" />
-                            </View>
-                            <View style={styles.rowRight}>
-                                <Text style={styles.rowValue}>
-                                    {profile?.biological_sex || 'Not set'}
-                                </Text>
-                                <Ionicons name="chevron-forward" size={16} color="#878787" />
-                            </View>
-                        </View>
+                        <SettingsRow
+                            label="Biological Sex"
+                            value={profile?.biological_sex || 'Not set'}
+                            onPress={() => handleEditProfile('Biological Sex', profile?.biological_sex ?? null)}
+                        />
                         <View style={styles.divider} />
                         <SettingsRow
                             label="Region & Units"
@@ -457,11 +435,11 @@ export default function AccountPrivacyScreen() {
                             onPress={handleDeleteAccount}
                         >
                             <Text style={[styles.rowLabel, styles.dangerText]}>Delete Account & Data</Text>
-                            <Ionicons name="chevron-forward" size={16} color="#878787" />
+                            <Ionicons name="chevron-forward" size={16} color={Colors.textSecondary} />
                         </AnimatedPressable>
                     </View>
                 </ScrollView>
-            </SafeAreaView>
+            </View>
         </View>
     );
 }
@@ -477,35 +455,6 @@ const styles = StyleSheet.create({
     },
     safeArea: {
         flex: 1,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 16,
-    },
-    backButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
-        elevation: 2,
-    },
-    headerTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 18,
-        color: Colors.textPrimary,
-        letterSpacing: 2,
-    },
-    headerSpacer: {
-        width: 48,
     },
     scrollView: {
         flex: 1,
@@ -551,11 +500,6 @@ const styles = StyleSheet.create({
         color: Colors.textTertiary,
         marginTop: 4,
     },
-    rowLabelWithIcon: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-    },
     rowRight: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -582,6 +526,6 @@ const styles = StyleSheet.create({
         lineHeight: 20,
     },
     dangerText: {
-        color: Colors.buttonDestructiveText,
+        color: Colors.buttonDestructive,
     },
 });

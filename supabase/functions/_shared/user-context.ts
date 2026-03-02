@@ -95,6 +95,9 @@ export interface UserContextObject {
     local_hour: number;
     day_of_week: number;
     is_weekend: boolean;
+
+    // Raw daily features (for chat block sparklines)
+    daily_features: DailyFeatureRow[];
 }
 
 // ============================================
@@ -124,7 +127,7 @@ function computeToneMode(stage: JourneyStage): ToneMode {
 // Pattern Aggregation
 // ============================================
 
-interface DailyFeatureRow {
+export interface DailyFeatureRow {
     date: string;
     meal_count: number | null;
     meal_checkin_count: number | null;
@@ -534,6 +537,8 @@ export async function buildUserContext(
         local_hour: localHour,
         day_of_week: dayOfWeek,
         is_weekend: dayOfWeek === 0 || dayOfWeek === 6,
+
+        daily_features: features,
     };
 }
 

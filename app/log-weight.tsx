@@ -1,11 +1,9 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
-import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { useWeightTrends } from '@/hooks/useWeightTrends';
 import { createWeightLog } from '@/lib/supabase';
-import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
@@ -71,15 +69,7 @@ export default function LogWeightScreen() {
 
     return (
         <View style={styles.container}>
-            <SafeAreaView style={styles.safeArea}>
-                <View style={styles.header}>
-                    <LiquidGlassIconButton size={44} onPress={() => router.back()}>
-                        <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
-                    </LiquidGlassIconButton>
-                    <Text style={styles.headerTitle}>LOG WEIGHT</Text>
-                    <View style={{ width: 44 }} />
-                </View>
-
+            <View style={styles.safeArea}>
                 <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                     <View style={styles.card}>
                         <Text style={styles.cardLabel}>7-day trend</Text>
@@ -138,7 +128,7 @@ export default function LogWeightScreen() {
                         </AnimatedPressable>
                     </View>
                 </ScrollView>
-            </SafeAreaView>
+            </View>
         </View>
     );
 }
@@ -150,19 +140,6 @@ const styles = StyleSheet.create({
     },
     safeArea: {
         flex: 1,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-    },
-    headerTitle: {
-        fontFamily: fonts.bold,
-        color: Colors.textPrimary,
-        fontSize: 18,
-        letterSpacing: 1,
     },
     content: {
         paddingHorizontal: 16,
@@ -247,18 +224,18 @@ const styles = StyleSheet.create({
     },
     saveButton: {
         marginTop: 14,
-        borderRadius: 10,
-        backgroundColor: Colors.buttonSecondary,
+        borderRadius: 16,
+        backgroundColor: Colors.buttonAction,
         minHeight: 46,
         alignItems: 'center',
         justifyContent: 'center',
     },
     saveButtonDisabled: {
-        opacity: 0.5,
+        backgroundColor: Colors.buttonDisabled,
     },
     saveButtonText: {
         fontFamily: fonts.semiBold,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
         fontSize: 15,
     },
 });

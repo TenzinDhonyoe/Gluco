@@ -92,7 +92,7 @@ export default function MealCheckinScreen() {
                 <View style={styles.photoHeader}>
                     <Image source={{ uri: signedPhotoUrl }} style={styles.mealPhoto} />
                     <LinearGradient
-                        colors={['rgba(0,0,0,0.3)', 'transparent', Colors.background]}
+                        colors={['rgba(0,0,0,0.3)', 'transparent', Colors.backgroundSolid]}
                         locations={[0, 0.3, 1]}
                         style={styles.photoGradient}
                     />
@@ -107,7 +107,7 @@ export default function MealCheckinScreen() {
                     {/* Header */}
                     <View style={styles.header}>
                         <LiquidGlassIconButton size={44} onPress={() => router.back()}>
-                            <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                            <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
                         </LiquidGlassIconButton>
                         <Text style={styles.headerTitle}>After Meal Check In</Text>
                         <View style={styles.headerSpacer} />
@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     safeAreaNoBg: {
-        backgroundColor: Colors.background,
+        backgroundColor: Colors.backgroundSolid,
     },
     keyboardView: {
         flex: 1,
@@ -359,13 +359,13 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
         paddingHorizontal: 16,
         borderRadius: 12,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: '#FFFFFF',
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)',
+        borderColor: Colors.borderLight,
         alignItems: 'center',
     },
     optionButtonSelected: {
-        backgroundColor: 'rgba(76, 175, 80, 0.2)',
+        backgroundColor: Colors.successLight,
         borderColor: Colors.success,
     },
     optionButtonText: {
@@ -377,10 +377,10 @@ const styles = StyleSheet.create({
         color: Colors.success,
     },
     notesInput: {
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: '#FFFFFF',
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)',
+        borderColor: Colors.borderLight,
         padding: 16,
         fontSize: 15,
         fontFamily: fonts.regular,
@@ -395,20 +395,22 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingBottom: 34,
         paddingTop: 16,
-        backgroundColor: 'rgba(18, 18, 18, 0.95)',
+        backgroundColor: 'rgba(242, 242, 247, 0.95)',
+        borderTopWidth: 1,
+        borderTopColor: Colors.borderLight,
     },
     saveButton: {
-        backgroundColor: Colors.success,
+        backgroundColor: Colors.buttonAction,
         borderRadius: 16,
         paddingVertical: 16,
         alignItems: 'center',
     },
     saveButtonDisabled: {
-        backgroundColor: Colors.borderCard,
+        backgroundColor: Colors.buttonDisabled,
     },
     saveButtonText: {
         fontSize: 16,
         fontFamily: fonts.semiBold,
-        color: Colors.background,
+        color: Colors.buttonActionText,
     },
 });

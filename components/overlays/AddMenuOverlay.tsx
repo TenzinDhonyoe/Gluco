@@ -1,18 +1,14 @@
+import { Colors } from '@/constants/Colors';
 import { useAddMenu } from '@/context/AddMenuContext';
 import { useAuth } from '@/context/AuthContext';
+import { fonts } from '@/hooks/useFonts';
 import { isBehaviorV1Experience } from '@/lib/experience';
-import { Colors } from '@/constants/Colors';
-import {
-    ACTION_PANEL_GAP_ABOVE_TAB_BAR,
-    ANDROID_TAB_BAR_HEIGHT,
-    IOS_TAB_BAR_HEIGHT,
-} from '@/constants/navigationLayout';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
-import { router, usePathname } from 'expo-router';
+import { router, usePathname, useSegments } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
     runOnJS,
     useAnimatedStyle,
@@ -27,78 +23,175 @@ interface MenuAction {
     label: string;
     icon: keyof typeof Ionicons.glyphMap;
     route: string;
+    iconColor: string;
+    iconBgColor: string;
 }
 
 const BASE_ACTIONS: MenuAction[] = [
-    { label: 'Log Meal', icon: 'restaurant-outline', route: '/meal-scanner' },
-    { label: 'Add Activity', icon: 'fitness-outline', route: '/log-activity' },
-    { label: 'Log Glucose', icon: 'water-outline', route: '/log-glucose' },
+    {
+        label: 'Meal',
+        icon: 'restaurant',
+        route: '/meal-scanner',
+        iconColor: Colors.meal,
+        iconBgColor: Colors.mealLight,
+    },
+    {
+        label: 'Activity',
+        icon: 'fitness',
+        route: '/log-activity',
+        iconColor: Colors.activity,
+        iconBgColor: Colors.activityLight,
+    },
+    {
+        label: 'Glucose',
+        icon: 'water',
+        route: '/log-glucose',
+        iconColor: Colors.glucose,
+        iconBgColor: Colors.glucoseLight,
+    },
 ];
 
 const WEIGHT_ACTION: MenuAction = {
-    label: 'Log Weight',
-    icon: 'scale-outline',
+    label: 'Weight',
+    icon: 'scale',
     route: '/log-weight',
+    iconColor: Colors.sleep,
+    iconBgColor: Colors.sleepLight,
 };
 
-const SPRING_CONFIG = { damping: 18, stiffness: 240, mass: 0.9 };
+const FAB_SIZE = 56;
+const PILL_HEIGHT = 52;
+const ICON_CIRCLE = 44;
 
-function ActionItem({
+const OPEN_SPRING = { damping: 18, stiffness: 280, mass: 0.7 };
+const OPEN_STAGGER_MS = 50;
+const CLOSE_DURATION_MS = 140;
+const CLOSE_STAGGER_MS = 30;
+
+function SpeedDialItem({
     action,
     index,
+    total,
     isOpen,
     onPress,
 }: {
     action: MenuAction;
     index: number;
+    total: number;
     isOpen: boolean;
     onPress: (route: string) => void;
 }) {
-    const scale = useSharedValue(0.5);
+    const scale = useSharedValue(0.3);
     const opacity = useSharedValue(0);
+    const labelOpacity = useSharedValue(0);
+    const translateY = useSharedValue(30);
+    const pressScale = useSharedValue(1);
 
     useEffect(() => {
         if (isOpen) {
-            scale.value = withDelay(index * 40, withSpring(1, SPRING_CONFIG));
-            opacity.value = withDelay(index * 40, withTiming(1, { duration: 180 }));
+            const delay = index * OPEN_STAGGER_MS;
+            scale.value = withDelay(delay, withSpring(1, OPEN_SPRING));
+            opacity.value = withDelay(delay, withTiming(1, { duration: 250 }));
+            labelOpacity.value = withDelay(
+                delay + 20,
+                withTiming(1, { duration: 250 }),
+            );
+            translateY.value = withDelay(delay, withSpring(0, OPEN_SPRING));
         } else {
-            scale.value = withTiming(0.5, { duration: 120 });
-            opacity.value = withTiming(0, { duration: 120 });
+            // Close top→bottom: highest index (visual top) exits first
+            const delay = (total - 1 - index) * CLOSE_STAGGER_MS;
+            scale.value = withDelay(
+                delay,
+                withTiming(0.3, { duration: CLOSE_DURATION_MS }),
+            );
+            opacity.value = withDelay(
+                delay,
+                withTiming(0, { duration: CLOSE_DURATION_MS - 20 }),
+            );
+            labelOpacity.value = withDelay(
+                delay,
+                withTiming(0, { duration: CLOSE_DURATION_MS - 20 }),
+            );
+            translateY.value = withDelay(
+                delay,
+                withTiming(30, { duration: CLOSE_DURATION_MS }),
+            );
         }
-    }, [isOpen, index, scale, opacity]);
+    }, [isOpen, index, total, scale, opacity, labelOpacity, translateY]);
 
     const animatedStyle = useAnimatedStyle(() => ({
-        transform: [{ scale: scale.value }],
+        transform: [{ scale: scale.value }, { translateY: translateY.value }],
         opacity: opacity.value,
     }));
 
+    const pressStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: pressScale.value }],
+    }));
+
+    const labelStyle = useAnimatedStyle(() => ({
+        opacity: labelOpacity.value,
+    }));
+
     return (
-        <Animated.View style={[styles.itemWrapper, animatedStyle]}>
-            <Pressable style={styles.item} onPress={() => onPress(action.route)}>
-                <View style={styles.circle}>
-                    <Ionicons name={action.icon} size={24} color="#F3F4F6" />
-                </View>
-                <Text style={styles.label}>{action.label}</Text>
-            </Pressable>
+        <Animated.View style={animatedStyle}>
+            <Animated.View style={pressStyle}>
+                <Pressable
+                    onPress={() => onPress(action.route)}
+                    onPressIn={() => {
+                        pressScale.value = withSpring(0.95, {
+                            damping: 20,
+                            stiffness: 600,
+                        });
+                    }}
+                    onPressOut={() => {
+                        pressScale.value = withSpring(1, {
+                            damping: 18,
+                            stiffness: 500,
+                        });
+                    }}
+                    style={styles.pillShadow}
+                >
+                    <BlurView intensity={50} tint="light" style={styles.pillBlur}>
+                        <Animated.Text
+                            style={[styles.pillLabel, labelStyle]}
+                        >
+                            {action.label}
+                        </Animated.Text>
+                        <View
+                            style={[
+                                styles.pillIcon,
+                                { backgroundColor: action.iconBgColor },
+                            ]}
+                        >
+                            <Ionicons
+                                name={action.icon}
+                                size={22}
+                                color={action.iconColor}
+                            />
+                        </View>
+                    </BlurView>
+                </Pressable>
+            </Animated.View>
         </Animated.View>
     );
 }
 
 export function AddMenuOverlay() {
-    const { isOpen, close, isOnTabScreen } = useAddMenu();
+    const { isOpen, close } = useAddMenu();
     const { profile } = useAuth();
     const isBehaviorV1 = isBehaviorV1Experience(profile?.experience_variant);
+    const segments = useSegments();
+    const isOnHomeTab = segments[0] === '(tabs)' && segments[1] == null;
     const insets = useSafeAreaInsets();
     const [shouldRender, setShouldRender] = useState(false);
-    const tabBarHeight = Platform.OS === 'ios' ? IOS_TAB_BAR_HEIGHT : ANDROID_TAB_BAR_HEIGHT;
     const pathname = usePathname();
     const prevPathname = useRef(pathname);
 
     const backdropOpacity = useSharedValue(0);
-    const panelTranslateY = useSharedValue(36);
-    const panelOpacity = useSharedValue(0);
 
-    const actions = isBehaviorV1 ? [...BASE_ACTIONS, WEIGHT_ACTION] : BASE_ACTIONS;
+    const actions = isBehaviorV1
+        ? [...BASE_ACTIONS, WEIGHT_ACTION]
+        : BASE_ACTIONS;
 
     // Auto-close when pathname changes (e.g. tab switch)
     useEffect(() => {
@@ -111,66 +204,56 @@ export function AddMenuOverlay() {
     useEffect(() => {
         if (isOpen) {
             setShouldRender(true);
-            backdropOpacity.value = withTiming(1, { duration: 220 });
-            panelOpacity.value = withTiming(1, { duration: 220 });
-            panelTranslateY.value = withSpring(0, SPRING_CONFIG);
+            backdropOpacity.value = withTiming(1, { duration: 280 });
         } else if (shouldRender) {
-            panelTranslateY.value = withTiming(28, { duration: 160 });
-            panelOpacity.value = withTiming(0, { duration: 160 });
-            backdropOpacity.value = withTiming(0, { duration: 180 }, (finished) => {
-                if (finished) runOnJS(setShouldRender)(false);
-            });
+            backdropOpacity.value = withTiming(
+                0,
+                { duration: 240 },
+                (finished) => {
+                    if (finished) runOnJS(setShouldRender)(false);
+                },
+            );
         }
-    }, [isOpen, shouldRender, backdropOpacity, panelOpacity, panelTranslateY]);
+    }, [isOpen, shouldRender, backdropOpacity]);
 
     const backdropStyle = useAnimatedStyle(() => ({
-        opacity: backdropOpacity.value * 0.85,
-    }));
-
-    const panelStyle = useAnimatedStyle(() => ({
-        opacity: panelOpacity.value,
-        transform: [{ translateY: panelTranslateY.value }],
+        opacity: backdropOpacity.value * 0.8,
     }));
 
     const handleAction = (route: string) => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         close();
-        setTimeout(() => router.push(route as any), 100);
+        setTimeout(() => router.push(route as any), 150);
     };
 
-    if (!isOnTabScreen || !shouldRender) return null;
+    if (!isOnHomeTab || !shouldRender) return null;
 
     return (
         <View style={styles.root} pointerEvents="box-none">
             <Pressable style={styles.fullScreen} onPress={close}>
-                <Animated.View style={[styles.fullScreen, styles.backdrop, backdropStyle]} />
+                <Animated.View
+                    style={[styles.fullScreen, styles.backdrop, backdropStyle]}
+                />
             </Pressable>
 
-            <Animated.View
+            <View
                 pointerEvents="box-none"
                 style={[
-                    styles.panelShell,
-                    {
-                        bottom: insets.bottom + tabBarHeight + ACTION_PANEL_GAP_ABOVE_TAB_BAR,
-                    },
-                    panelStyle,
+                    styles.speedDial,
+                    { bottom: insets.bottom + 49 + 16 + FAB_SIZE + 16 },
                 ]}
             >
-                <BlurView intensity={45} tint="dark" style={styles.panelBlur}>
-                    <View style={styles.panelTint} />
-                    <View style={styles.gridContainer}>
-                        {actions.map((action, i) => (
-                            <ActionItem
-                                key={`${action.label}-${i}`}
-                                action={action}
-                                index={i}
-                                isOpen={isOpen}
-                                onPress={handleAction}
-                            />
-                        ))}
-                    </View>
-                </BlurView>
-            </Animated.View>
+                {actions.map((action, index) => (
+                    <SpeedDialItem
+                        key={action.route}
+                        action={action}
+                        index={index}
+                        total={actions.length}
+                        isOpen={isOpen}
+                        onPress={handleAction}
+                    />
+                ))}
+            </View>
         </View>
     );
 }
@@ -191,54 +274,45 @@ const styles = StyleSheet.create({
     backdrop: {
         backgroundColor: Colors.overlayDark,
     },
-    panelShell: {
+    speedDial: {
         position: 'absolute',
-        left: 14,
-        right: 14,
-        borderRadius: 26,
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)',
+        right: 20,
+        alignItems: 'flex-end',
+        flexDirection: 'column-reverse',
+        gap: 12,
     },
-    panelBlur: {
-        borderRadius: 26,
-        paddingHorizontal: 10,
-        paddingTop: 14,
-        paddingBottom: 10,
-        backgroundColor: 'rgba(6, 10, 13, 0.58)',
+    pillShadow: {
+        height: PILL_HEIGHT,
+        borderRadius: PILL_HEIGHT / 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+        elevation: 8,
     },
-    panelTint: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(7, 11, 15, 0.44)',
-    },
-    gridContainer: {
+    pillBlur: {
+        flex: 1,
         flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'center',
-    },
-    itemWrapper: {
-        width: '33.33%',
         alignItems: 'center',
-        marginBottom: 16,
-    },
-    item: {
-        alignItems: 'center',
-    },
-    circle: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        backgroundColor: 'rgba(255, 255, 255, 0.15)',
+        borderRadius: PILL_HEIGHT / 2,
+        overflow: 'hidden',
+        backgroundColor: 'rgba(255, 255, 255, 0.88)',
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        borderColor: 'rgba(60, 60, 67, 0.10)',
+        paddingLeft: 16,
+        paddingRight: 4,
+    },
+    pillLabel: {
+        fontFamily: fonts.semiBold,
+        fontSize: 15,
+        color: Colors.textPrimary,
+        marginRight: 12,
+    },
+    pillIcon: {
+        width: ICON_CIRCLE,
+        height: ICON_CIRCLE,
+        borderRadius: ICON_CIRCLE / 2,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 8,
-    },
-    label: {
-        color: '#F3F4F6',
-        fontSize: 12,
-        fontWeight: '600',
-        textAlign: 'center',
     },
 });

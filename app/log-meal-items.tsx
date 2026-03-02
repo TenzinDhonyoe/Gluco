@@ -3,6 +3,7 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { CONFIG, searchWithProgressiveResults, shouldTriggerSearch } from '@/lib/foodSearch';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import {
   addFavoriteFood,
   addRecentFood,
@@ -460,7 +461,7 @@ export default function LogMealItemsScreen() {
     return (
       <TouchableOpacity
         style={styles.foodCard}
-        onPress={() => toggleSelect(item)}
+        onPress={() => { triggerHaptic(); toggleSelect(item); }}
         activeOpacity={0.7}
       >
         <View style={styles.foodInfo}>
@@ -475,18 +476,19 @@ export default function LogMealItemsScreen() {
             style={styles.heartButton}
             onPress={(e) => {
               e.stopPropagation?.();
+              triggerHaptic();
               toggleFavorite(item);
             }}
           >
             <Ionicons
               name={favorited ? 'heart' : 'heart-outline'}
               size={22}
-              color={favorited ? '#FF6B6B' : '#878787'}
+              color={favorited ? '#FF6B6B' : Colors.textTertiary}
             />
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.checkButton, selected && styles.checkButtonSelected]}
-            onPress={() => toggleSelect(item)}
+            onPress={() => { triggerHaptic(); toggleSelect(item); }}
           >
             {selected && <Ionicons name="checkmark" size={16} color="#FFFFFF" />}
           </TouchableOpacity>
@@ -507,16 +509,16 @@ export default function LogMealItemsScreen() {
       <View style={styles.quantityControls}>
         <TouchableOpacity
           style={styles.quantityButton}
-          onPress={() => updateQuantity(item, -1)}
+          onPress={() => { triggerHaptic(); updateQuantity(item, -1); }}
         >
-          <Ionicons name="remove" size={22} color="#FFFFFF" />
+          <Ionicons name="remove" size={22} color={Colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.quantityText}>{item.quantity}</Text>
         <TouchableOpacity
           style={styles.quantityButton}
-          onPress={() => updateQuantity(item, 1)}
+          onPress={() => { triggerHaptic(); updateQuantity(item, 1); }}
         >
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color={Colors.textPrimary} />
         </TouchableOpacity>
       </View>
     </View>
@@ -528,36 +530,36 @@ export default function LogMealItemsScreen() {
         {/* Header */}
         <View style={styles.header}>
           <LiquidGlassIconButton size={44} onPress={handleBack}>
-            <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+            <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
           </LiquidGlassIconButton>
           <View style={styles.headerSpacer} />
           <TouchableOpacity
             style={styles.barcodeButton}
-            onPress={handleBarcodePress}
+            onPress={() => { triggerHaptic(); handleBarcodePress(); }}
             activeOpacity={0.7}
           >
-            <Ionicons name="scan-outline" size={22} color="#E7E8E9" />
+            <Ionicons name="scan-outline" size={22} color={Colors.textSecondary} />
           </TouchableOpacity>
         </View>
 
         {/* Search Input */}
         <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="#878787" style={styles.searchIcon} />
+          <Ionicons name="search" size={20} color={Colors.textPlaceholder} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             placeholder="Search Food"
-            placeholderTextColor="#878787"
+            placeholderTextColor={Colors.textPlaceholder}
             value={searchQuery}
             onChangeText={setSearchQuery}
             autoCapitalize="none"
             autoCorrect={false}
           />
           {isSearching && (
-            <ActivityIndicator size="small" color="#3494D9" style={{ marginRight: 8 }} />
+            <ActivityIndicator size="small" color={Colors.primary} style={{ marginRight: 8 }} />
           )}
           {searchQuery.length > 0 && !isSearching && (
-            <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
-              <Ionicons name="close-circle" size={20} color="#878787" />
+            <TouchableOpacity onPress={() => { triggerHaptic(); clearSearch(); }} style={styles.clearButton}>
+              <Ionicons name="close-circle" size={20} color={Colors.textPlaceholder} />
             </TouchableOpacity>
           )}
         </View>
@@ -566,7 +568,7 @@ export default function LogMealItemsScreen() {
         {correctedQuery && correctedQuery !== searchQuery.toLowerCase().trim() && (
           <TouchableOpacity
             style={styles.didYouMeanContainer}
-            onPress={() => setSearchQuery(correctedQuery)}
+            onPress={() => { triggerHaptic(); setSearchQuery(correctedQuery); }}
           >
             <Text style={styles.didYouMeanText}>
               Did you mean: <Text style={styles.didYouMeanQuery}>{correctedQuery}</Text>?
@@ -577,10 +579,10 @@ export default function LogMealItemsScreen() {
         {/* Manual Entry Button */}
         <TouchableOpacity
           style={styles.manualEntryButton}
-          onPress={() => setShowManualModal(true)}
+          onPress={() => { triggerHaptic(); setShowManualModal(true); }}
           activeOpacity={0.7}
         >
-          <Ionicons name="add-circle-outline" size={18} color="#3494D9" />
+          <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
           <Text style={styles.manualEntryButtonText}>Add Manual Entry</Text>
         </TouchableOpacity>
 
@@ -588,7 +590,7 @@ export default function LogMealItemsScreen() {
         <View style={styles.tabsContainer}>
           <TouchableOpacity
             style={[styles.tab, activeTab === 'all' && styles.tabActive]}
-            onPress={() => setActiveTab('all')}
+            onPress={() => { triggerHaptic(); setActiveTab('all'); }}
           >
             <Text style={[styles.tabText, activeTab === 'all' && styles.tabTextActive]}>
               ALL
@@ -596,7 +598,7 @@ export default function LogMealItemsScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tab, activeTab === 'recents' && styles.tabActive]}
-            onPress={() => setActiveTab('recents')}
+            onPress={() => { triggerHaptic(); setActiveTab('recents'); }}
           >
             <Text style={[styles.tabText, activeTab === 'recents' && styles.tabTextActive]}>
               RECENTS
@@ -604,7 +606,7 @@ export default function LogMealItemsScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tab, activeTab === 'favorites' && styles.tabActive]}
-            onPress={() => setActiveTab('favorites')}
+            onPress={() => { triggerHaptic(); setActiveTab('favorites'); }}
           >
             <Text style={[styles.tabText, activeTab === 'favorites' && styles.tabTextActive]}>
               FAVORITES
@@ -627,7 +629,7 @@ export default function LogMealItemsScreen() {
                 />
               ) : isSearching ? (
                 <View style={styles.loadingContainer}>
-                  <ActivityIndicator color="#3494D9" size="large" />
+                  <ActivityIndicator color={Colors.primary} size="large" />
                 </View>
               ) : searchQuery.length >= 2 ? (
                 <View style={styles.emptyContainer}>
@@ -636,7 +638,7 @@ export default function LogMealItemsScreen() {
                 </View>
               ) : (
                 <View style={styles.emptyContainer}>
-                  <Ionicons name="search" size={48} color="#3A3D40" />
+                  <Ionicons name="search" size={48} color={Colors.textMuted} />
                   <Text style={styles.emptyText}>Search for foods</Text>
                   <Text style={styles.emptySubtext}>Type at least 2 characters</Text>
                 </View>
@@ -649,7 +651,7 @@ export default function LogMealItemsScreen() {
             <>
               {isLoadingTab ? (
                 <View style={styles.loadingContainer}>
-                  <ActivityIndicator color="#3494D9" size="large" />
+                  <ActivityIndicator color={Colors.primary} size="large" />
                 </View>
               ) : recents.length > 0 ? (
                 <FlatList
@@ -661,7 +663,7 @@ export default function LogMealItemsScreen() {
                 />
               ) : (
                 <View style={styles.emptyContainer}>
-                  <Ionicons name="time-outline" size={48} color="#3A3D40" />
+                  <Ionicons name="time-outline" size={48} color={Colors.textMuted} />
                   <Text style={styles.emptyText}>No recent foods</Text>
                   <Text style={styles.emptySubtext}>Foods you select will appear here</Text>
                 </View>
@@ -674,7 +676,7 @@ export default function LogMealItemsScreen() {
             <>
               {isLoadingTab ? (
                 <View style={styles.loadingContainer}>
-                  <ActivityIndicator color="#3494D9" size="large" />
+                  <ActivityIndicator color={Colors.primary} size="large" />
                 </View>
               ) : favorites.length > 0 ? (
                 <FlatList
@@ -686,7 +688,7 @@ export default function LogMealItemsScreen() {
                 />
               ) : (
                 <View style={styles.emptyContainer}>
-                  <Ionicons name="heart-outline" size={48} color="#3A3D40" />
+                  <Ionicons name="heart-outline" size={48} color={Colors.textMuted} />
                   <Text style={styles.emptyText}>No favorites yet</Text>
                   <Text style={styles.emptySubtext}>Tap the heart to save foods</Text>
                 </View>
@@ -708,7 +710,7 @@ export default function LogMealItemsScreen() {
             />
             <TouchableOpacity
               style={styles.saveButton}
-              onPress={handleSave}
+              onPress={() => { triggerHaptic('medium'); handleSave(); }}
               activeOpacity={0.8}
             >
               <Text style={styles.saveButtonText}>Save</Text>
@@ -727,8 +729,8 @@ export default function LogMealItemsScreen() {
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Add Manual Entry</Text>
-                <TouchableOpacity onPress={() => setShowManualModal(false)}>
-                  <Ionicons name="close" size={24} color="#878787" />
+                <TouchableOpacity onPress={() => { triggerHaptic(); setShowManualModal(false); }}>
+                  <Ionicons name="close" size={24} color={Colors.textSecondary} />
                 </TouchableOpacity>
               </View>
 
@@ -738,7 +740,7 @@ export default function LogMealItemsScreen() {
                 value={manualName}
                 onChangeText={setManualName}
                 placeholder="e.g., Homemade Pasta"
-                placeholderTextColor="#878787"
+                placeholderTextColor={Colors.textPlaceholder}
               />
 
               <Text style={styles.modalLabel}>Carbs (g) *</Text>
@@ -747,7 +749,7 @@ export default function LogMealItemsScreen() {
                 value={manualCarbs}
                 onChangeText={setManualCarbs}
                 placeholder="0"
-                placeholderTextColor="#878787"
+                placeholderTextColor={Colors.textPlaceholder}
                 keyboardType="numeric"
               />
 
@@ -759,7 +761,7 @@ export default function LogMealItemsScreen() {
                     value={manualProtein}
                     onChangeText={setManualProtein}
                     placeholder="0"
-                    placeholderTextColor="#878787"
+                    placeholderTextColor={Colors.textPlaceholder}
                     keyboardType="numeric"
                   />
                 </View>
@@ -770,7 +772,7 @@ export default function LogMealItemsScreen() {
                     value={manualFat}
                     onChangeText={setManualFat}
                     placeholder="0"
-                    placeholderTextColor="#878787"
+                    placeholderTextColor={Colors.textPlaceholder}
                     keyboardType="numeric"
                   />
                 </View>
@@ -782,7 +784,7 @@ export default function LogMealItemsScreen() {
                 value={manualCalories}
                 onChangeText={setManualCalories}
                 placeholder="Auto-calculated from macros"
-                placeholderTextColor="#878787"
+                placeholderTextColor={Colors.textPlaceholder}
                 keyboardType="numeric"
               />
 
@@ -791,7 +793,7 @@ export default function LogMealItemsScreen() {
                   styles.modalAddButton,
                   !manualName.trim() && styles.modalAddButtonDisabled,
                 ]}
-                onPress={handleManualEntry}
+                onPress={() => { triggerHaptic('medium'); handleManualEntry(); }}
                 disabled={!manualName.trim()}
               >
                 <Text style={styles.modalAddButtonText}>Add Item</Text>
@@ -823,7 +825,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(63, 66, 67, 0.3)',
+    backgroundColor: Colors.buttonSecondary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -834,7 +836,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 12,
-    backgroundColor: 'rgba(63, 66, 67, 0.3)',
+    backgroundColor: Colors.buttonSecondary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -844,8 +846,10 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 12,
-    backgroundColor: 'rgba(63, 66, 67, 0.3)',
+    backgroundColor: Colors.inputBackground,
     borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.borderCard,
     paddingHorizontal: 14,
     height: 52,
   },
@@ -866,19 +870,19 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    backgroundColor: 'rgba(52, 148, 217, 0.15)',
+    backgroundColor: Colors.primaryLight,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(52, 148, 217, 0.3)',
+    borderColor: Colors.primaryMedium,
   },
   didYouMeanText: {
     fontFamily: fonts.regular,
     fontSize: 14,
-    color: '#A0A0A0',
+    color: Colors.textSecondary,
   },
   didYouMeanQuery: {
     fontFamily: fonts.semiBold,
-    color: '#3494D9',
+    color: Colors.primary,
   },
   tabsContainer: {
     flexDirection: 'row',
@@ -894,7 +898,7 @@ const styles = StyleSheet.create({
   },
   tabActive: {
     borderBottomWidth: 2,
-    borderBottomColor: '#FFFFFF',
+    borderBottomColor: Colors.textPrimary,
   },
   tabText: {
     fontFamily: fonts.semiBold,
@@ -928,7 +932,7 @@ const styles = StyleSheet.create({
   emptySubtext: {
     fontFamily: fonts.regular,
     fontSize: 14,
-    color: '#5A5D60',
+    color: Colors.textTertiary,
   },
   listContent: {
     paddingHorizontal: 16,
@@ -981,8 +985,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   checkButtonSelected: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: Colors.buttonAction,
+    borderColor: Colors.buttonAction,
   },
   bottomSheet: {
     position: 'absolute',
@@ -1000,7 +1004,7 @@ const styles = StyleSheet.create({
   bottomSheetHandle: {
     width: 36,
     height: 4,
-    backgroundColor: '#3A3D40',
+    backgroundColor: Colors.borderCard,
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: 16,
@@ -1078,10 +1082,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginHorizontal: 16,
     marginBottom: 0,
-    backgroundColor: 'rgba(52, 148, 217, 0.12)',
+    backgroundColor: Colors.primaryLight,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(52, 148, 217, 0.35)',
+    borderColor: Colors.primaryMedium,
     gap: 10,
   },
   manualEntryButtonText: {
@@ -1097,7 +1101,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#1C1C1E',
+    backgroundColor: Colors.backgroundCard,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
@@ -1122,8 +1126,10 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   modalInput: {
-    backgroundColor: '#2C2C2E',
+    backgroundColor: Colors.inputBackgroundSolid,
     borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontFamily: fonts.regular,
@@ -1145,7 +1151,7 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   modalAddButtonDisabled: {
-    backgroundColor: '#3A3D40',
+    backgroundColor: Colors.buttonDisabled,
   },
   modalAddButtonText: {
     fontFamily: fonts.semiBold,

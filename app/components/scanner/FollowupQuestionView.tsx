@@ -133,7 +133,7 @@ function SingleQuestion({ question, onAnswer, isActive }: SingleQuestionProps) {
                         value={customAmount}
                         onChangeText={setCustomAmount}
                         placeholder="Enter amount in grams"
-                        placeholderTextColor="#6F6F6F"
+                        placeholderTextColor={Colors.textPlaceholder}
                         keyboardType="numeric"
                         autoFocus
                         returnKeyType="done"
@@ -275,12 +275,12 @@ export default function FollowupQuestionView({
 
 const styles = StyleSheet.create({
     container: {
-        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+        backgroundColor: 'rgba(0, 0, 0, 0.03)',
         borderRadius: 16,
         padding: 16,
         marginVertical: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        borderColor: Colors.borderCard,
     },
     header: {
         flexDirection: 'row',
@@ -311,7 +311,7 @@ const styles = StyleSheet.create({
     progressBar: {
         flex: 1,
         height: 4,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: 'rgba(0, 0, 0, 0.08)',
         borderRadius: 2,
         overflow: 'hidden',
     },
@@ -340,7 +340,7 @@ const styles = StyleSheet.create({
         width: 36,
         height: 36,
         borderRadius: 18,
-        backgroundColor: 'rgba(40, 94, 42, 0.2)',
+        backgroundColor: Colors.primaryLight,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -357,15 +357,15 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     optionButton: {
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: Colors.buttonSecondary,
         borderRadius: 20,
         paddingHorizontal: 16,
         paddingVertical: 10,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)',
+        borderColor: Colors.borderMedium,
     },
     optionButtonPressed: {
-        backgroundColor: 'rgba(255, 255, 255, 0.15)',
+        backgroundColor: 'rgba(0, 0, 0, 0.10)',
         transform: [{ scale: 0.98 }],
     },
     optionButtonDanger: {
@@ -383,7 +383,7 @@ const styles = StyleSheet.create({
         gap: 12,
     },
     customInput: {
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 12,
         paddingHorizontal: 16,
         paddingVertical: 12,
@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: Colors.textPrimary,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.15)',
+        borderColor: Colors.border,
     },
     customInputButtons: {
         flexDirection: 'row',
@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
     },
     cancelCustomButton: {
         flex: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: Colors.buttonSecondary,
         borderRadius: 12,
         paddingVertical: 12,
         alignItems: 'center',
@@ -407,11 +407,11 @@ const styles = StyleSheet.create({
     cancelCustomText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: Colors.textSecondary,
+        color: Colors.textPrimary,
     },
     submitCustomButton: {
         flex: 2,
-        backgroundColor: '#285E2A',
+        backgroundColor: Colors.buttonAction,
         borderRadius: 12,
         paddingVertical: 12,
         alignItems: 'center',
@@ -422,7 +422,7 @@ const styles = StyleSheet.create({
     submitCustomText: {
         fontFamily: fonts.semiBold,
         fontSize: 14,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
     hintText: {
         fontFamily: fonts.regular,

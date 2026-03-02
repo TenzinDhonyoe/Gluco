@@ -5,6 +5,7 @@ import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { useOnboardingDraft } from '@/hooks/useOnboardingDraft';
 import { updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
@@ -142,6 +143,7 @@ export default function OnboardingBodyScreen() {
 
     const handleHeightUnitChange = (unit: 'cm' | 'ft') => {
         if (unit === heightUnit) return;
+        triggerHaptic();
         if (unit === 'cm' && heightFeet && heightInches !== undefined) {
             setHeightCm(feetInchesToCm(heightFeet, heightInches));
         } else if (unit === 'ft' && heightCm) {
@@ -154,6 +156,7 @@ export default function OnboardingBodyScreen() {
 
     const handleWeightUnitChange = (unit: 'kg' | 'lbs') => {
         if (unit === weightUnit) return;
+        triggerHaptic();
         if (unit === 'kg' && weightLbs) setWeightKg(lbsToKg(weightLbs));
         else if (unit === 'lbs' && weightKg) setWeightLbs(kgToLbs(weightKg));
         setWeightUnit(unit);
@@ -161,6 +164,7 @@ export default function OnboardingBodyScreen() {
 
     // Picker open/close
     const openHeightPicker = () => {
+        triggerHaptic();
         setShowHeightPicker(true);
         heightSlide.value = SCREEN_HEIGHT;
         heightSlide.value = withSpring(0, { damping: 20, stiffness: 90 });
@@ -170,6 +174,7 @@ export default function OnboardingBodyScreen() {
         setTimeout(() => setShowHeightPicker(false), 260);
     };
     const openWeightPicker = () => {
+        triggerHaptic();
         setShowWeightPicker(true);
         weightSlide.value = SCREEN_HEIGHT;
         weightSlide.value = withSpring(0, { damping: 20, stiffness: 90 });
@@ -180,10 +185,12 @@ export default function OnboardingBodyScreen() {
     };
 
     const handleHeightDone = () => {
+        triggerHaptic();
         if (heightUnit === 'ft') setHeightCm(feetInchesToCm(heightFeet, heightInches));
         closeHeightPicker();
     };
     const handleWeightDone = () => {
+        triggerHaptic();
         if (weightUnit === 'lbs') setWeightKg(lbsToKg(weightLbs));
         closeWeightPicker();
     };
@@ -197,6 +204,7 @@ export default function OnboardingBodyScreen() {
     };
 
     const handleContinue = async () => {
+        triggerHaptic('medium');
         setIsLoading(true);
         try {
             if (user) {
@@ -234,6 +242,7 @@ export default function OnboardingBodyScreen() {
     };
 
     const handleSkip = () => {
+        triggerHaptic();
         AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'tracking').catch(() => null);
         router.push('/onboarding-tracking' as never);
     };
@@ -365,7 +374,7 @@ export default function OnboardingBodyScreen() {
                         disabled={isLoading}
                     >
                         {isLoading ? (
-                            <ActivityIndicator color={Colors.textPrimary} />
+                            <ActivityIndicator color={Colors.buttonActionText} />
                         ) : (
                             <Text style={styles.continueButtonText}>Continue</Text>
                         )}
@@ -536,14 +545,14 @@ const styles = StyleSheet.create({
     chip: {
         borderRadius: 20,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.12)',
-        backgroundColor: 'rgba(63, 66, 67, 0.28)',
+        borderColor: Colors.borderCard,
+        backgroundColor: Colors.inputBackground,
         paddingVertical: 10,
         paddingHorizontal: 16,
     },
     chipSelected: {
-        borderColor: Colors.buttonPrimary,
-        backgroundColor: 'rgba(40, 94, 42, 0.3)',
+        borderColor: Colors.primary,
+        backgroundColor: Colors.primaryLight,
     },
     chipText: {
         fontFamily: fonts.medium,
@@ -575,37 +584,35 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingTop: 16,
         paddingBottom: 42,
-        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        backgroundColor: Colors.backgroundCardGlass,
+        borderTopWidth: 1,
+        borderTopColor: Colors.border,
     },
     skipButton: {
         flex: 1,
         height: 48,
-        backgroundColor: 'rgba(30, 30, 30, 0.9)',
-        borderWidth: 1,
-        borderColor: Colors.borderCard,
-        borderRadius: 8,
+        backgroundColor: Colors.buttonSecondary,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
     },
     skipButtonText: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: Colors.textTertiary,
+        color: Colors.textSecondary,
     },
     continueButton: {
         flex: 2,
         height: 48,
-        backgroundColor: Colors.buttonSecondary,
-        borderWidth: 1,
-        borderColor: Colors.buttonSecondaryBorder,
-        borderRadius: 8,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
     },
     continueButtonText: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
     // Modal styles
     modalOverlay: {
@@ -617,7 +624,7 @@ const styles = StyleSheet.create({
         ...StyleSheet.absoluteFillObject,
     },
     modalBottomSheet: {
-        backgroundColor: '#1c1c1e',
+        backgroundColor: Colors.backgroundCard,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         paddingBottom: 34,
@@ -628,7 +635,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingVertical: 4,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(63, 66, 67, 0.5)',
+        borderBottomColor: Colors.border,
     },
     modalHeaderButton: {
         paddingHorizontal: 16,
@@ -654,7 +661,7 @@ const styles = StyleSheet.create({
         marginHorizontal: 16,
         marginTop: 16,
         marginBottom: 8,
-        backgroundColor: 'rgba(63, 66, 67, 0.4)',
+        backgroundColor: Colors.inputBackground,
         borderRadius: 8,
         padding: 4,
     },
@@ -665,7 +672,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     unitToggleButtonActive: {
-        backgroundColor: 'rgba(52, 148, 217, 0.3)',
+        backgroundColor: Colors.primaryLight,
     },
     unitToggleText: {
         fontFamily: fonts.medium,
@@ -677,7 +684,7 @@ const styles = StyleSheet.create({
     },
     picker: {
         height: 216,
-        backgroundColor: '#1c1c1e',
+        backgroundColor: Colors.backgroundCard,
     },
     pickerItem: {
         color: Colors.textPrimary,
@@ -685,7 +692,7 @@ const styles = StyleSheet.create({
     },
     dualPickerContainer: {
         flexDirection: 'row',
-        backgroundColor: '#1c1c1e',
+        backgroundColor: Colors.backgroundCard,
     },
     halfPicker: {
         flex: 1,

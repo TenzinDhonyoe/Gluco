@@ -5,6 +5,7 @@ import { Disclaimer } from '@/components/ui/Disclaimer';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { useOnboardingDraft } from '@/hooks/useOnboardingDraft';
 import { updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,6 +47,7 @@ export default function OnboardingAiScreen() {
     }, [isLoaded, draft]);
 
     const handleGetStarted = async () => {
+        triggerHaptic('medium');
         setIsLoading(true);
         try {
             if (user) {
@@ -146,7 +148,7 @@ export default function OnboardingAiScreen() {
                         disabled={isLoading}
                     >
                         {isLoading ? (
-                            <ActivityIndicator color={Colors.textPrimary} />
+                            <ActivityIndicator color={Colors.buttonActionText} />
                         ) : (
                             <Text style={styles.getStartedButtonText}>Get Started</Text>
                         )}
@@ -223,7 +225,7 @@ const styles = StyleSheet.create({
         color: Colors.textTertiary,
     },
     aiToggleSection: {
-        backgroundColor: 'rgba(26, 29, 31, 0.6)',
+        backgroundColor: Colors.inputBackground,
         borderRadius: 10,
         borderWidth: 1,
         borderColor: Colors.borderCard,
@@ -272,16 +274,14 @@ const styles = StyleSheet.create({
     getStartedButton: {
         width: '100%',
         height: 48,
-        backgroundColor: Colors.buttonSecondary,
-        borderWidth: 1,
-        borderColor: Colors.buttonSecondaryBorder,
-        borderRadius: 8,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
     },
     getStartedButtonText: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
 });

@@ -1,7 +1,6 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
-import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
-import { Ionicons } from '@expo/vector-icons';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -14,7 +13,6 @@ import {
     TextInput,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -91,10 +89,6 @@ export default function CustomizationScreen() {
         setSelectedUnit(newUnit);
     };
 
-    const handleBack = () => {
-        router.back();
-    };
-
     const handleSave = async () => {
         if (!user) {
             Alert.alert('Error', 'You must be logged in to save settings');
@@ -166,16 +160,7 @@ export default function CustomizationScreen() {
 
     return (
         <View style={styles.container}>
-            <SafeAreaView style={styles.safeArea} edges={['top']}>
-                {/* Header */}
-                <View style={styles.header}>
-                    <LiquidGlassIconButton size={44} onPress={handleBack}>
-                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
-                    </LiquidGlassIconButton>
-                    <Text style={styles.headerTitle}>CUSTOMIZATION</Text>
-                    <View style={styles.headerSpacer} />
-                </View>
-
+            <View style={styles.safeArea}>
                 {/* Content */}
                 <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
                     {/* Glucose Unit Card */}
@@ -277,7 +262,7 @@ export default function CustomizationScreen() {
                 {/* Save Button */}
                 <View style={styles.saveButtonContainer}>
                     <Pressable
-                        onPress={handleSave}
+                        onPress={() => { triggerHaptic('medium'); handleSave(); }}
                         disabled={isSaving}
                         style={({ pressed }) => [
                             styles.saveButton,
@@ -292,7 +277,7 @@ export default function CustomizationScreen() {
                         )}
                     </Pressable>
                 </View>
-            </SafeAreaView>
+            </View>
         </View>
     );
 }
@@ -310,22 +295,6 @@ const styles = StyleSheet.create({
     },
     safeArea: {
         flex: 1,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 16,
-    },
-    headerTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 18,
-        color: Colors.textPrimary,
-        letterSpacing: 2,
-    },
-    headerSpacer: {
-        width: 48,
     },
     content: {
         flex: 1,
@@ -393,7 +362,7 @@ const styles = StyleSheet.create({
     },
     unitOption: {
         flex: 1,
-        backgroundColor: '#232527',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 12,
         borderWidth: 2,
         borderColor: Colors.inputBorderSolid,
@@ -424,13 +393,11 @@ const styles = StyleSheet.create({
         paddingBottom: 40,
     },
     saveButton: {
-        backgroundColor: Colors.buttonSecondary,
+        backgroundColor: Colors.buttonAction,
         borderRadius: 12,
         paddingVertical: 16,
         alignItems: 'center',
         justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: Colors.buttonSecondaryBorder,
     },
     saveButtonDisabled: {
         opacity: 0.5,
@@ -441,6 +408,6 @@ const styles = StyleSheet.create({
     saveButtonText: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
 });

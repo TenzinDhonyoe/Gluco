@@ -3,6 +3,7 @@ import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -93,6 +94,7 @@ export default function ConfirmEmailScreen() {
 
     const handleResendEmail = async () => {
         if (resendCooldown > 0 || !email) return;
+        triggerHaptic();
 
         setIsResending(true);
         try {
@@ -120,6 +122,7 @@ export default function ConfirmEmailScreen() {
     };
 
     const handleOpenEmail = () => {
+        triggerHaptic();
         Alert.alert(
             'Check Your Email',
             'Please open your email app and click the confirmation link. After verification, return to Gluco and we will automatically continue setup.',
@@ -128,6 +131,7 @@ export default function ConfirmEmailScreen() {
     };
 
     const handleRefreshStatus = async () => {
+        triggerHaptic('medium');
         if (hasNavigated.current) return;
         try {
             const { data: { session } } = await supabase.auth.getSession();
@@ -181,7 +185,7 @@ export default function ConfirmEmailScreen() {
                             onPress={handleOpenEmail}
                             activeOpacity={0.8}
                         >
-                            <Ionicons name="mail" size={20} color={Colors.textPrimary} style={styles.buttonIcon} />
+                            <Ionicons name="mail" size={20} color={Colors.buttonActionText} style={styles.buttonIcon} />
                             <Text style={styles.primaryButtonText}>Open Email App</Text>
                         </TouchableOpacity>
 
@@ -306,10 +310,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         width: '100%',
         height: 52,
-        backgroundColor: Colors.buttonPrimary,
-        borderWidth: 1,
-        borderColor: Colors.buttonBorder,
-        borderRadius: 8,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 16,
         marginBottom: 16,
     },
     buttonIcon: {
@@ -318,7 +320,7 @@ const styles = StyleSheet.create({
     primaryButtonText: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
     secondaryButton: {
         width: '100%',
@@ -342,8 +344,8 @@ const styles = StyleSheet.create({
     checkStatusButton: {
         width: '100%',
         height: 48,
-        backgroundColor: Colors.primary,
-        borderRadius: 8,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 24,
@@ -351,7 +353,7 @@ const styles = StyleSheet.create({
     checkStatusText: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
     waitingContainer: {
         flexDirection: 'row',

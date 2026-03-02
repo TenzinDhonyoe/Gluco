@@ -16,6 +16,7 @@ import {
   NormalizedFood,
   uploadMealPhoto,
 } from '@/lib/supabase';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { getGlucoseInputPlaceholder, parseGlucoseInput } from '@/lib/utils/glucoseUnits';
 import { getSmartUnitOptions } from '@/lib/utils/portionUnits';
 import { Ionicons } from '@expo/vector-icons';
@@ -346,7 +347,7 @@ function MetabolicScoreBadge({ score }: { score: number }) {
             cx={size / 2}
             cy={size / 2}
             r={radius}
-            stroke="rgba(255, 255, 255, 0.15)"
+            stroke="rgba(0, 0, 0, 0.08)"
             strokeWidth={strokeWidth}
             fill="transparent"
           />
@@ -386,17 +387,17 @@ function QuantityStepper({
   return (
     <View style={styles.quantityStepper}>
       <Pressable
-        onPress={() => onChange(Math.max(1, value - 1))}
+        onPress={() => { triggerHaptic(); onChange(Math.max(1, value - 1)); }}
         style={styles.stepperButton}
       >
-        <Ionicons name="remove" size={16} color="#FFFFFF" />
+        <Ionicons name="remove" size={16} color={Colors.textPrimary} />
       </Pressable>
       <Text style={styles.stepperValue}>{value}</Text>
       <Pressable
-        onPress={() => onChange(value + 1)}
+        onPress={() => { triggerHaptic(); onChange(value + 1); }}
         style={styles.stepperButton}
       >
-        <Ionicons name="add" size={16} color="#FFFFFF" />
+        <Ionicons name="add" size={16} color={Colors.textPrimary} />
       </Pressable>
     </View>
   );
@@ -413,7 +414,7 @@ function AdjustmentCard({
 }) {
   return (
     <Pressable
-      onPress={onToggle}
+      onPress={() => { triggerHaptic(); onToggle(); }}
       style={({ pressed }) => [
         styles.adjustmentCard,
         pressed && styles.adjustmentCardPressed,
@@ -884,8 +885,8 @@ export default function LogMealReviewScreen() {
 
       <View style={styles.fixItemControls}>
         <View style={styles.qtyRow}>
-          <Pressable onPress={() => handleUpdateQuantity(index, -0.25)} style={styles.qtyButton}>
-            <Ionicons name="remove" size={18} color="#FFFFFF" />
+          <Pressable onPress={() => { triggerHaptic(); handleUpdateQuantity(index, -0.25); }} style={styles.qtyButton}>
+            <Ionicons name="remove" size={18} color={Colors.textPrimary} />
           </Pressable>
           <TextInput
             value={quantityInputs[`${item.provider}-${item.external_id}`] ?? String(item.quantity || 1)}
@@ -894,16 +895,16 @@ export default function LogMealReviewScreen() {
             keyboardType="decimal-pad"
             style={styles.qtyInput}
           />
-          <Pressable onPress={() => handleUpdateQuantity(index, 0.25)} style={styles.qtyButton}>
-            <Ionicons name="add" size={18} color="#FFFFFF" />
+          <Pressable onPress={() => { triggerHaptic(); handleUpdateQuantity(index, 0.25); }} style={styles.qtyButton}>
+            <Ionicons name="add" size={18} color={Colors.textPrimary} />
           </Pressable>
         </View>
 
         <View style={styles.fixItemActions}>
-          <Pressable onPress={() => handleReplaceItem(index)} style={styles.replaceButton}>
+          <Pressable onPress={() => { triggerHaptic(); handleReplaceItem(index); }} style={styles.replaceButton}>
             <Text style={styles.replaceButtonText}>Replace</Text>
           </Pressable>
-          <Pressable onPress={() => handleRemoveItem(index)} style={styles.removeButton} hitSlop={8}>
+          <Pressable onPress={() => { triggerHaptic(); handleRemoveItem(index); }} style={styles.removeButton} hitSlop={8}>
             <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
           </Pressable>
         </View>
@@ -915,7 +916,7 @@ export default function LogMealReviewScreen() {
           return (
             <Pressable
               key={unit}
-              onPress={() => handleUnitChange(index, unit)}
+              onPress={() => { triggerHaptic(); handleUnitChange(index, unit); }}
               style={[styles.unitChip, active && styles.unitChipActive]}
             >
               <Text style={[styles.unitText, active && styles.unitTextActive]}>{unit}</Text>
@@ -961,11 +962,11 @@ export default function LogMealReviewScreen() {
       {/* Header */}
       <SafeAreaView edges={['top']} style={styles.newHeader}>
         <LiquidGlassIconButton size={44} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+          <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
         </LiquidGlassIconButton>
         <Text style={styles.headerTitle}>MEAL REVIEW</Text>
         <LiquidGlassIconButton size={44} onPress={() => setFixResultsOpen(true)}>
-          <Ionicons name="pencil" size={20} color="#E7E8E9" />
+          <Ionicons name="pencil" size={20} color="#1C1C1E" />
         </LiquidGlassIconButton>
       </SafeAreaView>
 
@@ -986,7 +987,7 @@ export default function LogMealReviewScreen() {
             <Image source={{ uri: imageUri }} style={styles.photoCardImage} resizeMode="cover" />
           ) : (
             <View style={styles.photoCardPlaceholder}>
-              <Ionicons name="restaurant-outline" size={48} color="rgba(255,255,255,0.3)" />
+              <Ionicons name="restaurant-outline" size={48} color={Colors.textMuted} />
             </View>
           )}
         </View>
@@ -1069,7 +1070,7 @@ export default function LogMealReviewScreen() {
       {/* Bottom Button */}
       <View style={[styles.bottomButtonContainer, { paddingBottom: insets.bottom + 16 }]}>
         <Pressable
-          onPress={handleSaveMeal}
+          onPress={() => { triggerHaptic('medium'); handleSaveMeal(); }}
           disabled={isSaving || items.length === 0}
           style={({ pressed }) => [
             styles.logMealButton,
@@ -1086,8 +1087,8 @@ export default function LogMealReviewScreen() {
         <SheetContent style={styles.fixResultsSheet}>
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>Edit Meal</Text>
-            <Pressable onPress={() => setFixResultsOpen(false)} hitSlop={10}>
-              <Ionicons name="close" size={24} color="#FFFFFF" />
+            <Pressable onPress={() => { triggerHaptic(); setFixResultsOpen(false); }} hitSlop={10}>
+              <Ionicons name="close" size={24} color={Colors.textPrimary} />
             </Pressable>
           </View>
 
@@ -1102,7 +1103,7 @@ export default function LogMealReviewScreen() {
                   setMealTitleEdited(Boolean(text.trim()));
                 }}
                 placeholder="Enter meal name"
-                placeholderTextColor="#6F6F6F"
+                placeholderTextColor={Colors.textPlaceholder}
                 style={styles.sheetInput}
               />
             </View>
@@ -1110,10 +1111,10 @@ export default function LogMealReviewScreen() {
             {/* Time edit */}
             <View style={styles.sheetSection}>
               <Text style={styles.sheetSectionLabel}>Time</Text>
-              <Pressable onPress={() => setTimeModalOpen(true)} style={styles.timeButton}>
+              <Pressable onPress={() => { triggerHaptic(); setTimeModalOpen(true); }} style={styles.timeButton}>
                 <Ionicons name="time-outline" size={18} color="#7ED3FF" />
                 <Text style={styles.timeButtonText}>{formatTime(mealTime)}</Text>
-                <Ionicons name="chevron-down" size={16} color="#878787" />
+                <Ionicons name="chevron-down" size={16} color={Colors.textSecondary} />
               </Pressable>
             </View>
 
@@ -1138,7 +1139,7 @@ export default function LogMealReviewScreen() {
                     value={macroOverrides.carbs ?? ''}
                     onChangeText={(text) => setMacroOverrides(prev => ({ ...prev, carbs: text || null }))}
                     placeholder={String(summary.carbs)}
-                    placeholderTextColor="#6F6F6F"
+                    placeholderTextColor={Colors.textPlaceholder}
                     keyboardType="decimal-pad"
                     style={styles.macroInput}
                   />
@@ -1149,7 +1150,7 @@ export default function LogMealReviewScreen() {
                     value={macroOverrides.protein ?? ''}
                     onChangeText={(text) => setMacroOverrides(prev => ({ ...prev, protein: text || null }))}
                     placeholder={String(summary.protein)}
-                    placeholderTextColor="#6F6F6F"
+                    placeholderTextColor={Colors.textPlaceholder}
                     keyboardType="decimal-pad"
                     style={styles.macroInput}
                   />
@@ -1160,7 +1161,7 @@ export default function LogMealReviewScreen() {
                     value={macroOverrides.fibre ?? ''}
                     onChangeText={(text) => setMacroOverrides(prev => ({ ...prev, fibre: text || null }))}
                     placeholder={String(summary.fibre)}
-                    placeholderTextColor="#6F6F6F"
+                    placeholderTextColor={Colors.textPlaceholder}
                     keyboardType="decimal-pad"
                     style={styles.macroInput}
                   />
@@ -1171,7 +1172,7 @@ export default function LogMealReviewScreen() {
                     value={macroOverrides.fat ?? ''}
                     onChangeText={(text) => setMacroOverrides(prev => ({ ...prev, fat: text || null }))}
                     placeholder={String(summary.fat)}
-                    placeholderTextColor="#6F6F6F"
+                    placeholderTextColor={Colors.textPlaceholder}
                     keyboardType="decimal-pad"
                     style={styles.macroInput}
                   />
@@ -1183,7 +1184,7 @@ export default function LogMealReviewScreen() {
             <View style={styles.sheetSection}>
               <View style={styles.itemsHeader}>
                 <Text style={styles.sheetSectionLabel}>Items ({items.length})</Text>
-                <Pressable onPress={handleAddItem}>
+                <Pressable onPress={() => { triggerHaptic(); handleAddItem(); }}>
                   <Text style={styles.addItemText}>+ Add item</Text>
                 </Pressable>
               </View>
@@ -1205,6 +1206,7 @@ export default function LogMealReviewScreen() {
             <View />
             <Pressable
               onPress={() => {
+                triggerHaptic();
                 setMealTime(applyTime(mealTime, { hour12: tempHour12, minute: tempMinute, period: tempPeriod }));
                 setTimeModalOpen(false);
               }}
@@ -1365,7 +1367,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 33,
-    backgroundColor: 'rgba(63, 66, 67, 0.3)',
+    backgroundColor: Colors.buttonSecondary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1376,10 +1378,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontFamily: fonts.semiBold,
     fontSize: 16,
-    color: '#FFFFFF',
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    color: Colors.textPrimary,
     letterSpacing: 1,
   },
 
@@ -1389,7 +1388,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(20, 20, 20, 0.98)',
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 12,
@@ -1397,7 +1396,7 @@ const styles = StyleSheet.create({
   dragHandle: {
     width: 40,
     height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: Colors.borderCard,
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: 16,
@@ -1439,7 +1438,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: fonts.bold,
     fontSize: 22,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     lineHeight: 28,
   },
 
@@ -1447,7 +1446,7 @@ const styles = StyleSheet.create({
   quantityStepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(0, 0, 0, 0.04)',
     borderRadius: 24,
     paddingHorizontal: 4,
     paddingVertical: 4,
@@ -1456,14 +1455,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   stepperValue: {
     fontFamily: fonts.semiBold,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     marginHorizontal: 16,
   },
 
@@ -1476,7 +1475,7 @@ const styles = StyleSheet.create({
   },
   macroItem: {
     width: (SCREEN_WIDTH - 50) / 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: Colors.buttonSecondary,
     borderRadius: 16,
     padding: 14,
   },
@@ -1491,13 +1490,13 @@ const styles = StyleSheet.create({
   macroLabel: {
     fontFamily: fonts.medium,
     fontSize: 12,
-    color: '#A0A0A0',
+    color: Colors.textSecondary,
     marginBottom: 2,
   },
   macroValue: {
     fontFamily: fonts.bold,
     fontSize: 18,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
 
   // Metabolic score
@@ -1525,16 +1524,16 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: fonts.medium,
     fontSize: 14,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
   scoreValue: {
     fontFamily: fonts.bold,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
   scoreBarBackground: {
     height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
     borderRadius: 3,
     overflow: 'hidden',
   },
@@ -1550,7 +1549,7 @@ const styles = StyleSheet.create({
   adjustmentsTitle: {
     fontFamily: fonts.semiBold,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     marginBottom: 12,
   },
   adjustmentsLoading: {
@@ -1560,15 +1559,17 @@ const styles = StyleSheet.create({
   adjustmentsLoadingText: {
     fontFamily: fonts.regular,
     fontSize: 14,
-    color: '#8C8C8C',
+    color: Colors.textSecondary,
   },
   adjustmentCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: Colors.backgroundCard,
     borderRadius: 16,
     padding: 16,
     marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'flex-start',
+    borderWidth: 1,
+    borderColor: Colors.borderCard,
   },
   adjustmentCardPressed: {
     opacity: 0.8,
@@ -1580,19 +1581,19 @@ const styles = StyleSheet.create({
   adjustmentAction: {
     fontFamily: fonts.semiBold,
     fontSize: 15,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     marginBottom: 4,
   },
   adjustmentImpact: {
     fontFamily: fonts.medium,
     fontSize: 13,
-    color: '#8C8C8C',
+    color: Colors.textSecondary,
     marginBottom: 8,
   },
   adjustmentDescription: {
     fontFamily: fonts.regular,
     fontSize: 13,
-    color: '#A0A0A0',
+    color: Colors.textSecondary,
     lineHeight: 18,
   },
   adjustmentCheckbox: {
@@ -1600,14 +1601,14 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: Colors.borderMedium,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 2,
   },
   adjustmentCheckboxSelected: {
-    backgroundColor: '#34C759',
-    borderColor: '#34C759',
+    backgroundColor: Colors.buttonAction,
+    borderColor: Colors.buttonAction,
   },
 
   // Action buttons
@@ -1623,20 +1624,20 @@ const styles = StyleSheet.create({
     gap: 8,
     height: 52,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: Colors.buttonSecondary,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: Colors.buttonSecondaryBorder,
   },
   fixResultsText: {
     fontFamily: fonts.semiBold,
     fontSize: 15,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
   doneButton: {
     flex: 1,
     height: 52,
     borderRadius: 16,
-    backgroundColor: '#333333',
+    backgroundColor: Colors.buttonAction,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1646,7 +1647,7 @@ const styles = StyleSheet.create({
   doneButtonText: {
     fontFamily: fonts.bold,
     fontSize: 15,
-    color: '#FFFFFF',
+    color: Colors.buttonActionText,
   },
   buttonPressed: {
     opacity: 0.8,
@@ -1655,7 +1656,7 @@ const styles = StyleSheet.create({
 
   // Fix Results Sheet
   fixResultsSheet: {
-    backgroundColor: '#1a1b1c',
+    backgroundColor: 'rgba(240, 248, 249, 0.97)',
     maxHeight: SCREEN_HEIGHT * 0.85,
   },
   sheetHeader: {
@@ -1665,12 +1666,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    borderBottomColor: 'rgba(60, 60, 67, 0.08)',
   },
   sheetTitle: {
     fontFamily: fonts.bold,
     fontSize: 18,
-    color: '#FFFFFF',
+    color: '#1C1C1E',
   },
   sheetScroll: {
     paddingHorizontal: 20,
@@ -1678,35 +1679,35 @@ const styles = StyleSheet.create({
   sheetSection: {
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    borderBottomColor: 'rgba(60, 60, 67, 0.08)',
   },
   sheetSectionLabel: {
     fontFamily: fonts.medium,
     fontSize: 12,
-    color: '#A7A7A7',
+    color: '#8E8E93',
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 10,
   },
   sheetInput: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: 'rgba(0, 0, 0, 0.04)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(60, 60, 67, 0.12)',
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontFamily: fonts.regular,
     fontSize: 15,
-    color: '#FFFFFF',
+    color: '#1C1C1E',
   },
   timeButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: 'rgba(0, 0, 0, 0.04)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(60, 60, 67, 0.12)',
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
@@ -1714,7 +1715,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: fonts.medium,
     fontSize: 15,
-    color: '#FFFFFF',
+    color: '#1C1C1E',
   },
   itemsHeader: {
     flexDirection: 'row',
@@ -1725,19 +1726,19 @@ const styles = StyleSheet.create({
   addItemText: {
     fontFamily: fonts.medium,
     fontSize: 14,
-    color: '#7ED3FF',
+    color: Colors.primary,
   },
   emptyText: {
     fontFamily: fonts.regular,
     fontSize: 14,
-    color: '#8C8C8C',
+    color: '#8E8E93',
     textAlign: 'center',
     paddingVertical: 20,
   },
 
   // Item rows in Fix Results
   fixItemRow: {
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: 'rgba(0, 0, 0, 0.04)',
     borderRadius: 14,
     padding: 14,
     marginBottom: 10,
@@ -1752,7 +1753,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: fonts.semiBold,
     fontSize: 15,
-    color: '#FFFFFF',
+    color: '#1C1C1E',
   },
   needsReviewPill: {
     paddingHorizontal: 8,
@@ -1763,7 +1764,7 @@ const styles = StyleSheet.create({
   needsReviewText: {
     fontFamily: fonts.medium,
     fontSize: 10,
-    color: '#F4A7A7',
+    color: '#EF4444',
   },
   fixItemControls: {
     flexDirection: 'row',
@@ -1782,7 +1783,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3F4243',
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
   },
   qtyInput: {
     minWidth: 50,
@@ -1790,9 +1791,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    color: '#E8E8E8',
+    borderColor: 'rgba(60, 60, 67, 0.12)',
+    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+    color: '#1C1C1E',
     fontFamily: fonts.medium,
     fontSize: 14,
     textAlign: 'center',
@@ -1806,14 +1807,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: 'rgba(126, 211, 255, 0.15)',
+    backgroundColor: 'rgba(45, 212, 191, 0.10)',
     borderWidth: 1,
-    borderColor: 'rgba(126, 211, 255, 0.3)',
+    borderColor: 'rgba(45, 212, 191, 0.25)',
   },
   replaceButtonText: {
     fontFamily: fonts.medium,
     fontSize: 12,
-    color: '#7ED3FF',
+    color: Colors.primary,
   },
   removeButton: {
     width: 36,
@@ -1834,20 +1835,20 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: 'rgba(60, 60, 67, 0.12)',
+    backgroundColor: 'rgba(0, 0, 0, 0.04)',
   },
   unitChipActive: {
-    borderColor: 'rgba(126, 211, 255, 0.6)',
-    backgroundColor: 'rgba(126, 211, 255, 0.16)',
+    borderColor: 'rgba(45, 212, 191, 0.5)',
+    backgroundColor: 'rgba(45, 212, 191, 0.10)',
   },
   unitText: {
     fontFamily: fonts.medium,
     fontSize: 12,
-    color: '#9B9B9B',
+    color: '#8E8E93',
   },
   unitTextActive: {
-    color: '#CFEFFF',
+    color: Colors.primary,
   },
   itemMacros: {
     flexDirection: 'row',
@@ -1856,7 +1857,7 @@ const styles = StyleSheet.create({
   itemMacroText: {
     fontFamily: fonts.regular,
     fontSize: 12,
-    color: '#8C8C8C',
+    color: Colors.textSecondary,
   },
 
   // Macro input grid for editing
@@ -1872,25 +1873,26 @@ const styles = StyleSheet.create({
   macroInputLabel: {
     fontFamily: fonts.medium,
     fontSize: 12,
-    color: '#878787',
+    color: '#8E8E93',
     marginBottom: 6,
   },
   macroInput: {
-    backgroundColor: '#2A2A2A',
+    backgroundColor: 'rgba(0, 0, 0, 0.04)',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontFamily: fonts.regular,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: '#1C1C1E',
     borderWidth: 1,
-    borderColor: '#3F3F3F',
+    borderColor: 'rgba(60, 60, 67, 0.12)',
   },
 
   // Time picker sheet
   timeSheet: {
-    backgroundColor: '#3F4243',
-    borderWidth: 0,
+    backgroundColor: 'rgba(240, 248, 249, 0.97)',
+    borderWidth: 1,
+    borderColor: 'rgba(45, 212, 191, 0.12)',
     left: 16,
     right: 16,
     bottom: 120,
@@ -1908,7 +1910,7 @@ const styles = StyleSheet.create({
   timeSheetSave: {
     fontFamily: fonts.medium,
     fontSize: 17,
-    color: '#3494D9',
+    color: Colors.primary,
   },
   timePickerRow: {
     flexDirection: 'row',
@@ -1929,7 +1931,7 @@ const styles = StyleSheet.create({
   timeColon: {
     fontFamily: fonts.medium,
     fontSize: 18,
-    color: '#FFFFFF',
+    color: '#1C1C1E',
     marginHorizontal: 2,
   },
   wheelItem: {
@@ -1938,15 +1940,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   wheelItemActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'rgba(45, 212, 191, 0.08)',
   },
   wheelText: {
     fontFamily: fonts.medium,
     fontSize: 18,
-    color: 'rgba(255, 255, 255, 0.45)',
+    color: 'rgba(60, 60, 67, 0.4)',
   },
   wheelTextActive: {
-    color: '#FFFFFF',
+    color: '#1C1C1E',
     fontFamily: fonts.semiBold,
   },
 
@@ -1980,13 +1982,13 @@ const styles = StyleSheet.create({
   mealTitleText: {
     fontFamily: fonts.semiBold,
     fontSize: 22,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     marginBottom: 4,
   },
   mealTimeText: {
     fontFamily: fonts.regular,
     fontSize: 14,
-    color: '#878787',
+    color: Colors.textSecondary,
   },
 
   // Photo card
@@ -1996,7 +1998,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
     marginBottom: 20,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: Colors.inputBackgroundSolid,
   },
   photoCardImage: {
     width: '100%',
@@ -2007,7 +2009,7 @@ const styles = StyleSheet.create({
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: Colors.inputBackgroundSolid,
   },
 
   // Simple Macro Row
@@ -2018,10 +2020,10 @@ const styles = StyleSheet.create({
     paddingVertical: 22,
     paddingHorizontal: 20,
     marginBottom: 24,
-    backgroundColor: '#1C1C1E', // Slightly lighter than background
+    backgroundColor: Colors.backgroundCard,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)', // Subtle border to define edges
+    borderColor: Colors.borderCard,
     // Shadow for depth
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -2036,7 +2038,7 @@ const styles = StyleSheet.create({
   simpleMacroLabel: {
     fontFamily: fonts.bold,
     fontSize: 12,
-    color: '#9E9E9E', // Slightly muted label to make value pop
+    color: Colors.textSecondary,
     textTransform: 'uppercase',
     marginBottom: 8,
     letterSpacing: 1,
@@ -2044,7 +2046,7 @@ const styles = StyleSheet.create({
   simpleMacroValue: {
     fontFamily: fonts.bold, // Bolder value
     fontSize: 22,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     letterSpacing: 0.5,
   },
 
@@ -2058,7 +2060,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    borderBottomColor: Colors.borderCard,
   },
   foodItemInfo: {
     flex: 1,
@@ -2067,25 +2069,25 @@ const styles = StyleSheet.create({
   foodItemName: {
     fontFamily: fonts.medium,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
   foodItemBrand: {
     fontFamily: fonts.regular,
     fontSize: 12,
-    color: '#878787',
+    color: Colors.textSecondary,
     marginTop: 2,
   },
   foodItemQuantity: {
     fontFamily: fonts.medium,
     fontSize: 14,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
 
   // Food Data Source
   foodDataSource: {
     fontFamily: fonts.regular,
     fontSize: 12,
-    color: '#878787',
+    color: Colors.textSecondary,
     marginTop: 4,
     marginBottom: 20,
   },
@@ -2100,7 +2102,7 @@ const styles = StyleSheet.create({
   metabolicScoreLabel: {
     fontFamily: fonts.medium,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
   scoreBadge: {
     width: 40,
@@ -2137,7 +2139,7 @@ const styles = StyleSheet.create({
   driversSectionTitle: {
     fontFamily: fonts.semiBold,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     marginBottom: 12,
   },
   driversList: {
@@ -2151,14 +2153,14 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.textSecondary,
     marginTop: 6,
     marginRight: 10,
   },
   driverText: {
     fontFamily: fonts.regular,
     fontSize: 14,
-    color: '#FFFFFF',
+    color: Colors.textSecondary,
     flex: 1,
     lineHeight: 20,
   },
@@ -2176,7 +2178,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: 14,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     marginLeft: 12,
     lineHeight: 20,
   },
@@ -2189,23 +2191,23 @@ const styles = StyleSheet.create({
     right: 0,
     paddingHorizontal: 16,
     paddingTop: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(242, 242, 247, 0.9)',
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    borderTopColor: Colors.border,
   },
   logMealButton: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 30,
+    backgroundColor: Colors.buttonAction,
+    borderRadius: 16,
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   logMealButtonDisabled: {
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: Colors.buttonDisabled,
   },
   logMealButtonText: {
     fontFamily: fonts.semiBold,
     fontSize: 16,
-    color: '#000000',
+    color: Colors.buttonActionText,
   },
 });

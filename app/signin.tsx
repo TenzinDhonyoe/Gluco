@@ -6,6 +6,7 @@ import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { RESET_PASSWORD_REDIRECT_URI } from '@/lib/deeplinks';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
@@ -97,6 +98,7 @@ export default function SignInScreen() {
     };
 
     const handleSignUp = () => {
+        triggerHaptic();
         router.push('/signup');
     };
 
@@ -191,7 +193,7 @@ export default function SignInScreen() {
                                         right={(
                                             <TouchableOpacity
                                                 style={styles.eyeButton}
-                                                onPress={() => setShowPassword(!showPassword)}
+                                                onPress={() => { triggerHaptic(); setShowPassword(!showPassword); }}
                                             >
                                                 <Ionicons
                                                     name={showPassword ? "eye-off-outline" : "eye-outline"}
@@ -241,7 +243,7 @@ export default function SignInScreen() {
                                         disabled={isAppleLoading}
                                     >
                                         <View style={styles.appleIconContainer}>
-                                            <Ionicons name="logo-apple" size={22} color={Colors.textPrimary} />
+                                            <Ionicons name="logo-apple" size={22} color={'#FFFFFF'} />
                                         </View>
                                         <Text style={styles.appleButtonText}>
                                             {isAppleLoading ? 'Signing in...' : 'Continue with Apple'}
@@ -334,7 +336,7 @@ const styles = StyleSheet.create({
         fontFamily: fonts.regular, // Outfit Regular (400)
         fontSize: 14,
         lineHeight: 14 * 1.2, // 1.2 line-height
-        color: '#616161',
+        color: Colors.textSecondary,
         marginHorizontal: 18,
     },
     // Social buttons container
@@ -363,7 +365,7 @@ const styles = StyleSheet.create({
         fontFamily: fonts.medium, // Outfit Medium (500)
         fontSize: 16,
         lineHeight: 16 * 1.2, // 1.2 line-height
-        color: Colors.textPrimary,
+        color: '#FFFFFF',
     },
     // Sign Up link - Outfit Regular (400), 14px
     signUpText: {
@@ -371,10 +373,10 @@ const styles = StyleSheet.create({
         fontSize: 14,
         lineHeight: 14 * 1.0, // normal line-height
         textAlign: 'center',
-        color: '#97a0ab',
+        color: Colors.textSecondary,
     },
     signUpLink: {
-        color: '#47aa4b', // Green link color from Figma
+        color: Colors.primary,
         fontFamily: fonts.regular,
     },
     // Forgot Password link
@@ -403,7 +405,7 @@ const styles = StyleSheet.create({
     comingSoonText: {
         fontFamily: fonts.medium,
         fontSize: 10,
-        color: '#AAAAAA',
+        color: Colors.textMuted,
         textTransform: 'uppercase',
     },
 });

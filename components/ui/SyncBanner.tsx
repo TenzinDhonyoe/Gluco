@@ -177,24 +177,26 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
         return null;
     }
 
+    const pillContent = (
+        <>
+            <View style={styles.iconContainer}>
+                <Animated.View style={[styles.iconWrapper, syncIconStyle]}>
+                    <Ionicons name="sync-outline" size={18} color={Colors.textPrimary} />
+                </Animated.View>
+                <Animated.View style={[styles.iconWrapper, checkmarkStyle]}>
+                    <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
+                </Animated.View>
+            </View>
+            <Text style={styles.text}>
+                {bannerState === 'complete' ? 'Synced!' : 'Syncing data...'}
+            </Text>
+        </>
+    );
+
     return (
         <Animated.View style={[styles.container, { top: topOffset }, bannerStyle]}>
             <View style={styles.pill}>
-                <View style={styles.iconContainer}>
-                    {/* Sync icon (rotating) */}
-                    <Animated.View style={[styles.iconWrapper, syncIconStyle]}>
-                        <Ionicons name="sync-outline" size={18} color={Colors.textPrimary} />
-                    </Animated.View>
-
-                    {/* Checkmark icon (appears on completion) */}
-                    <Animated.View style={[styles.iconWrapper, checkmarkStyle]}>
-                        <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
-                    </Animated.View>
-                </View>
-
-                <Text style={styles.text}>
-                    {bannerState === 'complete' ? 'Synced!' : 'Syncing data...'}
-                </Text>
+                {pillContent}
             </View>
         </Animated.View>
     );
@@ -212,13 +214,18 @@ const styles = StyleSheet.create({
     pill: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(40, 42, 44, 0.95)',
+        backgroundColor: 'rgba(255, 255, 255, 0.97)',
         paddingHorizontal: 16,
         paddingVertical: 10,
         borderRadius: 24,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        borderColor: Colors.borderCard,
         gap: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 4,
     },
     iconContainer: {
         width: 20,

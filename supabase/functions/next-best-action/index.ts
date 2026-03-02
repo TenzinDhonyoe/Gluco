@@ -131,6 +131,71 @@ function getRulesBasedAction(ctx: UserContextObject): FallbackAction | null {
         }
     }
 
+    const todayDow = ctx.day_of_week;
+
+    // Score-component-aware tips
+    if (ctx.score_components) {
+        const sc = ctx.score_components;
+        const entries: { key: string; score: number }[] = [];
+        if (sc.sleep !== null) entries.push({ key: 'sleep', score: sc.sleep });
+        if (sc.steps !== null) entries.push({ key: 'steps', score: sc.steps });
+        if (sc.rhr !== null) entries.push({ key: 'rhr', score: sc.rhr });
+        if (sc.hrv !== null) entries.push({ key: 'hrv', score: sc.hrv });
+
+        if (entries.length > 0) {
+            entries.sort((a, b) => a.score - b.score);
+            const weakest = entries[0];
+
+            // Only suggest if component score is below ~40th percentile
+            if (weakest.score < 15) {
+                // Time-gate: sleep → evening/night, steps/rhr → daytime, hrv → evening
+                if (weakest.key === 'sleep' && h >= 19) {
+                    return {
+                        title: 'Prioritize sleep tonight',
+                        description: 'Your sleep patterns have the most room for improvement — a consistent bedtime could support your score.',
+                        action_type: 'sleep_improvement',
+                        time_context: 'Tonight',
+                        because: 'Sleep is currently your biggest opportunity for score improvement.',
+                        cta: { label: 'View insights', route: '/(tabs)/insights' },
+                    };
+                }
+                if (weakest.key === 'steps' && h >= 8 && h < 20) {
+                    const stepsStr = ctx.patterns.avg_steps_per_day
+                        ? `You've averaged ${Math.round(ctx.patterns.avg_steps_per_day).toLocaleString()} steps/day`
+                        : 'Your step count has room to grow';
+                    return {
+                        title: 'Add more movement today',
+                        description: `${stepsStr} — a 10-min walk after your next meal could make a difference.`,
+                        action_type: 'post_meal_walk',
+                        time_context: 'After your next meal',
+                        because: 'Daily steps are currently your biggest opportunity for score improvement.',
+                        cta: { label: 'Log activity', route: '/log-activity' },
+                    };
+                }
+                if (weakest.key === 'rhr' && h >= 8 && h < 20) {
+                    return {
+                        title: 'Support your recovery',
+                        description: 'Your resting heart rate is elevated — gentle movement or a breathing exercise can help.',
+                        action_type: 'recovery_activity',
+                        time_context: 'When you have a moment',
+                        because: 'Recovery is currently your biggest opportunity for score improvement.',
+                        cta: { label: 'Log activity', route: '/log-activity' },
+                    };
+                }
+                if (weakest.key === 'hrv' && h >= 18) {
+                    return {
+                        title: 'Focus on recovery tonight',
+                        description: 'Your recovery patterns have room to grow — consistent sleep and winding down early support this.',
+                        action_type: 'recovery_sleep',
+                        time_context: 'This evening',
+                        because: 'Heart rate variability is currently your biggest opportunity for score improvement.',
+                        cta: { label: 'View insights', route: '/(tabs)/insights' },
+                    };
+                }
+            }
+        }
+    }
+
     // Worst glucose day: suggest a walk
     if (ctx.worst_glucose_days.includes(todayDow) && h >= 10 && h <= 18) {
         return {
@@ -144,7 +209,6 @@ function getRulesBasedAction(ctx: UserContextObject): FallbackAction | null {
     }
 
     // Low activity day detection
-    const todayDow = ctx.day_of_week;
     const todayMeals = ctx.patterns.logging_by_day_of_week[todayDow] ?? 0;
     const avgDailyMeals = ctx.patterns.meals_logged / 7;
     if (todayMeals < avgDailyMeals * 0.5 && h >= 10) {
@@ -295,7 +359,25 @@ serve(async (req) => {
             dietaryInstruction = `\nRespect dietary preferences: ${ctx.dietary_preferences.join(', ')}. Do not suggest foods that conflict with these.`;
         }
 
-        const extraInstructions = [timeInstruction, dedupInstruction, programInstruction, dowInstruction, engagementGapInstruction, troughInstruction, dietaryInstruction].filter(Boolean).join('\n');
+        // Score component targeting
+        let scoreTargetInstruction = '';
+        if (ctx.score_components) {
+            const sc = ctx.score_components;
+            const componentLabels: Record<string, string> = { rhr: 'resting heart rate', steps: 'daily steps', sleep: 'sleep quality', hrv: 'heart rate variability' };
+            const entries: { key: string; score: number }[] = [];
+            if (sc.rhr !== null) entries.push({ key: 'rhr', score: sc.rhr });
+            if (sc.steps !== null) entries.push({ key: 'steps', score: sc.steps });
+            if (sc.sleep !== null) entries.push({ key: 'sleep', score: sc.sleep });
+            if (sc.hrv !== null) entries.push({ key: 'hrv', score: sc.hrv });
+            if (entries.length >= 2) {
+                entries.sort((a, b) => a.score - b.score);
+                const weakest = entries[0];
+                const strongest = entries[entries.length - 1];
+                scoreTargetInstruction = `\nThe user's weakest wellness component is ${componentLabels[weakest.key]} and their strongest is ${componentLabels[strongest.key]}. Bias your suggestion toward improving ${componentLabels[weakest.key]}.`;
+            }
+        }
+
+        const extraInstructions = [timeInstruction, dedupInstruction, programInstruction, dowInstruction, engagementGapInstruction, troughInstruction, dietaryInstruction, scoreTargetInstruction].filter(Boolean).join('\n');
 
         // Call Gemini
         const prompt = assemblePrompt(ctx, 'next_best_action', extraInstructions);

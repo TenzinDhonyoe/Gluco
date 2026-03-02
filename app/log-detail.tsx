@@ -3,6 +3,7 @@ import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import {
     type ActivityIntensity,
     type ActivityLog,
@@ -385,7 +386,7 @@ export default function LogDetailScreen() {
                                 onOpenChange={setMealTypeModalOpen}
                                 trigger={
                                     <Pressable
-                                        onPress={() => setMealTypeModalOpen(true)}
+                                        onPress={() => { triggerHaptic(); setMealTypeModalOpen(true); }}
                                         style={styles.selectShell}
                                     >
                                         <Text style={[styles.selectText, editMealType && styles.selectTextActive]}>
@@ -556,7 +557,7 @@ export default function LogDetailScreen() {
                             onOpenChange={setContextModalOpen}
                             trigger={
                                 <Pressable
-                                    onPress={() => setContextModalOpen(true)}
+                                    onPress={() => { triggerHaptic(); setContextModalOpen(true); }}
                                     style={styles.selectShell}
                                 >
                                     <Text style={[styles.selectText, editGlucoseContext && styles.selectTextActive]}>
@@ -679,7 +680,7 @@ export default function LogDetailScreen() {
                             onOpenChange={setIntensityModalOpen}
                             trigger={
                                 <Pressable
-                                    onPress={() => setIntensityModalOpen(true)}
+                                    onPress={() => { triggerHaptic(); setIntensityModalOpen(true); }}
                                     style={styles.selectShell}
                                 >
                                     <Text style={[styles.selectText, editIntensity && styles.selectTextActive]}>
@@ -754,7 +755,7 @@ export default function LogDetailScreen() {
                 <SafeAreaView edges={['top']} style={styles.safe}>
                     <View style={styles.header}>
                         <LiquidGlassIconButton size={44} onPress={() => router.back()}>
-                            <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                            <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
                         </LiquidGlassIconButton>
                         <Text style={styles.headerTitle}>ERROR</Text>
                         <View style={styles.headerSpacer} />
@@ -762,7 +763,7 @@ export default function LogDetailScreen() {
                     <View style={styles.emptyState}>
                         <Ionicons name="alert-circle-outline" size={48} color={Colors.textTertiary} />
                         <Text style={styles.emptyStateText}>Invalid log parameters</Text>
-                        <Pressable onPress={() => router.back()} style={styles.backLink}>
+                        <Pressable onPress={() => { triggerHaptic(); router.back(); }} style={styles.backLink}>
                             <Text style={styles.backLinkText}>Go back</Text>
                         </Pressable>
                     </View>
@@ -777,7 +778,7 @@ export default function LogDetailScreen() {
                 {/* Header */}
                 <View style={styles.header}>
                     <LiquidGlassIconButton size={44} onPress={() => router.back()}>
-                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                        <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
                     </LiquidGlassIconButton>
 
                     <Text style={styles.headerTitle}>{getTitle()}</Text>
@@ -787,7 +788,7 @@ export default function LogDetailScreen() {
                             <Ionicons
                                 name={isEditing ? 'close' : 'pencil'}
                                 size={20}
-                                color="#E7E8E9"
+                                color="#1C1C1E"
                             />
                         </LiquidGlassIconButton>
                     ) : (
@@ -803,7 +804,7 @@ export default function LogDetailScreen() {
                     <View style={styles.emptyState}>
                         <Ionicons name="document-text-outline" size={48} color={Colors.textTertiary} />
                         <Text style={styles.emptyStateText}>Log not found</Text>
-                        <Pressable onPress={() => router.back()} style={styles.backLink}>
+                        <Pressable onPress={() => { triggerHaptic(); router.back(); }} style={styles.backLink}>
                             <Text style={styles.backLinkText}>Go back</Text>
                         </Pressable>
                     </View>
@@ -822,7 +823,7 @@ export default function LogDetailScreen() {
                         <View style={styles.bottomButtonContainer}>
                             {isEditing ? (
                                 <Pressable
-                                    onPress={handleSave}
+                                    onPress={() => { triggerHaptic('medium'); handleSave(); }}
                                     disabled={isSaving}
                                     style={({ pressed }) => [
                                         styles.saveButton,
@@ -838,7 +839,7 @@ export default function LogDetailScreen() {
                                 </Pressable>
                             ) : (
                                 <Pressable
-                                    onPress={handleDelete}
+                                    onPress={() => { triggerHaptic('medium'); handleDelete(); }}
                                     disabled={isDeleting}
                                     style={({ pressed }) => [
                                         styles.deleteButton,
@@ -924,11 +925,13 @@ const styles = StyleSheet.create({
     },
     // Form card
     formCard: {
-        backgroundColor: 'rgba(63,66,67,0.25)',
+        backgroundColor: 'rgba(240, 248, 249, 0.7)',
         borderRadius: 16,
         paddingHorizontal: 16,
         paddingVertical: 20,
         gap: 24,
+        borderWidth: 1,
+        borderColor: 'rgba(45, 212, 191, 0.10)',
     },
     block: {
         gap: 10,
@@ -1095,7 +1098,7 @@ const styles = StyleSheet.create({
     },
     itemDivider: {
         height: 1,
-        backgroundColor: 'rgba(255,255,255,0.06)',
+        backgroundColor: 'rgba(60, 60, 67, 0.08)',
         marginVertical: 12,
     },
     // Total macros grid

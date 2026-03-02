@@ -9,6 +9,7 @@ import {
     UserExperiment,
     VariantMetrics,
 } from '@/lib/supabase';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -75,6 +76,7 @@ export default function ExperimentResultsScreen() {
     };
 
     const handleSaveInsight = () => {
+        triggerHaptic('medium');
         // TODO: Implement "Save to My Insights" logic (Phase 4)
         Alert.alert('Insight Saved', 'This finding has been pinned to your dashboard for the week.');
         router.push('/(tabs)/' as any);
@@ -172,7 +174,7 @@ export default function ExperimentResultsScreen() {
                         <Text style={styles.primaryButtonText}>Save this Insight</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.secondaryButton} onPress={() => router.push('/experiments-list' as any)}>
+                    <TouchableOpacity style={styles.secondaryButton} onPress={() => { triggerHaptic(); router.push('/experiments-list' as any); }}>
                         <Text style={styles.secondaryButtonText}>Start New Experiment</Text>
                     </TouchableOpacity>
 

@@ -189,7 +189,7 @@ export default function OnboardingGoalsScreen() {
                         disabled={!isContinueEnabled || isLoading}
                     >
                         {isLoading ? (
-                            <ActivityIndicator color={Colors.textPrimary} />
+                            <ActivityIndicator color={Colors.buttonActionText} />
                         ) : (
                             <Text style={[styles.continueButtonText, !isContinueEnabled && styles.continueButtonTextDisabled]}>
                                 Continue
@@ -248,16 +248,16 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.inputBackground,
         borderRadius: 12,
         paddingHorizontal: 16,
         paddingVertical: 16,
         borderWidth: 1,
-        borderColor: 'transparent',
+        borderColor: Colors.borderCard,
     },
     goalItemSelected: {
-        backgroundColor: 'rgba(40, 94, 42, 0.3)',
-        borderColor: Colors.buttonPrimary,
+        backgroundColor: Colors.primaryLight,
+        borderColor: Colors.primary,
     },
     goalItemDisabled: {
         opacity: 0.5,
@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
         marginBottom: 10,
         fontFamily: fonts.medium,
         fontSize: 13,
-        color: '#B5B5B5',
+        color: Colors.textSecondary,
         letterSpacing: 0.6,
     },
     readinessRow: {
@@ -292,14 +292,14 @@ const styles = StyleSheet.create({
     readinessChip: {
         borderRadius: 10,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.12)',
-        backgroundColor: 'rgba(63, 66, 67, 0.28)',
+        borderColor: Colors.borderCard,
+        backgroundColor: Colors.inputBackground,
         paddingVertical: 12,
         paddingHorizontal: 14,
     },
     readinessChipSelected: {
         borderColor: Colors.primary,
-        backgroundColor: 'rgba(52,148,217,0.2)',
+        backgroundColor: Colors.primaryLight,
     },
     readinessChipText: {
         fontFamily: fonts.medium,
@@ -307,7 +307,7 @@ const styles = StyleSheet.create({
         color: Colors.textPrimary,
     },
     readinessChipTextSelected: {
-        color: '#EAF6FF',
+        color: Colors.primary,
     },
     buttonContainer: {
         position: 'absolute',
@@ -318,23 +318,20 @@ const styles = StyleSheet.create({
     continueButton: {
         width: '100%',
         height: 48,
-        backgroundColor: Colors.buttonSecondary,
-        borderWidth: 1,
-        borderColor: Colors.buttonSecondaryBorder,
-        borderRadius: 8,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
     },
     continueButtonDisabled: {
-        backgroundColor: Colors.borderCard,
-        borderColor: Colors.borderCard,
+        backgroundColor: Colors.buttonDisabled,
     },
     continueButtonText: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
     continueButtonTextDisabled: {
-        color: Colors.textTertiary,
+        color: Colors.buttonDisabledText,
     },
 });

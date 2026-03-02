@@ -3,7 +3,6 @@
 
 import { AnimatedScreen } from '@/components/animations/animated-screen';
 import { SegmentedControl } from '@/components/controls/segmented-control';
-import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -14,6 +13,7 @@ import {
     startUserExperiment,
     UserExperiment,
 } from '@/lib/supabase';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
@@ -27,7 +27,6 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 type FilterKey = 'active' | 'completed' | 'all';
 
@@ -142,7 +141,7 @@ export default function ExperimentsListScreen() {
             <TouchableOpacity
                 key={exp.id}
                 style={styles.experimentCard}
-                onPress={() => router.push(`/experiment-detail?id=${exp.id}` as any)}
+                onPress={() => { triggerHaptic(); router.push(`/experiment-detail?id=${exp.id}` as any); }}
                 activeOpacity={0.7}
             >
                 <View style={styles.cardHeader}>
@@ -199,7 +198,7 @@ export default function ExperimentsListScreen() {
             <TouchableOpacity
                 key={template.id}
                 style={styles.templateCard}
-                onPress={() => handleStartExperiment(template.id)}
+                onPress={() => { triggerHaptic(); handleStartExperiment(template.id); }}
                 activeOpacity={0.7}
                 disabled={isStarting || isSuccess}
             >
@@ -225,16 +224,7 @@ export default function ExperimentsListScreen() {
     return (
         <AnimatedScreen>
             <View style={styles.container}>
-                <SafeAreaView edges={['top']} style={styles.safeArea}>
-                    {/* Header */}
-                    <View style={styles.header}>
-                        <LiquidGlassIconButton size={44} onPress={() => router.back()}>
-                            <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
-                        </LiquidGlassIconButton>
-                        <Text style={styles.headerTitle}>My Experiments</Text>
-                        <View style={styles.headerSpacer} />
-                    </View>
-
+                <View style={styles.safeArea}>
                     {/* Filter Tabs */}
                     <View style={styles.filterContainer}>
                         <SegmentedControl<FilterKey>
@@ -322,7 +312,7 @@ export default function ExperimentsListScreen() {
                                 {availableTemplates.length > 4 && (
                                     <TouchableOpacity
                                         style={styles.seeAllButton}
-                                        onPress={() => router.push('/(tabs)/insights?tab=experiments' as any)}
+                                        onPress={() => { triggerHaptic(); router.push('/(tabs)/insights?tab=experiments' as any); }}
                                     >
                                         <Text style={styles.seeAllText}>
                                             See All {availableTemplates.length} Experiments
@@ -337,7 +327,7 @@ export default function ExperimentsListScreen() {
 
                         <View style={{ height: 100 }} />
                     </ScrollView>
-                </SafeAreaView>
+                </View>
             </View>
         </AnimatedScreen>
     );
@@ -350,28 +340,6 @@ const styles = StyleSheet.create({
     },
     safeArea: {
         flex: 1,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-    },
-    backButton: {
-        width: 40,
-        height: 40,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    headerTitle: {
-        flex: 1,
-        fontFamily: fonts.semiBold,
-        fontSize: 18,
-        color: Colors.textPrimary,
-        textAlign: 'center',
-    },
-    headerSpacer: {
-        width: 40,
     },
     filterContainer: {
         paddingHorizontal: 16,

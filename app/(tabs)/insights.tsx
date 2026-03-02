@@ -1,14 +1,16 @@
-import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { MetabolicScoreRing } from '@/components/charts/MetabolicScoreRing';
 import { SegmentedControl } from '@/components/controls/segmented-control';
+import { ActiveExperimentCard } from '@/components/experiments/ActiveExperimentCard';
+import { ExperimentLibraryCard } from '@/components/experiments/ExperimentLibraryCard';
 import { DataCoverageCard } from '@/components/progress/DataCoverageCard';
 import { MetricCard } from '@/components/progress/MetricCard';
 import { Disclaimer } from '@/components/ui/Disclaimer';
-import { behaviorV1Theme } from '@/constants/behaviorV1Theme';
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { useNextBestAction } from '@/hooks/useNextBestAction';
 import { usePersonalInsights } from '@/hooks/usePersonalInsights';
 import { useWeeklyReview } from '@/hooks/useWeeklyReview';
 import { isBehaviorV1Experience } from '@/lib/experience';
@@ -17,6 +19,7 @@ import {
     ActivityLog,
     CarePathwayTemplate,
     DailyContext,
+    ExperimentTemplate,
     GlucoseLog,
     MealWithCheckin,
     MetabolicWeeklyScore,
@@ -30,6 +33,7 @@ import {
     getActivityLogsByDateRange,
     getCarePathwayTemplates,
     getDailyContextByRange,
+    getExperimentTemplates,
     getFibreIntakeSummary,
     getGlucoseLogsByDateRange,
     getMealsWithCheckinsByDateRange,
@@ -46,9 +50,9 @@ import {
     upsertMetabolicDailyFeature,
 } from '@/lib/supabase';
 import { formatGlucoseWithUnit } from '@/lib/utils/glucoseUnits';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
@@ -154,12 +158,12 @@ const ACTION_FOCUS_OPTIONS: { label: string; value: ActionFocusKey }[] = [
 ];
 
 const BEHAVIOR_SEGMENTED_PALETTE = {
-    containerBg: 'rgba(14, 24, 20, 0.72)',
-    containerBorder: behaviorV1Theme.borderSoft,
-    sliderColors: ['rgba(168, 197, 160, 0.38)', 'rgba(168, 197, 160, 0.22)', 'rgba(168, 197, 160, 0.3)'] as [string, string, string],
-    sliderBorder: 'rgba(168, 197, 160, 0.45)',
-    inactiveText: 'rgba(198, 215, 199, 0.8)',
-    activeText: behaviorV1Theme.textPrimary,
+    containerBg: 'rgba(118, 118, 128, 0.12)',
+    containerBorder: 'rgba(60, 60, 67, 0.06)',
+    sliderColors: ['rgba(255,255,255,1)', 'rgba(255,255,255,0.98)', 'rgba(255,255,255,1)'] as [string, string, string],
+    sliderBorder: 'rgba(0,0,0,0.04)',
+    inactiveText: '#8E8E93',
+    activeText: '#1C1C1E',
 };
 const ACTION_TYPE_TO_FOCUS: Record<string, ActionFocusKey> = {
     post_meal_walk: 'activity',
@@ -177,6 +181,25 @@ const ACTION_TYPE_TO_FOCUS: Record<string, ActionFocusKey> = {
     meal_checkin: 'glucose',
     log_weight: 'activity',
 };
+
+const EXPERIMENT_SLUG_TO_FOCUS: Record<string, ActionFocusKey> = {
+    'oatmeal-vs-eggs': 'glucose',
+    'rice-portion-swap': 'glucose',
+    'fiber-preload': 'glucose',
+    'meal-timing': 'glucose',
+    'breakfast-skip': 'glucose',
+    'acv-shot': 'glucose',
+    'hydration-challenge': 'glucose',
+    'post-meal-walk': 'activity',
+    'cold-shower': 'activity',
+    'box-breathing': 'sleep',
+};
+
+function mapTemplateFocus(slug: string, category: string): ActionFocusKey {
+    if (EXPERIMENT_SLUG_TO_FOCUS[slug]) return EXPERIMENT_SLUG_TO_FOCUS[slug];
+    if (category === 'meal' || category === 'portion' || category === 'timing') return 'glucose';
+    return 'activity';
+}
 
 const PROGRESS_RANGES = [30, 90, 180];
 
@@ -418,16 +441,18 @@ export default function InsightsScreen() {
         dismiss: dismissWeeklyReview,
     } = useWeeklyReview(user?.id, isBehaviorV1);
 
-
+    const { action: nbaAction, source: nbaSource, loading: nbaLoading, trackTap } = useNextBestAction(user?.id, isBehaviorV1);
 
     // Experiments state
     const [suggestedExperiments, setSuggestedExperiments] = useState<SuggestedExperiment[]>([]);
     const [activeExperiments, setActiveExperiments] = useState<UserExperiment[]>([]);
+    const [allTemplates, setAllTemplates] = useState<ExperimentTemplate[]>([]);
     const [experimentsLoading, setExperimentsLoading] = useState(false);
     const [startingExperiment, setStartingExperiment] = useState<string | null>(null);
     const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set());
 
     const toggleCardExpanded = (id: string) => {
+        triggerHaptic();
         setExpandedCardIds(prev => {
             const next = new Set(prev);
             if (next.has(id)) {
@@ -567,12 +592,14 @@ export default function InsightsScreen() {
         if (!user) return;
         setExperimentsLoading(true);
         try {
-            const [active, suggestions] = await Promise.all([
+            const [active, suggestions, templates] = await Promise.all([
                 getUserExperiments(user.id, ['draft', 'active']),
                 getSuggestedExperiments(user.id, 6),
+                getExperimentTemplates(),
             ]);
             setActiveExperiments(active);
             if (suggestions?.suggestions) setSuggestedExperiments(suggestions.suggestions);
+            setAllTemplates(templates);
         } catch (error) {
             console.error('Error fetching experiments:', error);
         } finally {
@@ -633,11 +660,9 @@ export default function InsightsScreen() {
         useCallback(() => {
             fetchCoreData();
             fetchActions();
-            if (!isBehaviorV1) {
-                fetchExperimentsData();
-            }
+            fetchExperimentsData();
             fetchMetabolicScore();
-        }, [fetchCoreData, fetchActions, fetchExperimentsData, fetchMetabolicScore, isBehaviorV1])
+        }, [fetchCoreData, fetchActions, fetchExperimentsData, fetchMetabolicScore])
     );
 
     useFocusEffect(
@@ -953,6 +978,7 @@ export default function InsightsScreen() {
 
     const handleStartAction = async (insightId: string, action: InsightAction) => {
         if (!user) return;
+        triggerHaptic('medium');
         const windowStart = new Date();
         const windowEnd = addHours(windowStart, action.windowHours || 48);
         const metricKey = action.metricKey as MetricKey;
@@ -983,6 +1009,7 @@ export default function InsightsScreen() {
     };
 
     const handleMarkActionDone = async (action: UserAction) => {
+        triggerHaptic('medium');
         await updateUserAction(action.id, {
             status: 'completed',
             completed_at: new Date().toISOString(),
@@ -993,6 +1020,7 @@ export default function InsightsScreen() {
 
     const handleStartPathway = async (template: CarePathwayTemplate) => {
         if (!user) return;
+        triggerHaptic('medium');
         setPathwayLoading(true);
         try {
             const now = new Date();
@@ -1014,6 +1042,7 @@ export default function InsightsScreen() {
     };
 
     const handleTogglePathwayStep = async (stepId: string) => {
+        triggerHaptic();
         if (!carePathway) return;
         const completed = Array.isArray(carePathway.progress?.completed_step_ids)
             ? carePathway.progress.completed_step_ids
@@ -1030,6 +1059,7 @@ export default function InsightsScreen() {
 
     const handleStartExperiment = async (suggestion: SuggestedExperiment) => {
         if (!user || startingExperiment) return;
+        triggerHaptic('medium');
         setStartingExperiment(suggestion.template.id);
         try {
             const experiment = await startUserExperiment(
@@ -1055,6 +1085,47 @@ export default function InsightsScreen() {
             setStartingExperiment(null);
             Alert.alert('Error', 'Something went wrong.');
         }
+    };
+
+    const handleStartFromTemplate = (template: ExperimentTemplate) => {
+        if (!user || startingExperiment) return;
+        triggerHaptic();
+        // If user already has an active experiment for this template, go to detail
+        const existing = activeExperiments.find(e => e.template_id === template.id);
+        if (existing) {
+            router.push({ pathname: '/experiment-detail', params: { id: existing.id } } as any);
+            return;
+        }
+
+        const durationDays = template.protocol?.duration_days || 7;
+        Alert.alert(
+            `Start "${template.title}"?`,
+            `${template.short_description || template.description || ''}\n\nThis is a ${durationDays}-day experiment. You'll log completion each day.`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Start Experiment',
+                    onPress: async () => {
+                        setStartingExperiment(template.id);
+                        try {
+                            const experiment = await startUserExperiment(user.id, template.id);
+                            if (experiment) {
+                                setStartingExperiment(null);
+                                fetchExperimentsData();
+                                router.push({ pathname: '/experiment-detail', params: { id: experiment.id } } as any);
+                            } else {
+                                setStartingExperiment(null);
+                                Alert.alert('Error', 'Failed to start experiment.');
+                            }
+                        } catch (error) {
+                            console.error('Error starting experiment:', error);
+                            setStartingExperiment(null);
+                            Alert.alert('Error', 'Something went wrong.');
+                        }
+                    },
+                },
+            ]
+        );
     };
 
     const actionCandidates = useMemo(() => {
@@ -1207,7 +1278,7 @@ export default function InsightsScreen() {
                         <Ionicons
                             name={isExpanded ? "information-circle" : "information-circle-outline"}
                             size={22}
-                            color={isBehaviorV1 ? behaviorV1Theme.textSecondary : Colors.textTertiary}
+                            color={Colors.textTertiary}
                         />
                     </TouchableOpacity>
                 </View>
@@ -1247,6 +1318,7 @@ export default function InsightsScreen() {
                             <TouchableOpacity
                                 style={[styles.primaryButton, isBehaviorV1 && styles.behaviorPrimaryButton]}
                                 onPress={() => {
+                                    triggerHaptic();
                                     if (action.cta?.route) {
                                         router.push(action.cta.route as any);
                                     }
@@ -1286,7 +1358,10 @@ export default function InsightsScreen() {
                     {emptyState.cta && (
                         <TouchableOpacity
                             style={[styles.emptyStateCtaButton, isBehaviorV1 && styles.behaviorEmptyStateCtaButton]}
-                            onPress={() => router.push(emptyState.cta?.route as any)}
+                            onPress={() => {
+                                triggerHaptic();
+                                router.push(emptyState.cta?.route as any);
+                            }}
                         >
                             <Text style={[styles.emptyStateCtaText, isBehaviorV1 && styles.behaviorEmptyStateCtaText]}>
                                 {emptyState.cta.label}
@@ -1307,7 +1382,7 @@ export default function InsightsScreen() {
                             <Ionicons
                                 name={isExpanded ? "information-circle" : "information-circle-outline"}
                                 size={22}
-                                color={isBehaviorV1 ? behaviorV1Theme.textSecondary : Colors.textTertiary}
+                                color={Colors.textTertiary}
                             />
                         </TouchableOpacity>
                     </View>
@@ -1505,29 +1580,24 @@ export default function InsightsScreen() {
 
         const directionIcon = weeklyReview.metric_direction === 'up' ? 'trending-up' :
             weeklyReview.metric_direction === 'down' ? 'trending-down' : 'remove-outline';
-        const directionColor = weeklyReview.metric_direction === 'up' ? behaviorV1Theme.sageBright :
-            weeklyReview.metric_direction === 'down' ? Colors.warning : behaviorV1Theme.textSecondary;
+        const directionColor = weeklyReview.metric_direction === 'up' ? Colors.success :
+            weeklyReview.metric_direction === 'down' ? Colors.warning : Colors.textSecondary;
 
         return (
-            <LinearGradient
-                colors={['rgba(22, 40, 32, 0.88)', 'rgba(14, 28, 22, 0.85)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.weeklyReviewCard}
-            >
+            <View style={styles.weeklyReviewCard}>
                 <View style={styles.weeklyReviewHeader}>
                     <View style={styles.weeklyReviewBadge}>
-                        <Ionicons name="sparkles-outline" size={14} color={behaviorV1Theme.sageBright} />
+                        <Ionicons name="sparkles-outline" size={14} color={Colors.primary} />
                         <Text style={styles.weeklyReviewBadgeText}>Weekly Pattern</Text>
                     </View>
                     <TouchableOpacity onPress={dismissWeeklyReview} hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}>
-                        <Ionicons name="close" size={18} color={behaviorV1Theme.textSecondary} />
+                        <Ionicons name="close" size={18} color={Colors.textTertiary} />
                     </TouchableOpacity>
                 </View>
                 <Text style={styles.weeklyReviewText}>{weeklyReview.text}</Text>
                 {weeklyReview.experiment_suggestion && (
                     <View style={styles.weeklyReviewExperiment}>
-                        <Ionicons name="flask-outline" size={14} color={behaviorV1Theme.sageMid} />
+                        <Ionicons name="flask-outline" size={14} color={Colors.primary} />
                         <Text style={styles.weeklyReviewExperimentText}>{weeklyReview.experiment_suggestion}</Text>
                     </View>
                 )}
@@ -1537,26 +1607,81 @@ export default function InsightsScreen() {
                         {weeklyReview.key_metric.replace(/_/g, ' ')}
                     </Text>
                 </View>
-            </LinearGradient>
+            </View>
+        );
+    };
+
+    const activeExperimentForCard = useMemo(() => {
+        return activeExperiments.find(e => e.status === 'active' && e.experiment_templates);
+    }, [activeExperiments]);
+
+    // Filter library templates to exclude the active experiment's template
+    const libraryTemplates = useMemo(() => {
+        const activeTemplateId = activeExperimentForCard?.template_id;
+        return allTemplates.filter(t => t.id !== activeTemplateId);
+    }, [allTemplates, activeExperimentForCard]);
+
+    // Suggested experiments filtered by active focus tab (AI-personalized, ranked by score)
+    const focusedSuggestions = useMemo(() => {
+        const activeTemplateId = activeExperimentForCard?.template_id;
+        return suggestedExperiments
+            .filter(s => s.template.id !== activeTemplateId)
+            .filter(s => mapTemplateFocus(s.template.slug, s.template.category) === activeFocusTab)
+            .sort((a, b) => b.score - a.score);
+    }, [suggestedExperiments, activeFocusTab, activeExperimentForCard]);
+
+    // Fallback: filtered library templates when no suggestions available for this tab
+    const focusedLibraryFallback = useMemo(() => {
+        if (focusedSuggestions.length > 0) return [];
+        return libraryTemplates.filter(t => mapTemplateFocus(t.slug, t.category) === activeFocusTab);
+    }, [libraryTemplates, activeFocusTab, focusedSuggestions.length]);
+
+    const renderNextBestActionCard = () => {
+        if (nbaLoading) {
+            return (
+                <View style={styles.nbaCard}>
+                    <View style={styles.nbaShimmer}>
+                        <ActivityIndicator color="rgba(45, 212, 191, 0.6)" size="small" />
+                        <Text style={styles.nbaShimmerText}>Finding your next best action...</Text>
+                    </View>
+                </View>
+            );
+        }
+
+        if (!nbaAction) return null;
+
+        return (
+            <View style={styles.nbaCard}>
+                <View style={styles.nbaHeader}>
+                    <View style={styles.nbaLabelRow}>
+                        <Ionicons name="sparkles" size={14} color="rgba(45, 212, 191, 1)" />
+                        <Text style={styles.nbaLabel}>SUGGESTED FOR YOU</Text>
+                    </View>
+                    <View style={[styles.nbaSourceBadge, nbaSource === 'ai' ? styles.nbaSourceAi : styles.nbaSourceRules]}>
+                        <Text style={[styles.nbaSourceText, nbaSource === 'ai' ? styles.nbaSourceTextAi : styles.nbaSourceTextRules]}>
+                            {nbaSource === 'ai' ? 'AI' : 'Rules'}
+                        </Text>
+                    </View>
+                </View>
+                <Text style={styles.nbaTitle}>{nbaAction.title}</Text>
+                <Text style={styles.nbaDescription}>{nbaAction.description}</Text>
+                {nbaAction.because ? (
+                    <Text style={styles.nbaBecause}>{nbaAction.because}</Text>
+                ) : null}
+            </View>
         );
     };
 
     const renderBehaviorActionsTab = () => (
         <Animated.ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 4 }]} showsVerticalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16}>
-            {renderWeeklyReviewCard()}
-            <Text style={[styles.sectionDescription, styles.behaviorSectionDescription]}>
-                Focused, personalized actions for glucose, activity, and sleep.
-            </Text>
+            {/* AI Next Best Action - hero card */}
+            {renderNextBestActionCard()}
 
-            <LinearGradient
-                colors={['rgba(16, 28, 22, 0.84)', 'rgba(10, 20, 16, 0.82)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[styles.focusSummaryCard, styles.behaviorFocusSummaryCard]}
-            >
+            {/* Focus panel summary */}
+            <View style={[styles.focusSummaryCard, styles.behaviorFocusSummaryCard]}>
                 <View style={styles.focusSummaryHeader}>
                     <View style={[styles.focusSummaryIcon, styles.behaviorFocusSummaryIcon]}>
-                        <Ionicons name={focusPanel.icon} size={16} color={behaviorV1Theme.sageBright} />
+                        <Ionicons name={focusPanel.icon} size={16} color="rgba(45, 212, 191, 1)" />
                     </View>
                     <View style={styles.focusSummaryTextWrap}>
                         <Text style={[styles.focusSummaryTitle, styles.behaviorFocusSummaryTitle]}>{focusPanel.title}</Text>
@@ -1564,45 +1689,63 @@ export default function InsightsScreen() {
                     </View>
                 </View>
                 <Text style={[styles.focusSummaryBody, styles.behaviorFocusSummaryBody]}>{focusPanel.detail}</Text>
-            </LinearGradient>
+            </View>
 
-            {actionsLoading ? (
-                <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 16 }} />
-            ) : (
-                <>
-                    {focusedActiveActions.length > 0 && (
-                        <View style={styles.sectionBlock}>
-                            <Text style={[styles.sectionSubtitle, styles.behaviorSectionSubtitle]}>Active in this focus</Text>
-                            {focusedActiveActions.map(renderActionCard)}
-                        </View>
-                    )}
-
-                    <View style={styles.sectionBlock}>
-                        <Text style={[styles.sectionSubtitle, styles.behaviorSectionSubtitle]}>Recommended next steps</Text>
-                        {renderActionCandidates(focusedActionCandidates, {
-                            title: focusPanel.emptyTitle,
-                            text: focusPanel.emptyText,
-                            cta: focusPanel.cta,
-                        })}
-                    </View>
-
-                    {focusedRecentActions.length > 0 && (
-                        <View style={styles.sectionBlock}>
-                            <Text style={[styles.sectionSubtitle, styles.behaviorSectionSubtitle]}>Recent outcomes in this focus</Text>
-                            {focusedRecentActions.map(renderActionCard)}
-                        </View>
-                    )}
-                </>
+            {/* Current experiment (if active and matches focus tab) */}
+            {activeExperimentForCard && (
+                <View style={styles.experimentsSection}>
+                    <Text style={styles.experimentsSectionLabel}>CURRENT EXPERIMENT</Text>
+                    <ActiveExperimentCard experiment={activeExperimentForCard} onStopped={fetchExperimentsData} />
+                </View>
             )}
 
-            {activeFocusTab === 'glucose' && (
-                <>
-                    <Text style={[styles.sectionTitle, styles.behaviorSectionTitle]}>Care Pathway</Text>
-                    <Text style={[styles.sectionDescription, styles.behaviorSectionDescription]}>
-                        Structured 7-day plans close the loop from signal to outcome.
-                    </Text>
-                    {renderCarePathway()}
-                </>
+            {/* Personalized experiments for this focus tab */}
+            {experimentsLoading ? (
+                <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 12 }} />
+            ) : (
+                <View style={styles.experimentsSection}>
+                    <View style={styles.experimentsLibraryHeader}>
+                        <Text style={styles.experimentsLibraryTitle}>Try an Experiment</Text>
+                        <TouchableOpacity onPress={() => { triggerHaptic(); router.push('/experiments-list' as any); }}>
+                            <Text style={styles.experimentsFilterLink}>See all</Text>
+                        </TouchableOpacity>
+                    </View>
+                    {focusedSuggestions.length > 0 ? (
+                        <View style={styles.experimentsGrid}>
+                            {focusedSuggestions.map((suggestion) => (
+                                <View key={suggestion.template.id} style={styles.experimentsGridItem}>
+                                    <ExperimentLibraryCard
+                                        template={suggestion.template}
+                                        onPress={handleStartFromTemplate}
+                                        reason={suggestion.reasons?.[0]}
+                                    />
+                                </View>
+                            ))}
+                            {focusedSuggestions.length % 2 !== 0 && <View style={styles.experimentsGridItem} />}
+                        </View>
+                    ) : focusedLibraryFallback.length > 0 ? (
+                        <View style={styles.experimentsGrid}>
+                            {focusedLibraryFallback.map((template) => (
+                                <View key={template.id} style={styles.experimentsGridItem}>
+                                    <ExperimentLibraryCard
+                                        template={template}
+                                        onPress={handleStartFromTemplate}
+                                    />
+                                </View>
+                            ))}
+                            {focusedLibraryFallback.length % 2 !== 0 && <View style={styles.experimentsGridItem} />}
+                        </View>
+                    ) : (
+                        <View style={styles.focusEmptyExperiments}>
+                            <Text style={styles.focusEmptyExperimentsText}>
+                                No experiments available for this focus area yet.
+                            </Text>
+                            <TouchableOpacity onPress={() => { triggerHaptic(); router.push('/experiments-list' as any); }}>
+                                <Text style={styles.experimentsFilterLink}>Browse all experiments</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
+                </View>
             )}
         </Animated.ScrollView>
     );
@@ -1675,12 +1818,7 @@ export default function InsightsScreen() {
         return (
             <Animated.ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16}>
                 {/* Section 1: Hero Score Card */}
-                <LinearGradient
-                    colors={['#2A2C2C', '#212222']}
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 1 }}
-                    style={[styles.progressCard, { alignItems: 'center', paddingVertical: 28 }]}
-                >
+                <View style={[styles.progressCard, { alignItems: 'center', paddingVertical: 28 }]}>
                     {metabolicScoreLoading ? (
                         <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 40 }} />
                     ) : hasScore ? (
@@ -1721,7 +1859,7 @@ export default function InsightsScreen() {
                             </Text>
                         </>
                     )}
-                </LinearGradient>
+                </View>
 
                 {/* Section 2: Metric Cards Grid */}
                 <Text style={[styles.sectionTitle, { marginBottom: 4 }]}>Score Breakdown</Text>
@@ -1818,7 +1956,7 @@ export default function InsightsScreen() {
                 <Text style={styles.sectionDescription}>Structured experiments refine what actually moves your numbers.</Text>
                 <TouchableOpacity
                     style={styles.primaryButton}
-                    onPress={() => router.push('/experiments-list' as any)}
+                    onPress={() => { triggerHaptic(); router.push('/experiments-list' as any); }}
                 >
                     <Text style={styles.primaryButtonText}>Browse experiments</Text>
                 </TouchableOpacity>
@@ -1860,72 +1998,72 @@ export default function InsightsScreen() {
 
     return (
         <View style={styles.container}>
-            <ForestGlassBackground blurIntensity={12} />
+            <ForestGlassBackground />
 
-                {/* Content - scrolls behind header */}
-                <View style={styles.safeArea}>
-                    {insightsLoading ? (
-                        <View style={[styles.loadingContainer, { paddingTop: HEADER_HEIGHT + 8 }]}>
-                            <ActivityIndicator color={Colors.textTertiary} />
-                            <Text style={styles.loadingText}>
-                                {isBehaviorV1 ? 'Loading action plans...' : 'Loading insights...'}
-                            </Text>
-                        </View>
+            {/* Content - scrolls behind header */}
+            <View style={styles.safeArea}>
+                {insightsLoading ? (
+                    <View style={[styles.loadingContainer, { paddingTop: HEADER_HEIGHT + 8 }]}>
+                        <ActivityIndicator color={Colors.textTertiary} />
+                        <Text style={styles.loadingText}>
+                            {isBehaviorV1 ? 'Loading action plans...' : 'Loading insights...'}
+                        </Text>
+                    </View>
+                ) : (
+                    isBehaviorV1 ? (
+                        renderBehaviorActionsTab()
                     ) : (
-                        isBehaviorV1 ? (
-                            renderBehaviorActionsTab()
-                        ) : (
-                            <>
-                                {activeTab === 'progress' && renderProgressTab()}
-                                {activeTab === 'actions' && renderActionsTab()}
-                                {activeTab === 'experiments' && renderExperimentsTab()}
-                            </>
-                        )
-                    )}
-                </View>
+                        <>
+                            {activeTab === 'progress' && renderProgressTab()}
+                            {activeTab === 'actions' && renderActionsTab()}
+                            {activeTab === 'experiments' && renderExperimentsTab()}
+                        </>
+                    )
+                )}
+            </View>
 
-                {/* Blurred Header */}
-                <View style={styles.blurHeaderContainer}>
-                    {/* Animated background - transparent at top, opaque when scrolled */}
-                    <Animated.View style={[styles.headerBackground, { opacity: headerBgOpacity }]} />
-                    <View style={{ paddingTop: insets.top }}>
-                        {isBehaviorV1 ? (
-                            <View style={styles.behaviorHeaderContainer}>
-                                <View style={styles.planHeaderRow}>
-                                    <Text style={[styles.behaviorHeaderTitle, styles.behaviorHeaderTitleTuned]}>DAILY FOCUS</Text>
-                                    <View style={[styles.betaPill, styles.behaviorBetaPill]}>
-                                        <Text style={[styles.betaPillText, styles.behaviorBetaPillText]}>BETA</Text>
-                                    </View>
-                                </View>
-                                <View style={styles.focusControlWrap}>
-                                    <SegmentedControl
-                                        options={ACTION_FOCUS_OPTIONS}
-                                        value={activeFocusTab}
-                                        onChange={setActiveFocusTab}
-                                        palette={BEHAVIOR_SEGMENTED_PALETTE}
-                                    />
+            {/* Blurred Header */}
+            <View style={styles.blurHeaderContainer}>
+                {/* Animated background - transparent at top, opaque when scrolled */}
+                <Animated.View style={[styles.headerBackground, { opacity: headerBgOpacity }]} />
+                <View style={{ paddingTop: insets.top }}>
+                    {isBehaviorV1 ? (
+                        <View style={styles.behaviorHeaderContainer}>
+                            <View style={styles.planHeaderRow}>
+                                <Text style={[styles.behaviorHeaderTitle, styles.behaviorHeaderTitleTuned]}>ACTION PLAN</Text>
+                                <View style={[styles.betaPill, styles.behaviorBetaPill]}>
+                                    <Text style={[styles.betaPillText, styles.behaviorBetaPillText]}>BETA</Text>
                                 </View>
                             </View>
-                        ) : (
-                            <>
-                                <View style={styles.header}>
-                                    <Text style={styles.headerTitle}>INSIGHTS</Text>
-                                </View>
-                                <View style={styles.segmentedControlContainer}>
-                                    <SegmentedControl
-                                        options={[
-                                            { label: 'PROGRESS', value: 'progress' },
-                                            { label: 'ACTIONS', value: 'actions' },
-                                            { label: 'EXPERIMENTS', value: 'experiments' },
-                                        ]}
-                                        value={activeTab}
-                                        onChange={setActiveTab}
-                                    />
-                                </View>
-                            </>
-                        )}
-                    </View>
+                            <View style={styles.focusControlWrap}>
+                                <SegmentedControl
+                                    options={ACTION_FOCUS_OPTIONS}
+                                    value={activeFocusTab}
+                                    onChange={setActiveFocusTab}
+                                    palette={BEHAVIOR_SEGMENTED_PALETTE}
+                                />
+                            </View>
+                        </View>
+                    ) : (
+                        <>
+                            <View style={styles.header}>
+                                <Text style={styles.headerTitle}>INSIGHTS</Text>
+                            </View>
+                            <View style={styles.segmentedControlContainer}>
+                                <SegmentedControl
+                                    options={[
+                                        { label: 'PROGRESS', value: 'progress' },
+                                        { label: 'ACTIONS', value: 'actions' },
+                                        { label: 'EXPERIMENTS', value: 'experiments' },
+                                    ]}
+                                    value={activeTab}
+                                    onChange={setActiveTab}
+                                />
+                            </View>
+                        </>
+                    )}
                 </View>
+            </View>
         </View>
     );
 }
@@ -1950,7 +2088,7 @@ const styles = StyleSheet.create({
     },
     headerBackground: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(10, 21, 17, 0.42)',
+        backgroundColor: 'rgba(255, 255, 255, 0.75)',
     },
     header: {
         flexDirection: 'row',
@@ -1982,7 +2120,7 @@ const styles = StyleSheet.create({
         letterSpacing: 1,
     },
     behaviorHeaderTitleTuned: {
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
     },
     subtitle: {
         fontFamily: fonts.regular,
@@ -2012,16 +2150,16 @@ const styles = StyleSheet.create({
         color: Colors.textPrimary,
     },
     behaviorSectionTitle: {
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
     },
     sectionSubtitle: {
         fontFamily: fonts.semiBold,
         fontSize: 15,
-        color: '#E0E0E0',
+        color: Colors.textPrimary,
         marginBottom: 8,
     },
     behaviorSectionSubtitle: {
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
     },
     sectionDescription: {
         fontFamily: fonts.regular,
@@ -2029,7 +2167,7 @@ const styles = StyleSheet.create({
         color: Colors.textSecondary,
     },
     behaviorSectionDescription: {
-        color: behaviorV1Theme.textSecondary,
+        color: Colors.textSecondary,
     },
     sectionBlock: {
         gap: 12,
@@ -2045,21 +2183,21 @@ const styles = StyleSheet.create({
         paddingVertical: 4,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.32)',
-        backgroundColor: 'rgba(255,255,255,0.14)',
+        borderColor: 'rgba(60, 60, 67, 0.18)',
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
     },
     betaPillText: {
         fontFamily: fonts.semiBold,
         fontSize: 11,
-        color: '#F2F5F4',
+        color: Colors.textSecondary,
         letterSpacing: 0.4,
     },
     behaviorBetaPill: {
-        borderColor: behaviorV1Theme.borderSoft,
-        backgroundColor: 'rgba(139, 168, 136, 0.22)',
+        borderColor: 'rgba(60, 60, 67, 0.12)',
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
     },
     behaviorBetaPillText: {
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textSecondary,
     },
     focusControlWrap: {
         marginTop: 2,
@@ -2069,11 +2207,17 @@ const styles = StyleSheet.create({
         paddingHorizontal: 14,
         paddingVertical: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.14)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+        backgroundColor: '#FFFFFF',
         gap: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 2,
     },
     behaviorFocusSummaryCard: {
-        borderColor: behaviorV1Theme.borderSoft,
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     focusSummaryHeader: {
         flexDirection: 'row',
@@ -2086,13 +2230,13 @@ const styles = StyleSheet.create({
         borderRadius: 999,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'rgba(255,255,255,0.14)',
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
+        borderColor: 'rgba(45, 212, 191, 0.15)',
     },
     behaviorFocusSummaryIcon: {
-        backgroundColor: 'rgba(139, 168, 136, 0.16)',
-        borderColor: behaviorV1Theme.borderSoft,
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
+        borderColor: 'rgba(45, 212, 191, 0.15)',
     },
     focusSummaryTextWrap: {
         flex: 1,
@@ -2101,27 +2245,27 @@ const styles = StyleSheet.create({
     focusSummaryTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 14,
-        color: '#F5F7F6',
+        color: Colors.textPrimary,
     },
     behaviorFocusSummaryTitle: {
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
     },
     focusSummaryMetric: {
         fontFamily: fonts.medium,
         fontSize: 13,
-        color: '#D1DDD8',
+        color: Colors.textSecondary,
     },
     behaviorFocusSummaryMetric: {
-        color: behaviorV1Theme.sageBright,
+        color: Colors.primary,
     },
     focusSummaryBody: {
         fontFamily: fonts.regular,
         fontSize: 12,
         lineHeight: 18,
-        color: '#B5C1BC',
+        color: Colors.textSecondary,
     },
     behaviorFocusSummaryBody: {
-        color: behaviorV1Theme.textSecondary,
+        color: Colors.textSecondary,
     },
     actionTitle: {
         fontFamily: fonts.semiBold,
@@ -2135,16 +2279,21 @@ const styles = StyleSheet.create({
         color: Colors.textSecondary,
     },
     actionCard: {
-        backgroundColor: Colors.backgroundCard,
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 16,
         gap: 6,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+        elevation: 1,
     },
     behaviorActionCard: {
-        backgroundColor: behaviorV1Theme.surfaceStrong,
-        borderColor: behaviorV1Theme.borderSoft,
+        backgroundColor: '#FFFFFF',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     actionHeaderRow: {
         flexDirection: 'row',
@@ -2161,42 +2310,42 @@ const styles = StyleSheet.create({
         lineHeight: 22,
     },
     behaviorActionTitleHero: {
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
     },
     actionDescription: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#B0B0B0',
+        color: Colors.textSecondary,
         lineHeight: 20,
     },
     behaviorActionDescription: {
-        color: behaviorV1Theme.textSecondary,
+        color: Colors.textSecondary,
     },
     expandedContent: {
         marginTop: 8,
         paddingTop: 8,
         borderTopWidth: 1,
-        borderTopColor: 'rgba(255,255,255,0.06)',
+        borderTopColor: 'rgba(60, 60, 67, 0.08)',
         gap: 8,
     },
     behaviorExpandedContent: {
-        borderTopColor: 'rgba(168, 197, 160, 0.25)',
+        borderTopColor: 'rgba(60, 60, 67, 0.08)',
     },
     behaviorActionMeta: {
-        color: behaviorV1Theme.textSecondary,
+        color: Colors.textSecondary,
     },
     statusPill: {
         alignSelf: 'flex-start',
         paddingHorizontal: 8,
         paddingVertical: 2,
         borderRadius: 4,
-        backgroundColor: 'rgba(255,255,255,0.06)',
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
         marginTop: 4,
     },
     behaviorStatusPill: {
-        backgroundColor: 'rgba(139, 168, 136, 0.16)',
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
         borderWidth: 1,
-        borderColor: behaviorV1Theme.borderSoft,
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     statusPillText: {
         fontFamily: fonts.medium,
@@ -2205,13 +2354,13 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
     },
     behaviorStatusPillText: {
-        color: behaviorV1Theme.textSecondary,
+        color: Colors.textSecondary,
     },
     statusActive: {
-        backgroundColor: 'rgba(53, 150, 80, 0.15)',
+        backgroundColor: 'rgba(53, 150, 80, 0.10)',
     },
     statusInactive: {
-        backgroundColor: 'rgba(255,255,255,0.08)',
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
     },
     actionOutcomeRow: {
         flexDirection: 'row',
@@ -2224,7 +2373,7 @@ const styles = StyleSheet.create({
         color: Colors.textTertiary,
     },
     behaviorActionOutcomeLabel: {
-        color: behaviorV1Theme.textSecondary,
+        color: Colors.textSecondary,
     },
     actionOutcomeValue: {
         fontFamily: fonts.semiBold,
@@ -2233,7 +2382,7 @@ const styles = StyleSheet.create({
         marginTop: 2,
     },
     behaviorActionOutcomeValue: {
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
     },
     deltaPositive: {
         color: Colors.success,
@@ -2242,7 +2391,7 @@ const styles = StyleSheet.create({
         color: Colors.error,
     },
     deltaNeutral: {
-        color: '#B0B0B0',
+        color: Colors.textTertiary,
     },
     actionButtons: {
         flexDirection: 'row',
@@ -2259,9 +2408,9 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     behaviorPrimaryButton: {
-        backgroundColor: behaviorV1Theme.ctaPrimary,
+        backgroundColor: Colors.primary,
         borderWidth: 1,
-        borderColor: 'rgba(168, 197, 160, 0.42)',
+        borderColor: 'rgba(45, 212, 191, 0.3)',
     },
     primaryButtonText: {
         fontFamily: fonts.semiBold,
@@ -2269,11 +2418,11 @@ const styles = StyleSheet.create({
         color: Colors.textPrimary,
     },
     behaviorPrimaryButtonText: {
-        color: behaviorV1Theme.ctaPrimaryText,
+        color: '#FFFFFF',
     },
     secondaryButton: {
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
+        borderColor: 'rgba(60, 60, 67, 0.18)',
         paddingVertical: 10,
         paddingHorizontal: 14,
         borderRadius: 12,
@@ -2284,20 +2433,20 @@ const styles = StyleSheet.create({
     secondaryButtonText: {
         fontFamily: fonts.medium,
         fontSize: 13,
-        color: '#E0E0E0',
+        color: Colors.textPrimary,
     },
     emptyStateCard: {
-        backgroundColor: Colors.backgroundCard,
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 20,
         alignItems: 'center',
         gap: 8,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     behaviorEmptyStateCard: {
-        backgroundColor: behaviorV1Theme.surfaceStrong,
-        borderColor: behaviorV1Theme.borderSoft,
+        backgroundColor: '#FFFFFF',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     emptyStateImage: {
         width: 72,
@@ -2310,7 +2459,7 @@ const styles = StyleSheet.create({
         color: Colors.textPrimary,
     },
     behaviorEmptyStateTitle: {
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
     },
     emptyStateText: {
         fontFamily: fonts.regular,
@@ -2319,7 +2468,7 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     behaviorEmptyStateText: {
-        color: behaviorV1Theme.textSecondary,
+        color: Colors.textSecondary,
     },
     emptyStateCtaButton: {
         marginTop: 6,
@@ -2327,32 +2476,37 @@ const styles = StyleSheet.create({
         paddingVertical: 9,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.24)',
-        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderColor: 'rgba(60, 60, 67, 0.18)',
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
     },
     behaviorEmptyStateCtaButton: {
-        borderColor: behaviorV1Theme.borderSoft,
-        backgroundColor: 'rgba(139, 168, 136, 0.2)',
+        borderColor: 'rgba(45, 212, 191, 0.3)',
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
     },
     emptyStateCtaText: {
         fontFamily: fonts.semiBold,
         fontSize: 12,
-        color: '#E6EAE8',
+        color: Colors.textPrimary,
     },
     behaviorEmptyStateCtaText: {
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
     },
     pathwayCard: {
-        backgroundColor: Colors.backgroundCard,
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 16,
         gap: 10,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+        elevation: 1,
     },
     behaviorPathwayCard: {
-        backgroundColor: behaviorV1Theme.surfaceStrong,
-        borderColor: behaviorV1Theme.borderSoft,
+        backgroundColor: '#FFFFFF',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     pathwayHeader: {
         flexDirection: 'row',
@@ -2365,15 +2519,15 @@ const styles = StyleSheet.create({
         color: Colors.textPrimary,
     },
     behaviorPathwayTitle: {
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
     },
     pathwayDescription: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#CFCFCF',
+        color: Colors.textSecondary,
     },
     behaviorPathwayDescription: {
-        color: behaviorV1Theme.textSecondary,
+        color: Colors.textSecondary,
     },
     pathwayMeta: {
         fontFamily: fonts.regular,
@@ -2381,7 +2535,7 @@ const styles = StyleSheet.create({
         color: Colors.textTertiary,
     },
     behaviorPathwayMeta: {
-        color: behaviorV1Theme.textSecondary,
+        color: Colors.textSecondary,
     },
     pathwaySteps: {
         gap: 8,
@@ -2393,15 +2547,15 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 10,
         borderRadius: 12,
-        backgroundColor: 'rgba(255,255,255,0.04)',
+        backgroundColor: 'rgba(0, 0, 0, 0.02)',
     },
     behaviorPathwayStepRow: {
-        backgroundColor: 'rgba(139, 168, 136, 0.14)',
+        backgroundColor: 'rgba(45, 212, 191, 0.04)',
         borderWidth: 1,
-        borderColor: 'rgba(168, 197, 160, 0.28)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     pathwayStepRowDone: {
-        backgroundColor: 'rgba(76, 175, 80, 0.12)',
+        backgroundColor: 'rgba(76, 175, 80, 0.08)',
     },
     pathwayStepTitle: {
         fontFamily: fonts.medium,
@@ -2409,15 +2563,15 @@ const styles = StyleSheet.create({
         color: Colors.textPrimary,
     },
     behaviorPathwayStepTitle: {
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
     },
     pathwayStepDescription: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#B0B0B0',
+        color: Colors.textSecondary,
     },
     behaviorPathwayStepDescription: {
-        color: behaviorV1Theme.textSecondary,
+        color: Colors.textSecondary,
     },
     pathwayOutcomeRow: {
         flexDirection: 'row',
@@ -2431,7 +2585,7 @@ const styles = StyleSheet.create({
         color: Colors.textTertiary,
     },
     behaviorPathwayOutcomeLabel: {
-        color: behaviorV1Theme.textSecondary,
+        color: Colors.textSecondary,
     },
     pathwayOutcomeValue: {
         fontFamily: fonts.semiBold,
@@ -2440,7 +2594,7 @@ const styles = StyleSheet.create({
         marginTop: 2,
     },
     behaviorPathwayOutcomeValue: {
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
     },
     pathwayDisclaimer: {
         marginTop: 6,
@@ -2453,34 +2607,33 @@ const styles = StyleSheet.create({
     rangeToggle: {
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
+        borderColor: 'rgba(60, 60, 67, 0.18)',
         paddingHorizontal: 12,
         paddingVertical: 6,
     },
     rangeToggleActive: {
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: 'rgba(0, 0, 0, 0.06)',
     },
     rangeToggleText: {
         fontFamily: fonts.medium,
         fontSize: 12,
-        color: '#B0B0B0',
+        color: Colors.textTertiary,
     },
     rangeToggleTextActive: {
         color: Colors.textPrimary,
     },
     progressCard: {
-        backgroundColor: '#22282C',
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 16,
         gap: 6,
-        // Liquid glass / 3D effect
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.15)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
         shadowRadius: 8,
-        elevation: 5,
+        elevation: 2,
     },
     progressLabel: {
         fontFamily: fonts.regular,
@@ -2503,12 +2656,12 @@ const styles = StyleSheet.create({
     },
     habitCard: {
         flex: 1,
-        backgroundColor: Colors.backgroundCard,
+        backgroundColor: '#FFFFFF',
         borderRadius: 14,
         padding: 14,
         gap: 6,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     habitValue: {
         fontFamily: fonts.bold,
@@ -2523,19 +2676,19 @@ const styles = StyleSheet.create({
     dataCoverageText: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#B0B0B0',
+        color: Colors.textSecondary,
     },
     experimentsHeader: {
         gap: 8,
         marginBottom: 12,
     },
     componentRow: {
-        backgroundColor: Colors.backgroundCard,
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 16,
         gap: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     componentHeader: {
         flexDirection: 'row',
@@ -2555,11 +2708,11 @@ const styles = StyleSheet.create({
     componentValue: {
         fontFamily: fonts.semiBold,
         fontSize: 14,
-        color: '#E0E0E0',
+        color: Colors.textPrimary,
     },
     progressBarContainer: {
         height: 6,
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: 'rgba(0, 0, 0, 0.06)',
         borderRadius: 3,
         overflow: 'hidden',
     },
@@ -2591,7 +2744,7 @@ const styles = StyleSheet.create({
         marginTop: 12,
         paddingHorizontal: 10,
         paddingVertical: 5,
-        backgroundColor: 'rgba(255,255,255,0.06)',
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
         borderRadius: 12,
     },
     deltaPillInline: {
@@ -2600,7 +2753,7 @@ const styles = StyleSheet.create({
         gap: 2,
         paddingHorizontal: 6,
         paddingVertical: 2,
-        backgroundColor: 'rgba(255,255,255,0.06)',
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
         borderRadius: 8,
     },
     deltaText: {
@@ -2633,8 +2786,14 @@ const styles = StyleSheet.create({
         borderRadius: 16,
         padding: 16,
         borderWidth: 1,
-        borderColor: behaviorV1Theme.borderSoft,
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+        backgroundColor: '#FFFFFF',
         marginBottom: 4,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+        elevation: 1,
     },
     weeklyReviewHeader: {
         flexDirection: 'row',
@@ -2646,7 +2805,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        backgroundColor: 'rgba(168, 197, 160, 0.12)',
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
         paddingHorizontal: 10,
         paddingVertical: 4,
         borderRadius: 12,
@@ -2654,13 +2813,13 @@ const styles = StyleSheet.create({
     weeklyReviewBadgeText: {
         fontFamily: fonts.semiBold,
         fontSize: 12,
-        color: behaviorV1Theme.sageBright,
+        color: Colors.primary,
         letterSpacing: 0.3,
     },
     weeklyReviewText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
         lineHeight: 21,
         marginBottom: 12,
     },
@@ -2668,7 +2827,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'flex-start',
         gap: 8,
-        backgroundColor: 'rgba(168, 197, 160, 0.08)',
+        backgroundColor: 'rgba(45, 212, 191, 0.06)',
         padding: 10,
         borderRadius: 10,
         marginBottom: 10,
@@ -2676,7 +2835,7 @@ const styles = StyleSheet.create({
     weeklyReviewExperimentText: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: behaviorV1Theme.textSecondary,
+        color: Colors.textSecondary,
         flex: 1,
         lineHeight: 19,
     },
@@ -2689,5 +2848,172 @@ const styles = StyleSheet.create({
         fontFamily: fonts.semiBold,
         fontSize: 12,
         textTransform: 'capitalize',
+    },
+
+    // ============================================
+    // EXPERIMENTS HUB STYLES (behavior_v1)
+    // ============================================
+    experimentsHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+    },
+    experimentsHeaderTitle: {
+        fontFamily: fonts.bold,
+        fontSize: 26,
+        color: Colors.textPrimary,
+    },
+    experimentsHeaderSubtitle: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: Colors.textSecondary,
+        marginTop: 2,
+    },
+    experimentsSearchButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: 4,
+    },
+    experimentsSection: {
+        gap: 10,
+    },
+    experimentsSectionLabel: {
+        fontFamily: fonts.bold,
+        fontSize: 12,
+        color: Colors.textSecondary,
+        letterSpacing: 0.8,
+    },
+    experimentsLibraryHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    experimentsLibraryTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 18,
+        color: Colors.textPrimary,
+    },
+    experimentsFilterLink: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: Colors.primary,
+    },
+    experimentsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 12,
+    },
+    experimentsGridItem: {
+        flexBasis: '47%',
+        flexGrow: 1,
+    },
+    nbaCard: {
+        borderRadius: 18,
+        padding: 16,
+        gap: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(45, 212, 191, 0.25)',
+        backgroundColor: 'rgba(45, 212, 191, 0.04)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 2,
+    },
+    nbaShimmer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 8,
+    },
+    nbaShimmerText: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: Colors.textTertiary,
+    },
+    nbaHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    nbaLabelRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    nbaLabel: {
+        fontFamily: fonts.bold,
+        fontSize: 11,
+        color: 'rgba(45, 212, 191, 1)',
+        letterSpacing: 0.6,
+    },
+    nbaSourceBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 999,
+    },
+    nbaSourceAi: {
+        backgroundColor: 'rgba(45, 212, 191, 0.12)',
+    },
+    nbaSourceRules: {
+        backgroundColor: 'rgba(142, 142, 147, 0.12)',
+    },
+    nbaSourceText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 10,
+        letterSpacing: 0.3,
+    },
+    nbaSourceTextAi: {
+        color: 'rgba(45, 212, 191, 1)',
+    },
+    nbaSourceTextRules: {
+        color: Colors.textTertiary,
+    },
+    nbaTitle: {
+        fontFamily: fonts.bold,
+        fontSize: 17,
+        color: Colors.textPrimary,
+        lineHeight: 22,
+    },
+    nbaDescription: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: Colors.textSecondary,
+        lineHeight: 20,
+    },
+    nbaBecause: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        fontStyle: 'italic',
+        color: Colors.textTertiary,
+        lineHeight: 17,
+    },
+    nbaCtaButton: {
+        marginTop: 4,
+        alignSelf: 'flex-start',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 12,
+        backgroundColor: 'rgba(45, 212, 191, 0.12)',
+    },
+    nbaCtaText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: 'rgba(45, 212, 191, 1)',
+    },
+    focusEmptyExperiments: {
+        alignItems: 'center',
+        paddingVertical: 20,
+        gap: 8,
+    },
+    focusEmptyExperimentsText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textTertiary,
+        textAlign: 'center',
     },
 });

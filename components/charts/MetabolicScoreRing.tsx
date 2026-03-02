@@ -43,7 +43,7 @@ export const MetabolicScoreRing = ({
             const y2 = center + (defaultRadius - 3) * Math.sin(angle);
 
             const isActive = clampedScore !== null && i < activeTicks;
-            const tickColor = isActive ? scoreColor : 'rgba(255,255,255,0.15)';
+            const tickColor = isActive ? scoreColor : 'rgba(0,0,0,0.10)';
             const tickOpacity = isActive ? 1 : 0.6;
 
             items.push(
@@ -64,15 +64,13 @@ export const MetabolicScoreRing = ({
     }, [center, defaultRadius, clampedScore, scoreColor]);
 
     if (visualPreset === 'hero_vivid') {
-        const strokeWidth = Math.max(7, size * 0.105);
-        const glowWidth = strokeWidth + 4;
-        const radius = (size - glowWidth - 2) / 2;
+        const strokeWidth = Math.max(8, size * 0.14);
+        const radius = (size - strokeWidth - 2) / 2;
         const circumference = 2 * Math.PI * radius;
         const progress = clampedScore !== null ? clampedScore / 100 : 0;
         const progressLength = circumference * progress;
         const dashOffset = circumference - progressLength;
 
-        // Default to sage gradient if no colors provided
         const gStart = gradientColors ? gradientColors[0] : behaviorV1Theme.sageSoft;
         const gEnd = gradientColors ? gradientColors[1] : behaviorV1Theme.sageBright;
 
@@ -90,48 +88,34 @@ export const MetabolicScoreRing = ({
                             cx={center}
                             cy={center}
                             r={radius}
-                            stroke="rgba(255,255,255,0.16)"
+                            stroke="rgba(0,0,0,0.08)"
                             strokeWidth={strokeWidth}
                             fill="transparent"
                         />
                         {clampedScore !== null && (
-                            <>
-                                <Circle
-                                    cx={center}
-                                    cy={center}
-                                    r={radius}
-                                    stroke={scoreColor}
-                                    strokeWidth={glowWidth}
-                                    strokeDasharray={`${circumference} ${circumference}`}
-                                    strokeDashoffset={dashOffset}
-                                    strokeLinecap="round"
-                                    opacity={0.24}
-                                    fill="transparent"
-                                />
-                                <Circle
-                                    cx={center}
-                                    cy={center}
-                                    r={radius}
-                                    stroke={`url(#${gradientId})`}
-                                    strokeWidth={strokeWidth}
-                                    strokeDasharray={`${circumference} ${circumference}`}
-                                    strokeDashoffset={dashOffset}
-                                    strokeLinecap="round"
-                                    fill="transparent"
-                                />
-                            </>
+                            <Circle
+                                cx={center}
+                                cy={center}
+                                r={radius}
+                                stroke={`url(#${gradientId})`}
+                                strokeWidth={strokeWidth}
+                                strokeDasharray={`${circumference} ${circumference}`}
+                                strokeDashoffset={dashOffset}
+                                strokeLinecap="round"
+                                fill="transparent"
+                            />
                         )}
                     </G>
                 </Svg>
                 <View style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center' }]}>
                     {clampedScore !== null ? (
                         showInnerValue ? (
-                            <Text style={{ fontFamily: fonts.bold, fontSize: size * 0.31, color: '#FFFFFF' }}>
+                            <Text style={{ fontFamily: fonts.bold, fontSize: size * 0.31, color: Colors.textPrimary }}>
                                 {Math.round(clampedScore)}
                             </Text>
                         ) : null
                     ) : (
-                        <Ionicons name="lock-closed" size={size * 0.35} color="rgba(255,255,255,0.7)" />
+                        <Ionicons name="lock-closed" size={size * 0.35} color="rgba(0,0,0,0.25)" />
                     )}
                 </View>
             </View>
@@ -147,12 +131,12 @@ export const MetabolicScoreRing = ({
             <View style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center' }]}>
                 {clampedScore !== null ? (
                     showInnerValue ? (
-                        <Text style={{ fontFamily: fonts.bold, fontSize: size * 0.32, color: '#FFFFFF' }}>
+                        <Text style={{ fontFamily: fonts.bold, fontSize: size * 0.32, color: Colors.textPrimary }}>
                             {Math.round(clampedScore)}
                         </Text>
                     ) : null
                 ) : (
-                    <Ionicons name="lock-closed" size={size * 0.35} color="rgba(255,255,255,0.7)" />
+                    <Ionicons name="lock-closed" size={size * 0.35} color="rgba(0,0,0,0.25)" />
                 )}
             </View>
         </View>

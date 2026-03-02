@@ -1,5 +1,7 @@
 # Component & UX Reference
 
+> **Design system:** For the overarching design philosophy (Liquid Glass, color roles, button rules, layout principles), see [`DESIGN.md`](../../DESIGN.md). This doc covers the implementation-level component APIs and color tokens.
+
 ## Color System
 
 Dark-only theme. All colors defined in `constants/Colors.ts`.

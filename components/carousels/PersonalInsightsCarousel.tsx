@@ -118,7 +118,7 @@ function SecondaryInsightCard({ insight, onPress }: {
                     {insight.recommendation}
                 </Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.5)" />
+            <Ionicons name="chevron-forward" size={18} color="rgba(60, 60, 67, 0.4)" />
         </AnimatedPressable>
     );
 }
@@ -158,7 +158,7 @@ export function PersonalInsightsCarousel({
     if (isLoading) {
         return (
             <View style={[styles.container, { minHeight: 180, justifyContent: 'center' }]}>
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color="#1C1C1E" />
             </View>
         );
     }
@@ -201,7 +201,7 @@ export function PersonalInsightsCarousel({
                         onPress={() => setShowMoreOptions(!showMoreOptions)}
                     >
                         <LinearGradient
-                            colors={['rgba(60, 65, 70, 0.95)', 'rgba(45, 48, 52, 0.95)']}
+                            colors={['rgba(255, 255, 255, 0.9)', 'rgba(240, 240, 245, 0.9)']}
                             style={styles.moreOptionsGradient}
                         />
                         <View style={styles.moreOptionsContent}>
@@ -211,7 +211,7 @@ export function PersonalInsightsCarousel({
                             <Ionicons
                                 name={showMoreOptions ? 'chevron-up' : 'chevron-down'}
                                 size={14}
-                                color="#FFFFFF"
+                                color="#1C1C1E"
                             />
                         </View>
                     </Pressable>
@@ -272,7 +272,8 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#E7E8E9',
+        color: '#1C1C1E', // Colors.textPrimary
+        letterSpacing: 0.5,
     },
     // Best Next Step Card
     bestNextCard: {
@@ -290,7 +291,7 @@ const styles = StyleSheet.create({
         fontFamily: fonts.bold,
         fontSize: 11,
         letterSpacing: 1,
-        color: 'rgba(255,255,255,0.8)',
+        color: '#FFFFFF', // keep white since it's on a gradient
     },
     mainRecommendation: {
         fontFamily: fonts.semiBold,
@@ -302,7 +303,7 @@ const styles = StyleSheet.create({
     supportingDetail: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: 'rgba(255,255,255,0.85)',
+        color: 'rgba(255,255,255,0.9)',
         lineHeight: 20,
         marginBottom: 12,
     },
@@ -345,11 +346,11 @@ const styles = StyleSheet.create({
     moreOptionsButton: {
         borderRadius: 100,
         overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)',
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.5)',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
+        shadowOpacity: 0.05,
         shadowRadius: 4,
         elevation: 3,
     },
@@ -383,10 +384,12 @@ const styles = StyleSheet.create({
     secondaryCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#22282C',
-        borderRadius: 12,
+        backgroundColor: 'rgba(255, 255, 255, 0.70)',
+        borderRadius: 16,
         padding: 12,
         gap: 12,
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.5)',
     },
     secondaryIconContainer: {
         width: 36,
@@ -401,32 +404,32 @@ const styles = StyleSheet.create({
     secondaryTitle: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#E7E8E9',
+        color: '#1C1C1E',
     },
     secondaryRecommendation: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: 'rgba(255,255,255,0.6)',
+        color: '#8E8E93',
         marginTop: 2,
     },
     // Empty State
     emptyContainer: {
-        backgroundColor: '#1E1E1E',
-        borderRadius: 16,
+        backgroundColor: 'rgba(255, 255, 255, 0.70)', // Light glass
+        borderRadius: 20,
         padding: 24,
         alignItems: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.5)',
     },
     emptyTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#E7E8E9',
+        color: '#1C1C1E',
     },
     emptyText: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: '#8E8E93',
         marginTop: 4,
         textAlign: 'center',
     },

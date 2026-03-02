@@ -28,6 +28,8 @@ export interface DailyContextStats {
     avgSleepHours: number | null;
     avgRestingHR: number | null;
     avgHRV: number | null;
+    // Per-day records for trend charts
+    dailyRecords: DailyContext[];
     // Status flags
     isAvailable: boolean;
     isAuthorized: boolean;
@@ -45,6 +47,7 @@ const defaultStats: DailyContextStats = {
     avgSleepHours: null,
     avgRestingHR: null,
     avgHRV: null,
+    dailyRecords: [],
     isAvailable: false,
     isAuthorized: false,
     isLoading: true,
@@ -184,6 +187,7 @@ export function useDailyContext(
                     avgSleepHours: sleepCount > 0 ? Math.round((totalSleep / sleepCount) * 10) / 10 : null,
                     avgRestingHR: hrCount > 0 ? Math.round((totalHR / hrCount) * 10) / 10 : null,
                     avgHRV: hrvCount > 0 ? Math.round((totalHRV / hrvCount) * 100) / 100 : null,
+                    dailyRecords: data,
                     isLoading: false,
                     daysWithData: data.length,
                     dataSource: 'apple_health',

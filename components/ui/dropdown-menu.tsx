@@ -1,4 +1,5 @@
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import React, { useEffect, useRef, useState } from 'react';
 import { Dimensions, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
@@ -160,6 +161,7 @@ export function DropdownMenuItem({ children, onSelect, disabled = false }: Dropd
     <Pressable
       onPress={() => {
         if (!disabled && onSelect) {
+          triggerHaptic();
           onSelect();
         }
       }}
@@ -187,15 +189,15 @@ const styles = StyleSheet.create({
   content: {
     position: 'absolute',
     minWidth: 200,
-    backgroundColor: '#1a1b1c',
-    borderRadius: 8,
+    backgroundColor: 'rgba(240, 248, 249, 0.97)',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(45, 212, 191, 0.12)',
     paddingVertical: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
     elevation: 8,
     zIndex: 1000,
   },
@@ -207,7 +209,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   itemPressed: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(45, 212, 191, 0.08)',
   },
   itemDisabled: {
     opacity: 0.5,
@@ -215,7 +217,7 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: fonts.medium,
     fontSize: 14,
-    color: '#878787',
+    color: '#8E8E93',
     paddingHorizontal: 12,
     paddingVertical: 8,
   },

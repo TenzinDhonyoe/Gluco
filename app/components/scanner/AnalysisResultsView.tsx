@@ -180,7 +180,7 @@ function AnimatedScoreBadge({ score }: { score: number }) {
                     cx={size / 2}
                     cy={size / 2}
                     r={radius}
-                    stroke="rgba(255, 255, 255, 0.15)"
+                    stroke="rgba(0, 0, 0, 0.08)"
                     strokeWidth={strokeWidth}
                     fill="transparent"
                 />
@@ -580,7 +580,7 @@ export default function AnalysisResultsView({
                                                 onPress={handleMoreOptionsPress}
                                             >
                                                 <LinearGradient
-                                                    colors={['rgba(60, 65, 70, 0.95)', 'rgba(45, 48, 52, 0.95)']}
+                                                    colors={[Colors.backgroundCard, Colors.inputBackgroundSolid]}
                                                     style={styles.seeMoreGradient}
                                                 />
                                                 <View style={styles.seeMoreContent}>
@@ -590,7 +590,7 @@ export default function AnalysisResultsView({
                                                     <Ionicons
                                                         name={showMoreOptions ? 'chevron-up' : 'chevron-down'}
                                                         size={14}
-                                                        color="#FFFFFF"
+                                                        color={Colors.textSecondary}
                                                     />
                                                 </View>
                                             </Pressable>
@@ -838,7 +838,7 @@ const styles = StyleSheet.create({
     mealName: {
         fontFamily: fonts.semiBold,
         fontSize: 24,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 4,
     },
     timestamp: {
@@ -877,13 +877,13 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        backgroundColor: 'rgba(0, 0, 0, 0.03)',
         borderRadius: 12,
         paddingVertical: 16,
         paddingHorizontal: 8,
         marginBottom: 24,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        borderColor: Colors.borderCard,
     },
     macroColumn: {
         flex: 1,
@@ -892,7 +892,7 @@ const styles = StyleSheet.create({
     macroDivider: {
         width: 1,
         height: 32,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: Colors.border,
     },
     macroLabel: {
         fontFamily: fonts.medium,
@@ -904,12 +904,12 @@ const styles = StyleSheet.create({
     macroValue: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     macroDV: {
         fontFamily: fonts.regular,
         fontSize: 10,
-        color: '#888888',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
     itemsSection: {
@@ -921,7 +921,7 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
         paddingVertical: 12,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+        borderBottomColor: Colors.borderCard,
     },
     foodItemLeft: {
         flex: 1,
@@ -930,7 +930,7 @@ const styles = StyleSheet.create({
     foodItemName: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 2,
     },
     foodItemBrand: {
@@ -963,11 +963,11 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         marginBottom: 24,
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        backgroundColor: 'rgba(0, 0, 0, 0.03)',
         borderRadius: 16,
         padding: 16,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        borderColor: Colors.borderCard,
     },
     scoreLabelContainer: {
         flexDirection: 'column',
@@ -977,7 +977,7 @@ const styles = StyleSheet.create({
     scoreLabel: {
         fontFamily: fonts.bold,
         fontSize: 20,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     circularProgress: {
         width: 60,
@@ -1006,7 +1006,7 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     driverItem: {
         flexDirection: 'row',
@@ -1033,17 +1033,17 @@ const styles = StyleSheet.create({
     },
     // New suggestion card styles
     suggestionCard: {
-        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+        backgroundColor: 'rgba(0, 0, 0, 0.03)',
         borderRadius: 16,
         padding: 20,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        borderColor: Colors.borderCard,
     },
     suggestionCardSelected: {
         borderColor: Colors.success,
         borderLeftWidth: 3,
-        backgroundColor: 'rgba(40, 94, 42, 0.12)',
+        backgroundColor: Colors.successLight,
     },
     secondarySuggestionCard: {
         padding: 16,
@@ -1059,13 +1059,13 @@ const styles = StyleSheet.create({
     suggestionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 17,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 6,
     },
     suggestionTitleSelected: {
         fontFamily: fonts.semiBold,
         fontSize: 17,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginLeft: 8,
     },
     suggestionDetail: {
@@ -1086,7 +1086,7 @@ const styles = StyleSheet.create({
         fontFamily: fonts.regular,
         fontSize: 13,
         fontStyle: 'italic',
-        color: 'rgba(255, 255, 255, 0.5)',
+        color: Colors.textTertiary,
         marginBottom: 16,
     },
     actionButtonRow: {
@@ -1105,7 +1105,7 @@ const styles = StyleSheet.create({
     tryButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     skipButton: {
         flexDirection: 'row',
@@ -1133,7 +1133,7 @@ const styles = StyleSheet.create({
     addedBadge: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(40, 94, 42, 0.3)',
+        backgroundColor: Colors.successLight,
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: 16,
@@ -1156,13 +1156,13 @@ const styles = StyleSheet.create({
     reassuranceText: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: 'rgba(255, 255, 255, 0.4)',
+        color: Colors.textTertiary,
     },
     seeMoreToggle: {
         borderRadius: 100,
         overflow: 'hidden',
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)',
+        borderColor: Colors.borderMedium,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.15,
@@ -1188,7 +1188,7 @@ const styles = StyleSheet.create({
     seeMoreText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textSecondary,
         letterSpacing: 0.2,
     },
     tipCard: {
@@ -1210,7 +1210,7 @@ const styles = StyleSheet.create({
         flex: 1,
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         lineHeight: 20,
     },
     bottomContainer: {
@@ -1222,7 +1222,7 @@ const styles = StyleSheet.create({
         paddingTop: 16,
         backgroundColor: 'transparent',
         borderTopWidth: 1,
-        borderTopColor: 'rgba(255, 255, 255, 0.05)',
+        borderTopColor: Colors.border,
     },
     bottomButtonRow: {
         flexDirection: 'row',
@@ -1230,9 +1230,9 @@ const styles = StyleSheet.create({
     },
     editButton: {
         flex: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: Colors.buttonSecondary,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
+        borderColor: Colors.borderCard,
         borderRadius: 30,
         paddingVertical: 16,
         alignItems: 'center',
@@ -1241,13 +1241,13 @@ const styles = StyleSheet.create({
     editButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     logButton: {
         flex: 2,
-        backgroundColor: '#285E2A',
+        backgroundColor: Colors.buttonAction,
         borderWidth: 1,
-        borderColor: '#448D47',
+        borderColor: Colors.buttonAction,
         borderRadius: 30,
         paddingVertical: 16,
         alignItems: 'center',
@@ -1259,6 +1259,6 @@ const styles = StyleSheet.create({
     logButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.buttonActionText,
     },
 });

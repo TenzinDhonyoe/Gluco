@@ -1,10 +1,10 @@
 import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu';
-import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { createActivityLog, type ActivityIntensity } from '@/lib/supabase';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React from 'react';
@@ -20,7 +20,6 @@ import {
     TextInput,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 const INTENSITY_OPTIONS: { value: ActivityIntensity; label: string }[] = [
     { value: 'light', label: 'Light' },
@@ -176,19 +175,7 @@ export default function LogActivityScreen() {
 
     return (
         <View style={styles.root}>
-            <SafeAreaView edges={['top']} style={styles.safe}>
-                {/* Header */}
-                <View style={styles.header}>
-                    <LiquidGlassIconButton size={44} onPress={() => router.back()}>
-                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
-                    </LiquidGlassIconButton>
-
-                    <Text style={styles.headerTitle}>LOG ACTIVITY</Text>
-
-                    {/* spacer for centering */}
-                    <View style={styles.headerIconBtnSpacer} />
-                </View>
-
+            <View style={styles.safe}>
                 <ScrollView
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={styles.content}
@@ -213,7 +200,7 @@ export default function LogActivityScreen() {
                         {/* Activity Time */}
                         <View style={styles.block}>
                             <Text style={styles.label}>Activity Time</Text>
-                            <Pressable onPress={() => setTimeModalOpen(true)} style={styles.selectShell}>
+                            <Pressable onPress={() => { triggerHaptic(); setTimeModalOpen(true); }} style={styles.selectShell}>
                                 <Text style={[styles.selectText, styles.selectTextActive]}>
                                     {formatTime(activityTime)}
                                 </Text>
@@ -248,7 +235,7 @@ export default function LogActivityScreen() {
                                 onOpenChange={setIntensityModalOpen}
                                 trigger={
                                     <Pressable
-                                        onPress={() => setIntensityModalOpen(true)}
+                                        onPress={() => { triggerHaptic(); setIntensityModalOpen(true); }}
                                         style={styles.selectShell}
                                     >
                                         <Text style={[styles.selectText, intensity && styles.selectTextActive]}>
@@ -280,7 +267,7 @@ export default function LogActivityScreen() {
                 {/* Save Button */}
                 <View style={styles.saveButtonContainer}>
                     <Pressable
-                        onPress={handleSave}
+                        onPress={() => { triggerHaptic('medium'); handleSave(); }}
                         disabled={isSaving || !activityName || !duration || !intensity}
                         style={({ pressed }) => [
                             styles.saveButton,
@@ -303,6 +290,7 @@ export default function LogActivityScreen() {
                             <View />
                             <Pressable
                                 onPress={() => {
+                                    triggerHaptic('medium');
                                     setActivityTime(fromParts({ hour12: tempHour12, minute: tempMinute, period: tempPeriod }));
                                     setTimeModalOpen(false);
                                 }}
@@ -385,7 +373,7 @@ export default function LogActivityScreen() {
                         </View>
                     </SheetContent>
                 </Sheet>
-            </SafeAreaView>
+            </View>
         </View>
     );
 }
@@ -398,40 +386,6 @@ const styles = StyleSheet.create({
     safe: {
         flex: 1,
     },
-    header: {
-        height: 72,
-        paddingHorizontal: 16,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    headerIconBtn: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
-        backgroundColor: 'rgba(63,66,67,0.3)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
-    },
-    headerIconBtnPressed: {
-        opacity: 0.7,
-        transform: [{ scale: 0.97 }],
-    },
-    headerIconBtnSpacer: {
-        width: 48,
-        height: 48,
-        opacity: 0,
-    },
-    headerTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 18,
-        color: Colors.textPrimary,
-        letterSpacing: 1,
-    },
     content: {
         paddingHorizontal: 16,
         paddingTop: 24,
@@ -439,11 +393,13 @@ const styles = StyleSheet.create({
         gap: 24,
     },
     formCard: {
-        backgroundColor: 'rgba(63,66,67,0.25)',
+        backgroundColor: 'rgba(240, 248, 249, 0.7)',
         borderRadius: 16,
         paddingHorizontal: 16,
         paddingVertical: 20,
         gap: 24,
+        borderWidth: 1,
+        borderColor: 'rgba(45, 212, 191, 0.10)',
     },
     block: {
         gap: 12,
@@ -520,16 +476,14 @@ const styles = StyleSheet.create({
         right: 16,
     },
     saveButton: {
-        backgroundColor: Colors.buttonSecondary,
-        borderRadius: 12,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 16,
         paddingVertical: 16,
         alignItems: 'center',
         justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: Colors.buttonSecondaryBorder,
     },
     saveButtonDisabled: {
-        opacity: 0.5,
+        backgroundColor: Colors.buttonDisabled,
     },
     saveButtonPressed: {
         opacity: 0.8,
@@ -537,12 +491,13 @@ const styles = StyleSheet.create({
     saveButtonText: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
     // Time picker styles (same as glucose logging)
     timeSheet: {
-        backgroundColor: Colors.borderCard,
-        borderWidth: 0,
+        backgroundColor: 'rgba(240, 248, 249, 0.97)',
+        borderWidth: 1,
+        borderColor: 'rgba(45, 212, 191, 0.12)',
         left: 16,
         right: 16,
         bottom: 120,
@@ -590,12 +545,12 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     wheelItemActive: {
-        backgroundColor: 'rgba(255,255,255,0.06)',
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
     },
     wheelText: {
         fontFamily: fonts.medium,
         fontSize: 18,
-        color: 'rgba(255,255,255,0.45)',
+        color: 'rgba(60, 60, 67, 0.4)',
     },
     wheelTextActive: {
         color: Colors.textPrimary,

@@ -1,3 +1,4 @@
+import { FadeText } from '@/components/reacticx/organisms/fade-text';
 import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
@@ -10,7 +11,7 @@ import { ResizeMode, Video } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Dimensions,
     Image,
@@ -31,7 +32,7 @@ export const PAYWALL_SEEN_KEY = 'paywall_seen';
 
 // Feature flag: Set to true to enable paywall after onboarding
 // Currently disabled for beta - all users get full access
-export const PAYWALL_ENABLED = false;
+export const PAYWALL_ENABLED = true;
 const SPLASH_LOGO = require('../assets/images/mascots/gluco_app_mascott/gluco_splash.png');
 
 // Semantic step routes (new naming)
@@ -69,11 +70,44 @@ function getOnboardingResumeRoute(storedStep: string): string | null {
     return null;
 }
 
+function getGreetingText(firstName: string | null | undefined): string {
+    const hour = new Date().getHours();
+    const timeGreeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+    const name = firstName?.trim();
+    return name ? `${timeGreeting}, ${name}` : timeGreeting;
+}
+
 export default function WelcomeScreen() {
     const { user, profile, loading } = useAuth();
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+    const [showGreeting, setShowGreeting] = useState(false);
+    const pendingRouteRef = useRef<string | null>(null);
     const hasNavigated = useRef(false);
     const isFocused = useIsFocused();
+
+    const greetingText = useMemo(
+        () => getGreetingText(profile?.first_name),
+        [profile?.first_name],
+    );
+
+    // Navigate after greeting animation finishes
+    const navigateAfterGreeting = useCallback(() => {
+        const route = pendingRouteRef.current;
+        if (!route) return;
+        pendingRouteRef.current = null;
+        hasNavigated.current = true;
+        router.replace(route as never);
+    }, []);
+
+    // When greeting is shown, wait for the animation then navigate
+    useEffect(() => {
+        if (!showGreeting) return;
+        // Total animation time: words * wordDelay + duration + small buffer
+        const wordCount = greetingText.split(' ').length;
+        const totalMs = wordCount * 250 + 1000 + 500;
+        const timer = setTimeout(navigateAfterGreeting, totalMs);
+        return () => clearTimeout(timer);
+    }, [showGreeting, greetingText, navigateAfterGreeting]);
 
     // Reset hasNavigated when screen regains focus so it re-evaluates auth state
     useEffect(() => {
@@ -142,17 +176,18 @@ export default function WelcomeScreen() {
                         return;
                     }
 
-                    hasNavigated.current = true;
-                    if (!PAYWALL_ENABLED) {
-                        router.replace('/(tabs)' as never);
-                    } else {
+                    // Determine final destination
+                    let destination = '/(tabs)';
+                    if (PAYWALL_ENABLED) {
                         const paywallSeen = await AsyncStorage.getItem(PAYWALL_SEEN_KEY);
                         if (!paywallSeen) {
-                            router.replace('/paywall' as never);
-                        } else {
-                            router.replace('/(tabs)' as never);
+                            destination = '/paywall';
                         }
                     }
+
+                    // Show greeting splash before navigating
+                    pendingRouteRef.current = destination;
+                    setShowGreeting(true);
                 }
             } else {
                 // No user - show welcome screen
@@ -187,6 +222,25 @@ export default function WelcomeScreen() {
     const handlePrivacyPress = () => {
         Linking.openURL(LEGAL_URLS.privacyPolicy);
     };
+
+    // Greeting splash — white background, centered fade-in text
+    if (showGreeting) {
+        return (
+            <View style={styles.greetingContainer}>
+                <FadeText
+                    inputs={[greetingText]}
+                    wordDelay={250}
+                    duration={1000}
+                    fontSize={27}
+                    fontWeight="600"
+                    color="#1C1C1E"
+                    textAlign="center"
+                    blurIntensity={[20, 5, 0]}
+                    style={{ fontFamily: fonts.semiBold }}
+                />
+            </View>
+        );
+    }
 
     // Show loading while checking auth or while a signed-in user is being routed
     if (loading || isCheckingAuth || user) {
@@ -249,6 +303,12 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: Colors.background,
+    },
+    greetingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
     },
     loadingContainer: {
         justifyContent: 'center',
@@ -317,7 +377,7 @@ const styles = StyleSheet.create({
         lineHeight: 36,
         letterSpacing: -0.3,
         textAlign: 'left',
-        color: Colors.textPrimary,
+        color: '#FFFFFF',
         textShadowColor: 'rgba(0, 0, 0, 0.6)',
         textShadowOffset: { width: 0, height: 2 },
         textShadowRadius: 8,
@@ -338,27 +398,17 @@ const styles = StyleSheet.create({
         width: '100%',
         maxWidth: 361,
         height: 56,
-        backgroundColor: Colors.buttonSecondary,
-        borderWidth: 1,
-        borderColor: Colors.buttonSecondaryBorder,
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 20,
-        shadowColor: '#4CAF50',
-        shadowOffset: {
-            width: 0,
-            height: 4,
-        },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-        elevation: 8,
     },
     buttonText: {
         fontFamily: fonts.semiBold,
         fontSize: 17,
         letterSpacing: 0.3,
-        color: Colors.textPrimary,
+        color: '#1C1C1E',
     },
     subtextText: {
         fontFamily: fonts.regular,
@@ -369,7 +419,7 @@ const styles = StyleSheet.create({
         width: Math.min(356, width - 40),
     },
     linkText: {
-        color: Colors.textPrimary,
+        color: '#FFFFFF',
         textDecorationLine: 'underline',
     },
 });

@@ -305,7 +305,7 @@ function LiquidGlassOptionBar({
             <View style={styles.liquidOptionBar}>
                 {/* Glass background */}
                 <LinearGradient
-                    colors={['rgba(40, 44, 48, 0.95)', 'rgba(30, 33, 36, 0.98)', 'rgba(35, 38, 41, 0.95)']}
+                    colors={['rgba(255, 255, 255, 0.92)', 'rgba(245, 245, 250, 0.95)', 'rgba(255, 255, 255, 0.92)']}
                     locations={[0, 0.5, 1]}
                     style={styles.optionBarGradient}
                 />
@@ -316,7 +316,7 @@ function LiquidGlassOptionBar({
                 {/* Liquid glass indicator */}
                 <ReanimatedAnimated.View style={[styles.liquidIndicator, indicatorStyle]}>
                     <LinearGradient
-                        colors={['rgba(255, 255, 255, 0.22)', 'rgba(255, 255, 255, 0.10)', 'rgba(255, 255, 255, 0.15)']}
+                        colors={['rgba(0, 0, 0, 0.06)', 'rgba(0, 0, 0, 0.03)', 'rgba(0, 0, 0, 0.05)']}
                         locations={[0, 0.5, 1]}
                         style={styles.liquidIndicatorGradient}
                     />
@@ -335,7 +335,7 @@ function LiquidGlassOptionBar({
                                 <AnimatedOptionIcon
                                     icon={option.icon}
                                     focused={isActive}
-                                    color={isActive ? '#FFFFFF' : '#6B6B6B'}
+                                    color={isActive ? Colors.textPrimary : Colors.textTertiary}
                                 />
                                 <Text style={[
                                     styles.liquidOptionLabel,
@@ -629,13 +629,17 @@ export default function MealScannerScreen() {
 
     const scanLabel = useCallback(async (imageUri: string, base64?: string) => {
         if (!user) return;
+
+        if (!base64) {
+            Alert.alert('Scan Failed', 'Could not read image data. Please try again.');
+            return;
+        }
+
         setScannerState('analyzing');
         setAnalysisStep('Reading label...');
 
         try {
-            // Use base64 if available (faster for label parsing), otherwise uri
-            // parseLabelFromImage expects base64 usually
-            const result = await parseLabelFromImage(base64 || imageUri, { aiEnabled: profile?.ai_enabled ?? false });
+            const result = await parseLabelFromImage(base64);
 
             if (result.success && result.food) {
                 // Convert label result to analysis result format for consistent UX
@@ -672,7 +676,7 @@ export default function MealScannerScreen() {
             setScannerState('ready');
             setAnalysisStep(null);
         }
-    }, [user, profile]);
+    }, [user]);
 
     const handleCapture = useCallback(async () => {
         if (!cameraRef.current || scannerState !== 'ready') return;
@@ -965,7 +969,7 @@ export default function MealScannerScreen() {
                 {/* Header */}
                 <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
                     <LiquidGlassIconButton size={44} onPress={handleBack}>
-                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                        <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
                     </LiquidGlassIconButton>
                     <Text style={styles.headerTitle}>LOG MEAL</Text>
                     <View style={styles.headerButtonSpacer} />
@@ -1105,7 +1109,7 @@ export default function MealScannerScreen() {
                     <View style={styles.sheetHeader}>
                         <Text style={styles.sheetTitle}>Edit Macros</Text>
                         <Pressable onPress={() => setEditMacrosOpen(false)}>
-                            <Ionicons name="close" size={24} color="#FFFFFF" />
+                            <Ionicons name="close" size={24} color={Colors.textPrimary} />
                         </Pressable>
                     </View>
 
@@ -1120,7 +1124,7 @@ export default function MealScannerScreen() {
                                     setMacroOverrides(p => ({ ...p, calories: parsed !== undefined && !isNaN(parsed) && parsed >= 0 ? parsed : undefined }));
                                 }}
                                 placeholder="0"
-                                placeholderTextColor="#6F6F6F"
+                                placeholderTextColor={Colors.textPlaceholder}
                                 keyboardType="number-pad"
                                 style={styles.macroInput}
                             />
@@ -1135,7 +1139,7 @@ export default function MealScannerScreen() {
                                     setMacroOverrides(p => ({ ...p, carbs: parsed !== undefined && !isNaN(parsed) && parsed >= 0 ? parsed : undefined }));
                                 }}
                                 placeholder="0"
-                                placeholderTextColor="#6F6F6F"
+                                placeholderTextColor={Colors.textPlaceholder}
                                 keyboardType="number-pad"
                                 style={styles.macroInput}
                             />
@@ -1150,7 +1154,7 @@ export default function MealScannerScreen() {
                                     setMacroOverrides(p => ({ ...p, protein: parsed !== undefined && !isNaN(parsed) && parsed >= 0 ? parsed : undefined }));
                                 }}
                                 placeholder="0"
-                                placeholderTextColor="#6F6F6F"
+                                placeholderTextColor={Colors.textPlaceholder}
                                 keyboardType="number-pad"
                                 style={styles.macroInput}
                             />
@@ -1165,7 +1169,7 @@ export default function MealScannerScreen() {
                                     setMacroOverrides(p => ({ ...p, fibre: parsed !== undefined && !isNaN(parsed) && parsed >= 0 ? parsed : undefined }));
                                 }}
                                 placeholder="0"
-                                placeholderTextColor="#6F6F6F"
+                                placeholderTextColor={Colors.textPlaceholder}
                                 keyboardType="number-pad"
                                 style={styles.macroInput}
                             />
@@ -1180,7 +1184,7 @@ export default function MealScannerScreen() {
                                     setMacroOverrides(p => ({ ...p, fat: parsed !== undefined && !isNaN(parsed) && parsed >= 0 ? parsed : undefined }));
                                 }}
                                 placeholder="0"
-                                placeholderTextColor="#6F6F6F"
+                                placeholderTextColor={Colors.textPlaceholder}
                                 keyboardType="number-pad"
                                 style={styles.macroInput}
                             />
@@ -1282,18 +1286,18 @@ const styles = StyleSheet.create({
     permissionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 20,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
         marginTop: 16,
     },
     permissionText: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: Colors.textTertiary,
+        color: Colors.textSecondary,
         textAlign: 'center',
         marginTop: 8,
     },
     permissionButton: {
-        backgroundColor: Colors.buttonPrimary,
+        backgroundColor: Colors.buttonAction,
         paddingHorizontal: 32,
         paddingVertical: 14,
         borderRadius: 12,
@@ -1302,7 +1306,7 @@ const styles = StyleSheet.create({
     permissionButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.buttonActionText,
     },
     cancelButton: {
         marginTop: 16,
@@ -1341,6 +1345,7 @@ const styles = StyleSheet.create({
     overlayContainer: {
         ...StyleSheet.absoluteFillObject,
         zIndex: 10,
+        backgroundColor: Colors.backgroundSolid,
     },
     corner: {
         position: 'absolute',
@@ -1394,7 +1399,7 @@ const styles = StyleSheet.create({
         height: 72,
         overflow: 'hidden',
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        borderColor: Colors.borderCard,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.4,
@@ -1413,7 +1418,7 @@ const styles = StyleSheet.create({
         bottom: 1,
         borderRadius: 31,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.05)',
+        borderColor: 'rgba(0, 0, 0, 0.03)',
     },
     liquidIndicator: {
         position: 'absolute',
@@ -1423,7 +1428,7 @@ const styles = StyleSheet.create({
         borderRadius: INDICATOR_SIZE / 2, // Fully circular
         overflow: 'hidden',
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.18)',
+        borderColor: Colors.borderMedium,
     },
     liquidIndicatorGradient: {
         ...StyleSheet.absoluteFillObject,
@@ -1443,10 +1448,10 @@ const styles = StyleSheet.create({
     liquidOptionLabel: {
         fontFamily: fonts.medium,
         fontSize: 10,
-        color: '#6B6B6B',
+        color: Colors.textTertiary,
     },
     liquidOptionLabelActive: {
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         fontFamily: fonts.semiBold,
     },
 
@@ -1481,7 +1486,7 @@ const styles = StyleSheet.create({
         borderRadius: 32,
         backgroundColor: '#FFFFFF',
         borderWidth: 3,
-        borderColor: '#111111',
+        borderColor: Colors.textPrimary,
     },
     controlPlaceholder: {
         width: 50,
@@ -1514,7 +1519,7 @@ const styles = StyleSheet.create({
     sheetTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 20,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     macroInputGrid: {
         flexDirection: 'row',
@@ -1532,18 +1537,18 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     macroInput: {
-        backgroundColor: '#2C2C2E',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 12,
         paddingHorizontal: 16,
         paddingVertical: 12,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         fontFamily: fonts.semiBold,
         fontSize: 16,
     },
     saveMacrosButton: {
-        backgroundColor: '#285E2A',
+        backgroundColor: Colors.buttonAction,
         borderWidth: 1,
-        borderColor: '#448D47',
+        borderColor: Colors.buttonAction,
         borderRadius: 16,
         paddingVertical: 16,
         alignItems: 'center',
@@ -1551,6 +1556,6 @@ const styles = StyleSheet.create({
     saveMacrosText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.buttonActionText,
     },
 });

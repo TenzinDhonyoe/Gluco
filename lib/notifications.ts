@@ -406,7 +406,7 @@ export async function scheduleWeeklySummaryReminder(userId?: string): Promise<st
         return await Notifications.scheduleNotificationAsync({
             content: {
                 title: 'Weekly behavior summary',
-                body: 'Check your progress and choose your next best step.',
+                body: 'Check your progress and see your personalized tips.',
                 data: {
                     route: '/(tabs)/insights',
                     tab: 'progress',

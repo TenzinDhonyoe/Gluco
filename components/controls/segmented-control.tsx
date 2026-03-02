@@ -36,12 +36,12 @@ type Props<T extends string> = {
 };
 
 const DEFAULT_SEGMENTED_PALETTE: Required<SegmentedPalette> = {
-  containerBg: 'rgba(30, 32, 34, 0.6)',
-  containerBorder: 'rgba(255,255,255,0.06)',
-  sliderColors: ['rgba(255,255,255,0.18)', 'rgba(255,255,255,0.08)', 'rgba(255,255,255,0.12)'],
-  sliderBorder: 'rgba(255,255,255,0.2)',
-  inactiveText: '#878787',
-  activeText: '#FFFFFF',
+  containerBg: 'rgba(118, 118, 128, 0.12)',
+  containerBorder: 'rgba(60, 60, 67, 0.06)',
+  sliderColors: ['rgba(255,255,255,1)', 'rgba(255,255,255,0.98)', 'rgba(255,255,255,1)'],
+  sliderBorder: 'rgba(0,0,0,0.04)',
+  inactiveText: '#8E8E93',
+  activeText: '#1C1C1E',
 };
 
 const SPRING_CONFIG = {
@@ -264,9 +264,13 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 999,
     overflow: 'hidden',
-    // Glass border effect
     borderWidth: 1,
     borderColor: DEFAULT_SEGMENTED_PALETTE.sliderBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   sliderGradient: {
     ...StyleSheet.absoluteFillObject,
@@ -286,11 +290,11 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: fonts.medium,
     fontSize: 13,
-    color: '#878787',
+    color: '#8E8E93',
     letterSpacing: 0.3,
   },
   labelActive: {
-    color: Colors.textPrimary,
+    color: '#1C1C1E',
     fontFamily: fonts.semiBold,
   },
 });

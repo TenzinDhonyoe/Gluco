@@ -3,7 +3,6 @@
  * Shows list of recent meals with check-in status
  */
 
-import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -20,7 +19,6 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function NotificationsListScreen() {
     const { user } = useAuth();
@@ -77,9 +75,9 @@ export default function NotificationsListScreen() {
         const hasCheckin = meal.meal_checkins && meal.meal_checkins.length > 0;
 
         if (hasCheckin) {
-            return { label: 'Checked in', bg: '#1E4D2B', text: '#4CAF50' };
+            return { label: 'Checked in', bg: Colors.successLight, text: Colors.success };
         } else {
-            return { label: 'Add check-in', bg: '#1E3A5F', text: '#3494D9' };
+            return { label: 'Add check-in', bg: Colors.primaryLight, text: Colors.primary };
         }
     };
 
@@ -117,7 +115,7 @@ export default function NotificationsListScreen() {
                     <Ionicons
                         name={hasCheckin ? 'checkmark-circle' : 'restaurant'}
                         size={22}
-                        color={hasCheckin ? '#4CAF50' : '#3494D9'}
+                        color={hasCheckin ? Colors.success : Colors.primary}
                     />
                 </View>
                 <View style={styles.reviewContent}>
@@ -133,14 +131,14 @@ export default function NotificationsListScreen() {
                         {status.label}
                     </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color="#3F4243" />
+                <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
             </TouchableOpacity>
         );
     };
 
     const renderEmpty = () => (
         <View style={styles.emptyContainer}>
-            <Ionicons name="notifications-off-outline" size={64} color="#3F4243" />
+            <Ionicons name="notifications-off-outline" size={64} color={Colors.textTertiary} />
             <Text style={styles.emptyTitle}>No Recent Meals</Text>
             <Text style={styles.emptySubtitle}>
                 Log meals to see them here and add check-ins
@@ -150,20 +148,11 @@ export default function NotificationsListScreen() {
 
     return (
         <View style={styles.container}>
-            <SafeAreaView style={styles.safeArea}>
-                {/* Header */}
-                <View style={styles.header}>
-                    <LiquidGlassIconButton size={44} onPress={handleBack}>
-                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
-                    </LiquidGlassIconButton>
-                    <Text style={styles.headerTitle}>NOTIFICATIONS</Text>
-                    <View style={styles.headerSpacer} />
-                </View>
-
+            <View style={styles.safeArea}>
                 {/* Content */}
                 {loading ? (
                     <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="large" color="#3494D9" />
+                        <ActivityIndicator size="large" color={Colors.primary} />
                     </View>
                 ) : (
                     <FlatList
@@ -176,12 +165,12 @@ export default function NotificationsListScreen() {
                             <RefreshControl
                                 refreshing={refreshing}
                                 onRefresh={onRefresh}
-                                tintColor="#3494D9"
+                                tintColor={Colors.primary}
                             />
                         }
                     />
                 )}
-            </SafeAreaView>
+            </View>
         </View>
     );
 }
@@ -193,34 +182,6 @@ const styles = StyleSheet.create({
     },
     safeArea: {
         flex: 1,
-    },
-    header: {
-        height: 72,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-    },
-    backButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
-    },
-    headerTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 18,
-        color: Colors.textPrimary,
-        letterSpacing: 1,
-    },
-    headerSpacer: {
-        width: 48,
     },
     loadingContainer: {
         flex: 1,
@@ -234,20 +195,21 @@ const styles = StyleSheet.create({
     reviewCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.backgroundCard,
         borderRadius: 20,
         padding: 14,
         marginBottom: 10,
+        borderWidth: 1,
+        borderColor: Colors.borderCard,
     },
     reviewCardReady: {
-        borderWidth: 1,
-        borderColor: 'rgba(52, 148, 217, 0.3)',
+        borderColor: Colors.primaryMedium,
     },
     reviewIcon: {
         width: 42,
         height: 42,
         borderRadius: 21,
-        backgroundColor: 'rgba(63, 66, 67, 0.5)',
+        backgroundColor: Colors.inputBackground,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 12,
@@ -258,7 +220,7 @@ const styles = StyleSheet.create({
     reviewTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 15,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
     },
     reviewTime: {
         fontFamily: fonts.regular,
@@ -285,7 +247,7 @@ const styles = StyleSheet.create({
     emptyTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
         marginTop: 16,
     },
     emptySubtitle: {

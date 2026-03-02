@@ -1,4 +1,3 @@
-import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +6,7 @@ import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
@@ -120,6 +120,7 @@ export default function SignUpScreen() {
     };
 
     const handleSignIn = () => {
+        triggerHaptic();
         router.push('/signin');
     };
 
@@ -127,7 +128,6 @@ export default function SignUpScreen() {
 
     return (
         <View style={styles.container}>
-                <ForestGlassBackground blurIntensity={18} />
                 <SafeAreaView style={styles.safeArea}>
                     <KeyboardAvoidingView
                         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -181,7 +181,7 @@ export default function SignUpScreen() {
                                         right={(
                                             <TouchableOpacity
                                                 style={styles.eyeButton}
-                                                onPress={() => setShowPassword(!showPassword)}
+                                                onPress={() => { triggerHaptic(); setShowPassword(!showPassword); }}
                                             >
                                                 <Ionicons
                                                     name={showPassword ? "eye-off-outline" : "eye-outline"}
@@ -205,7 +205,7 @@ export default function SignUpScreen() {
                                         right={(
                                             <TouchableOpacity
                                                 style={styles.eyeButton}
-                                                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                                                onPress={() => { triggerHaptic(); setShowConfirmPassword(!showConfirmPassword); }}
                                             >
                                                 <Ionicons
                                                     name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
@@ -234,14 +234,14 @@ export default function SignUpScreen() {
                                         I agree to the{' '}
                                         <Text
                                             style={styles.legalLink}
-                                            onPress={() => Linking.openURL(LEGAL_URLS.privacyPolicy)}
+                                            onPress={() => { triggerHaptic(); Linking.openURL(LEGAL_URLS.privacyPolicy); }}
                                         >
                                             Privacy Policy
                                         </Text>
                                         {' & '}
                                         <Text
                                             style={styles.legalLink}
-                                            onPress={() => Linking.openURL(LEGAL_URLS.termsAndConditions)}
+                                            onPress={() => { triggerHaptic(); Linking.openURL(LEGAL_URLS.termsAndConditions); }}
                                         >
                                             Terms of Service
                                         </Text>
@@ -275,7 +275,7 @@ export default function SignUpScreen() {
                                             disabled={isAppleLoading}
                                         >
                                             <View style={styles.appleIconContainer}>
-                                                <Ionicons name="logo-apple" size={22} color={Colors.textPrimary} />
+                                                <Ionicons name="logo-apple" size={22} color={'#FFFFFF'} />
                                             </View>
                                             <Text style={styles.appleButtonText}>
                                                 {isAppleLoading ? 'Signing in...' : 'Sign up with Apple'}
@@ -370,7 +370,7 @@ const styles = StyleSheet.create({
         height: 24,
         borderRadius: 12,
         borderWidth: 1.5,
-        borderColor: '#48484D',
+        borderColor: Colors.borderMedium,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 12,
@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
         fontFamily: fonts.medium, // Outfit Medium (500)
         fontSize: 15,
         lineHeight: 15 * 0.95, // 0.95 line-height
-        color: Colors.textPrimary,
+        color: Colors.textSecondary,
         marginHorizontal: 8,
     },
     // Social icons (just icons, not full buttons)
@@ -436,7 +436,7 @@ const styles = StyleSheet.create({
         fontFamily: fonts.medium,
         fontSize: 16,
         lineHeight: 16 * 1.2,
-        color: Colors.textPrimary,
+        color: '#FFFFFF',
     },
     socialButtonDisabled: {
         opacity: 0.5,
@@ -447,14 +447,14 @@ const styles = StyleSheet.create({
         fontSize: 14,
         lineHeight: 14 * 1.2, // 1.2 line-height
         textAlign: 'center',
-        color: Colors.textPrimary,
+        color: Colors.textSecondary,
     },
     signInLink: {
-        color: '#0e9cff', // Blue link color from Figma
+        color: Colors.primary,
         textDecorationLine: 'underline',
     },
     legalLink: {
-        color: '#47aa4b', // Green link color
+        color: Colors.primary,
         textDecorationLine: 'underline',
     },
 });

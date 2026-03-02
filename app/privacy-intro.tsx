@@ -8,6 +8,7 @@ import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
@@ -28,6 +29,7 @@ export default function PrivacyIntroScreen() {
     const { signInWithApple } = useAuth();
 
     const handleAppleSignIn = async () => {
+        triggerHaptic('medium');
         if (Platform.OS !== 'ios') {
             Alert.alert('Not Available', 'Apple Sign-In is only available on iOS devices.');
             return;
@@ -57,14 +59,17 @@ export default function PrivacyIntroScreen() {
     };
 
     const handleUseEmail = () => {
+        triggerHaptic();
         router.push('/signin');
     };
 
     const handleTermsPress = () => {
+        triggerHaptic();
         Linking.openURL(LEGAL_URLS.termsAndConditions);
     };
 
     const handlePrivacyPress = () => {
+        triggerHaptic();
         Linking.openURL(LEGAL_URLS.privacyPolicy);
     };
 
@@ -112,7 +117,7 @@ export default function PrivacyIntroScreen() {
                             activeOpacity={0.8}
                             disabled={isAppleLoading}
                         >
-                            <Ionicons name="logo-apple" size={20} color={Colors.textPrimary} />
+                            <Ionicons name="logo-apple" size={20} color={'#FFFFFF'} />
                             <Text style={styles.appleButtonText}>
                                 {isAppleLoading ? 'Signing in...' : 'Continue with Apple'}
                             </Text>
@@ -160,7 +165,7 @@ const styles = StyleSheet.create({
     subtitle: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#B0B0B0',
+        color: Colors.textSecondary,
         textAlign: 'center',
         lineHeight: 24,
         marginBottom: 40,
@@ -203,7 +208,7 @@ const styles = StyleSheet.create({
     appleButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: Colors.textPrimary,
+        color: '#FFFFFF',
     },
     emailButton: {
         alignItems: 'center',

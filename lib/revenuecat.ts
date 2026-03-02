@@ -47,7 +47,7 @@ export async function initializeRevenueCat(): Promise<boolean> {
         const Purchases = await getPurchases();
         if (!Purchases) return false;
 
-        const { LOG_LEVEL } = await import('react-native-purchases');
+        const { LOG_LEVEL, STOREKIT_VERSION } = await import('react-native-purchases');
         if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
 
         if (Platform.OS === 'ios') {
@@ -55,7 +55,7 @@ export async function initializeRevenueCat(): Promise<boolean> {
                 console.error('RevenueCat iOS key is missing. Set EXPO_PUBLIC_REVENUECAT_IOS_API_KEY.');
                 return false;
             }
-            Purchases.configure({ apiKey: REVENUECAT_IOS_API_KEY });
+            Purchases.configure({ apiKey: REVENUECAT_IOS_API_KEY, storeKitVersion: STOREKIT_VERSION.STOREKIT_2 });
             isConfigured = true;
             if (__DEV__) console.log('RevenueCat: Configured for iOS');
         } else if (Platform.OS === 'android') {

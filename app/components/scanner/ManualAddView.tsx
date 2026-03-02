@@ -3,7 +3,7 @@ import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { LinearGradient } from 'expo-linear-gradient';
+
 import React, { useState } from 'react';
 import {
     Alert,
@@ -124,17 +124,13 @@ export default function ManualAddView({ onClose, onSave }: ManualAddViewProps) {
         >
             <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                 <View style={styles.innerContainer}>
-                    <LinearGradient
-                        colors={['#1a1f24', '#181c20', '#111111']}
-                        locations={[0, 0.3, 1]}
-                        style={styles.backgroundGradient}
-                    />
+                    <View style={styles.backgroundGradient} />
 
                     <View style={[styles.contentContainer, { paddingTop: insets.top }]}>
                         {/* Header */}
                         <View style={styles.header}>
                             <LiquidGlassIconButton size={44} onPress={onClose}>
-                                <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                                <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
                             </LiquidGlassIconButton>
                             <Text style={styles.title}>MANUAL ENTRY</Text>
                             <View style={styles.headerSpacer} />
@@ -292,7 +288,7 @@ const styles = StyleSheet.create({
         width: 48,
         height: 48,
         borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.buttonSecondary,
         justifyContent: 'center',
         alignItems: 'center',
         shadowColor: '#000',
@@ -327,7 +323,7 @@ const styles = StyleSheet.create({
     label: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#E7E8E9',
+        color: Colors.textSecondary,
         marginLeft: 4,
     },
     input: {
@@ -342,24 +338,24 @@ const styles = StyleSheet.create({
         borderColor: Colors.inputBorderSolid,
     },
     saveButton: {
-        backgroundColor: Colors.primary,
+        backgroundColor: Colors.buttonAction,
         borderRadius: 16,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 24,
-        shadowColor: Colors.primary,
+        shadowColor: Colors.buttonAction,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
     },
     saveButtonDisabled: {
-        backgroundColor: '#2A3036',
+        backgroundColor: Colors.buttonDisabled,
         shadowOpacity: 0,
     },
     saveButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
     formScrollView: {
         flex: 1,
@@ -373,13 +369,13 @@ const styles = StyleSheet.create({
         width: 120,
         height: 120,
         borderRadius: 16,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.inputBackground,
     },
     removePhotoButton: {
         position: 'absolute',
         top: -8,
         right: -8,
-        backgroundColor: '#1a1f24',
+        backgroundColor: Colors.backgroundSolid,
         borderRadius: 12,
     },
     photoButtonsRow: {
@@ -388,14 +384,14 @@ const styles = StyleSheet.create({
     },
     photoButton: {
         flex: 1,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.inputBackground,
         borderRadius: 16,
         paddingVertical: 24,
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.05)',
+        borderColor: Colors.border,
         borderStyle: 'dashed',
     },
     photoButtonText: {

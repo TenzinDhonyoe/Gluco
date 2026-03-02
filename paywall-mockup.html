@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gluco Premium Paywall</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Text */
+      --text-white: #FFFFFF;
+      --text-secondary: rgba(255, 255, 255, 0.7);
+      --text-muted: rgba(255, 255, 255, 0.5);
+      --text-faint: rgba(255, 255, 255, 0.35);
+
+      /* Accent */
+      --accent-teal: #2DD4BF;
+      --accent-teal-glow: rgba(45, 212, 191, 0.25);
+      --accent-teal-dim: rgba(45, 212, 191, 0.15);
+
+      /* Glass surfaces */
+      --glass-bg: rgba(255, 255, 255, 0.08);
+      --glass-border: rgba(255, 255, 255, 0.12);
+      --glass-selected-bg: rgba(45, 212, 191, 0.15);
+      --glass-selected-border: rgba(45, 212, 191, 0.6);
+
+      /* CTA */
+      --cta-bg: #2DD4BF;
+      --cta-text: #0A0A0A;
+
+      /* Badge */
+      --badge-bg: rgba(45, 212, 191, 0.2);
+      --badge-text: #2DD4BF;
+      --badge-border: rgba(45, 212, 191, 0.3);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background: #0A0A0A;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    /* ─── Phone Frame ─── */
+    .phone-frame {
+      width: 390px;
+      height: 844px;
+      border-radius: 47px;
+      overflow: hidden;
+      position: relative;
+      box-shadow:
+        0 0 0 12px #1A1A1A,
+        0 0 0 14px #333,
+        0 20px 60px rgba(0, 0, 0, 0.5);
+      flex-shrink: 0;
+    }
+
+    .screen {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* ─── Background Layers ─── */
+    .bg-image {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      background-image: url('./assets/images/backgrounds/background.png');
+      background-size: cover;
+      background-position: center;
+    }
+
+    .bg-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      background: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0) 0%,
+        rgba(0, 0, 0, 0.1) 25%,
+        rgba(0, 0, 0, 0.45) 55%,
+        rgba(0, 0, 0, 0.72) 100%
+      );
+    }
+
+    /* ─── Content ─── */
+    .screen-content {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      padding: 54px 20px 34px 20px;
+    }
+
+    /* ─── Skip Link ─── */
+    .skip-row {
+      display: flex;
+      justify-content: flex-end;
+      padding: 0 0 8px 0;
+    }
+
+    .skip-link {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px 0;
+      letter-spacing: 0.1px;
+    }
+
+    /* ─── Spacer ─── */
+    .spacer {
+      flex: 1;
+      min-height: 20px;
+    }
+
+    /* ─── Hero ─── */
+    .hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .hero-icon {
+      width: 100px;
+      height: 100px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+      filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.35));
+    }
+
+    .hero-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .hero-title {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text-white);
+      line-height: 1.15;
+      margin-bottom: 8px;
+      letter-spacing: -0.3px;
+    }
+
+    .hero-subtitle {
+      font-size: 15px;
+      font-weight: 400;
+      color: var(--text-secondary);
+      line-height: 1.45;
+      max-width: 260px;
+    }
+
+    /* ─── Features ─── */
+    .features {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 28px;
+    }
+
+    .feature-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 14px;
+      border-radius: 20px;
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-white);
+      white-space: nowrap;
+    }
+
+    .feature-pill svg {
+      flex-shrink: 0;
+    }
+
+    /* ─── Pricing ─── */
+    .pricing {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .price-card {
+      position: relative;
+      padding: 16px;
+      border-radius: 14px;
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1.5px solid var(--glass-border);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .price-card--selected {
+      background: var(--glass-selected-bg);
+      border-color: var(--glass-selected-border);
+      box-shadow:
+        0 0 20px rgba(45, 212, 191, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    .price-card__badge {
+      position: absolute;
+      top: -10px;
+      left: 16px;
+      padding: 3px 10px;
+      border-radius: 6px;
+      background: var(--badge-bg);
+      border: 1px solid var(--badge-border);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--badge-text);
+    }
+
+    .price-card__content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .price-card__left {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .price-card__label {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-white);
+    }
+
+    .price-card__detail {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-secondary);
+    }
+
+    .price-card__radio {
+      width: 22px;
+      height: 22px;
+      border-radius: 11px;
+      border: 2px solid var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .price-card__radio--selected {
+      border-color: var(--accent-teal);
+    }
+
+    .price-card__radio-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 5px;
+      background: var(--accent-teal);
+    }
+
+    /* ─── CTA ─── */
+    .cta-section {
+      margin-bottom: 0;
+    }
+
+    .cta-button {
+      width: 100%;
+      height: 52px;
+      border-radius: 14px;
+      border: none;
+      background: var(--cta-bg);
+      color: var(--cta-text);
+      font-family: 'Outfit', sans-serif;
+      font-size: 17px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(45, 212, 191, 0.3);
+      letter-spacing: 0.1px;
+    }
+
+    /* ─── Restore ─── */
+    .restore-row {
+      text-align: center;
+      margin-top: 14px;
+    }
+
+    .restore-link {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    /* ─── Legal ─── */
+    .legal-footer {
+      text-align: center;
+      margin-top: 10px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      padding-bottom: 4px;
+    }
+
+    .legal-footer span {
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--text-faint);
+      cursor: pointer;
+    }
+
+    .legal-dot {
+      cursor: default !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="phone-frame">
+    <div class="screen">
+      <!-- Background layers -->
+      <div class="bg-image"></div>
+      <div class="bg-overlay"></div>
+
+      <!-- Content -->
+      <div class="screen-content">
+        <!-- Skip -->
+        <div class="skip-row">
+          <span class="skip-link">Maybe Later</span>
+        </div>
+
+        <!-- Spacer (lets forest/seedling show through) -->
+        <div class="spacer"></div>
+
+        <!-- Hero -->
+        <div class="hero">
+          <div class="hero-icon">
+            <img src="./assets/images/mascots/gluco_app_mascott/gluco_mascott_default.png" alt="Gluco mascot" />
+          </div>
+          <h1 class="hero-title">Unlock Premium</h1>
+          <p class="hero-subtitle">Get personalized insights for<br>your health journey</p>
+        </div>
+
+        <!-- Features -->
+        <div class="features">
+          <div class="feature-pill">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2L13.5 8.5L20 7L15.5 12L20 17L13.5 15.5L12 22L10.5 15.5L4 17L8.5 12L4 7L10.5 8.5L12 2Z" fill="#2DD4BF"/>
+            </svg>
+            <span>AI-Powered Insights</span>
+          </div>
+          <div class="feature-pill">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M3 20H5V14H3V20ZM7 20H9V10H7V20ZM11 20H13V4H11V20ZM15 20H17V8H15V20ZM19 20H21V12H19V20Z" fill="#2DD4BF"/>
+            </svg>
+            <span>Advanced Analytics</span>
+          </div>
+          <div class="feature-pill">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M12 22C12 22 20 18 20 11V5L12 2L4 5V11C4 18 12 22 12 22Z" stroke="#2DD4BF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+              <path d="M12 6V12" stroke="#2DD4BF" stroke-width="1.8" stroke-linecap="round"/>
+              <circle cx="12" cy="16" r="1" fill="#2DD4BF"/>
+            </svg>
+            <span>Smart Reminders</span>
+          </div>
+          <div class="feature-pill">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-5.096 0-5.096 8 0 8 5.606 0 7.644-8 12.74-8Z" stroke="#2DD4BF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            </svg>
+            <span>Unlimited Logging</span>
+          </div>
+        </div>
+
+        <!-- Pricing -->
+        <div class="pricing">
+          <!-- Annual (selected) -->
+          <div class="price-card price-card--selected">
+            <div class="price-card__badge">BEST VALUE</div>
+            <div class="price-card__content">
+              <div class="price-card__left">
+                <span class="price-card__label">Annual</span>
+                <span class="price-card__detail">$49.99/year ($4.17/mo)</span>
+              </div>
+              <div class="price-card__radio price-card__radio--selected">
+                <div class="price-card__radio-dot"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Monthly -->
+          <div class="price-card">
+            <div class="price-card__content">
+              <div class="price-card__left">
+                <span class="price-card__label">Monthly</span>
+                <span class="price-card__detail">$7.99/month</span>
+              </div>
+              <div class="price-card__radio"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CTA -->
+        <div class="cta-section">
+          <button class="cta-button">Continue</button>
+        </div>
+
+        <!-- Restore -->
+        <div class="restore-row">
+          <span class="restore-link">Restore Purchases</span>
+        </div>
+
+        <!-- Legal -->
+        <div class="legal-footer">
+          <span>Terms of Service</span>
+          <span class="legal-dot">&middot;</span>
+          <span>Privacy Policy</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -7,7 +7,7 @@ export default function TabLayout() {
     const isBehaviorV1 = isBehaviorV1Experience(profile?.experience_variant);
 
     return (
-        <NativeTabs backgroundColor="transparent">
+        <NativeTabs backgroundColor="transparent" blurEffect="none" shadowColor="transparent">
             <NativeTabs.Trigger name="index">
                 <Icon sf={{ default: 'house', selected: 'house.fill' }} />
                 <Label>Home</Label>

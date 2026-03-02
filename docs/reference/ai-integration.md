@@ -140,7 +140,7 @@ When adding or modifying AI features:
 
 1. **Check AI consent** — `profile.ai_enabled` must be true
 2. **Sanitize all output** — Run through `containsBannedTerms()` / `sanitizeText()`
-3. **No medical claims** — Use safe verbs (see `health-domain.md`)
+3. **No medical claims** — Read [`docs/reference/health-domain.md`](health-domain.md) for the full banned terms list and safe verb alternatives. Every AI-generated string must comply.
 4. **Validate nutrients** — Use `enforceNutrientLimits()` for food data
 5. **Handle failures gracefully** — AI calls can fail; always have a fallback
 6. **Rate limit awareness** — Edge function cold starts can add 2-5s latency

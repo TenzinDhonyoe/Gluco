@@ -1,6 +1,5 @@
-import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
-import { behaviorV1Theme } from '@/constants/behaviorV1Theme';
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -9,7 +8,6 @@ import { ActivityLog, getActivityLogs, getGlucoseLogs, getMeals, GlucoseLog, Mea
 import { formatGlucoseWithUnit, GlucoseUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
@@ -221,7 +219,7 @@ const iconStyles = StyleSheet.create({
     filterLine: {
         width: 16,
         height: 2,
-        backgroundColor: 'white',
+        backgroundColor: Colors.textTertiary,
         borderRadius: 1,
         position: 'relative',
     },
@@ -229,11 +227,11 @@ const iconStyles = StyleSheet.create({
         position: 'absolute',
         width: 4,
         height: 4,
-        backgroundColor: '#1a1b1c',
+        backgroundColor: '#F2F2F7',
         borderRadius: 2,
         top: -1,
         borderWidth: 1,
-        borderColor: 'white',
+        borderColor: Colors.textTertiary,
     },
 });
 
@@ -429,240 +427,198 @@ export default function LogScreen() {
 
     return (
         <View style={styles.container}>
-            <ForestGlassBackground blurIntensity={12} />
+            <ForestGlassBackground />
 
-                <Animated.ScrollView
-                    style={styles.scrollView}
-                    contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 8 }]}
-                    showsVerticalScrollIndicator={false}
-                    onScroll={handleScroll}
-                    scrollEventThrottle={16}
+            <Animated.ScrollView
+                style={styles.scrollView}
+                contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 8 }]}
+                showsVerticalScrollIndicator={false}
+                onScroll={handleScroll}
+                scrollEventThrottle={16}
+            >
+                {/* Tips Section */}
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.tipsScroll}
+                    contentContainerStyle={styles.tipsContainer}
+                    snapToInterval={TIP_CARD_WIDTH + 16}
+                    decelerationRate="fast"
                 >
-                    {/* Tips Section */}
-                    <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        style={styles.tipsScroll}
-                        contentContainerStyle={styles.tipsContainer}
-                        snapToInterval={TIP_CARD_WIDTH + 16}
-                        decelerationRate="fast"
+                    {tipsData.map((tip) => (
+                        <TipCard key={tip.id} data={tip} onPress={() => handleTipPress(tip)} />
+                    ))}
+                </ScrollView>
+
+                {/* Quick Action Buttons */}
+                <View style={styles.quickActionsContainer}>
+                    <AnimatedPressable
+                        style={styles.quickActionButton}
+                        onPress={() => router.push('/meal-scanner')}
                     >
-                        {tipsData.map((tip) => (
-                            <TipCard key={tip.id} data={tip} onPress={() => handleTipPress(tip)} />
-                        ))}
-                    </ScrollView>
+                        <View style={styles.quickActionIconWrap}>
+                            <Ionicons name="restaurant" size={22} color="#FFB74D" />
+                        </View>
+                        <Text style={styles.quickActionText}>Log Meal</Text>
+                    </AnimatedPressable>
 
-                    {/* Quick Action Buttons */}
-                    <View style={styles.quickActionsContainer}>
-                        <AnimatedPressable
-                            style={styles.quickActionButton}
-                            onPress={() => router.push('/meal-scanner')}
-                        >
-                            <LinearGradient
-                                colors={[behaviorV1Theme.surfaceAction, 'rgba(16, 30, 24, 0.86)', 'rgba(12, 24, 18, 0.90)']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 0.9, y: 1 }}
-                                style={styles.quickActionGradient}
-                            />
-                            <BlurView tint="dark" intensity={28} style={StyleSheet.absoluteFillObject} />
-                            <LinearGradient
-                                colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.01)']}
-                                locations={[0, 0.42, 1]}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 0.85, y: 1 }}
-                                style={styles.quickActionSheen}
-                            />
-                            <View style={styles.quickActionIconWrap}>
-                                <Ionicons name="restaurant" size={22} color="#FFB74D" />
-                            </View>
-                            <Text style={styles.quickActionText}>Log Meal</Text>
-                        </AnimatedPressable>
+                    <AnimatedPressable
+                        style={styles.quickActionButton}
+                        onPress={() => router.push('/log-glucose')}
+                    >
+                        <View style={styles.quickActionIconWrap}>
+                            <Ionicons name="water" size={22} color="#FF5252" />
+                        </View>
+                        <Text style={styles.quickActionText}>Log Glucose</Text>
+                    </AnimatedPressable>
 
-                        <AnimatedPressable
-                            style={styles.quickActionButton}
-                            onPress={() => router.push('/log-glucose')}
-                        >
-                            <LinearGradient
-                                colors={[behaviorV1Theme.surfaceAction, 'rgba(16, 30, 24, 0.86)', 'rgba(12, 24, 18, 0.90)']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 0.9, y: 1 }}
-                                style={styles.quickActionGradient}
-                            />
-                            <BlurView tint="dark" intensity={28} style={StyleSheet.absoluteFillObject} />
-                            <LinearGradient
-                                colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.01)']}
-                                locations={[0, 0.42, 1]}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 0.85, y: 1 }}
-                                style={styles.quickActionSheen}
-                            />
-                            <View style={styles.quickActionIconWrap}>
-                                <Ionicons name="water" size={22} color="#FF5252" />
-                            </View>
-                            <Text style={styles.quickActionText}>Log Glucose</Text>
-                        </AnimatedPressable>
+                    <AnimatedPressable
+                        style={styles.quickActionButton}
+                        onPress={() => router.push('/log-activity')}
+                    >
+                        <View style={styles.quickActionIconWrap}>
+                            <Ionicons name="walk" size={22} color="#81C784" />
+                        </View>
+                        <Text style={styles.quickActionText}>Log Activity</Text>
+                    </AnimatedPressable>
+                </View>
 
+                {/* Recent Logs Section */}
+                <View style={styles.logsSection}>
+                    {/* Section Header */}
+                    <View style={styles.logsSectionHeader}>
+                        <Text style={styles.logsSectionTitle}>Recent Logs</Text>
                         <AnimatedPressable
-                            style={styles.quickActionButton}
-                            onPress={() => router.push('/log-activity')}
+                            style={styles.filterButton}
+                            onPress={() => setShowFilterDropdown(true)}
                         >
-                            <LinearGradient
-                                colors={[behaviorV1Theme.surfaceAction, 'rgba(16, 30, 24, 0.86)', 'rgba(12, 24, 18, 0.90)']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 0.9, y: 1 }}
-                                style={styles.quickActionGradient}
+                            <Text style={styles.filterText}>{currentFilterLabel}</Text>
+                            <Ionicons
+                                name="chevron-down"
+                                size={14}
+                                color={Colors.textTertiary}
                             />
-                            <BlurView tint="dark" intensity={28} style={StyleSheet.absoluteFillObject} />
-                            <LinearGradient
-                                colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.01)']}
-                                locations={[0, 0.42, 1]}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 0.85, y: 1 }}
-                                style={styles.quickActionSheen}
-                            />
-                            <View style={styles.quickActionIconWrap}>
-                                <Ionicons name="walk" size={22} color="#81C784" />
-                            </View>
-                            <Text style={styles.quickActionText}>Log Activity</Text>
                         </AnimatedPressable>
                     </View>
 
-                    {/* Recent Logs Section */}
-                    <View style={styles.logsSection}>
-                        {/* Section Header */}
-                        <View style={styles.logsSectionHeader}>
-                            <Text style={styles.logsSectionTitle}>Recent Logs</Text>
-                            <AnimatedPressable
-                                style={styles.filterButton}
-                                onPress={() => setShowFilterDropdown(true)}
-                            >
-                                <Text style={styles.filterText}>{currentFilterLabel}</Text>
-                                <Ionicons
-                                    name="chevron-down"
-                                    size={14}
-                                    color={Colors.textTertiary}
-                                />
-                            </AnimatedPressable>
-                        </View>
-
-                        {/* Logs List */}
-                        <View style={styles.logsCard}>
-                            {isLoading ? (
-                                <View style={styles.loadingContainer}>
-                                    <ActivityIndicator size="small" color={Colors.textTertiary} />
-                                    <Text style={styles.loadingText}>Loading logs...</Text>
-                                </View>
-                            ) : logs.length === 0 ? (
-                                <View style={styles.emptyContainer}>
-                                    <Ionicons name="document-text-outline" size={32} color={Colors.textTertiary} />
-                                    <Text style={styles.emptyText}>No logs yet</Text>
-                                    <Text style={styles.emptySubtext}>
-                                        Start tracking your glucose and activities!
-                                    </Text>
-                                </View>
-                            ) : filteredLogs.length === 0 ? (
-                                <View style={styles.emptyContainer}>
-                                    <Ionicons name="filter-outline" size={32} color={Colors.textTertiary} />
-                                    <Text style={styles.emptyText}>No {currentFilterLabel.toLowerCase()} logs</Text>
-                                    <Text style={styles.emptySubtext}>
-                                        Try a different filter or log some {currentFilterLabel.toLowerCase()}.
-                                    </Text>
-                                </View>
-                            ) : (
-                                filteredLogs.map((entry, index) => (
-                                    <React.Fragment key={entry.id}>
-                                        <LogEntryRow entry={entry} />
-                                        {index < filteredLogs.length - 1 && (
-                                            <View style={styles.logDivider} />
-                                        )}
-                                    </React.Fragment>
-                                ))
-                            )}
-                        </View>
-                    </View>
-
-                </Animated.ScrollView>
-
-                {/* Blurred Header */}
-                <View style={styles.blurHeaderContainer}>
-                    {/* Animated background - transparent at top, opaque when scrolled */}
-                    <Animated.View style={[styles.headerBackground, { opacity: headerBgOpacity }]} />
-                    <View style={{ paddingTop: insets.top }}>
-                        <View style={styles.header}>
-                            {/* Large title on the left - fades out on scroll */}
-                            <Animated.Text style={[styles.headerTitle, { opacity: largeTitleOpacity }]}>
-                                LOGS
-                            </Animated.Text>
-                            {/* Small centered title - fades in and slides down on scroll */}
-                            <Animated.Text style={[styles.headerTitleSmall, {
-                                opacity: smallTitleOpacity,
-                                transform: [{ translateY: smallTitleTranslateY }]
-                            }]}>
-                                LOGS
-                            </Animated.Text>
-                        </View>
+                    {/* Logs List */}
+                    <View style={styles.logsCard}>
+                        {isLoading ? (
+                            <View style={styles.loadingContainer}>
+                                <ActivityIndicator size="small" color={Colors.textTertiary} />
+                                <Text style={styles.loadingText}>Loading logs...</Text>
+                            </View>
+                        ) : logs.length === 0 ? (
+                            <View style={styles.emptyContainer}>
+                                <Ionicons name="document-text-outline" size={32} color={Colors.textTertiary} />
+                                <Text style={styles.emptyText}>No logs yet</Text>
+                                <Text style={styles.emptySubtext}>
+                                    Start tracking your glucose and activities!
+                                </Text>
+                            </View>
+                        ) : filteredLogs.length === 0 ? (
+                            <View style={styles.emptyContainer}>
+                                <Ionicons name="filter-outline" size={32} color={Colors.textTertiary} />
+                                <Text style={styles.emptyText}>No {currentFilterLabel.toLowerCase()} logs</Text>
+                                <Text style={styles.emptySubtext}>
+                                    Try a different filter or log some {currentFilterLabel.toLowerCase()}.
+                                </Text>
+                            </View>
+                        ) : (
+                            filteredLogs.map((entry, index) => (
+                                <React.Fragment key={entry.id}>
+                                    <LogEntryRow entry={entry} />
+                                    {index < filteredLogs.length - 1 && (
+                                        <View style={styles.logDivider} />
+                                    )}
+                                </React.Fragment>
+                            ))
+                        )}
                     </View>
                 </View>
 
-                {/* shadcn-inspired Filter Modal */}
-                <Modal
-                    visible={showFilterDropdown}
-                    transparent
-                    animationType="fade"
-                    onRequestClose={() => setShowFilterDropdown(false)}
+            </Animated.ScrollView>
+
+            {/* Blurred Header */}
+            <View style={styles.blurHeaderContainer}>
+                {/* Animated background - transparent at top, opaque when scrolled */}
+                <Animated.View style={[styles.headerBackground, { opacity: headerBgOpacity }]} />
+                <View style={{ paddingTop: insets.top }}>
+                    <View style={styles.header}>
+                        {/* Large title on the left - fades out on scroll */}
+                        <Animated.Text style={[styles.headerTitle, { opacity: largeTitleOpacity }]}>
+                            LOGS
+                        </Animated.Text>
+                        {/* Small centered title - fades in and slides down on scroll */}
+                        <Animated.Text style={[styles.headerTitleSmall, {
+                            opacity: smallTitleOpacity,
+                            transform: [{ translateY: smallTitleTranslateY }]
+                        }]}>
+                            LOGS
+                        </Animated.Text>
+                    </View>
+                </View>
+            </View>
+
+            {/* shadcn-inspired Filter Modal */}
+            <Modal
+                visible={showFilterDropdown}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowFilterDropdown(false)}
+            >
+                <Pressable
+                    style={styles.filterModalOverlay}
+                    onPress={() => setShowFilterDropdown(false)}
                 >
                     <Pressable
-                        style={styles.filterModalOverlay}
-                        onPress={() => setShowFilterDropdown(false)}
+                        style={styles.filterModalContent}
+                        onPress={(e) => e.stopPropagation()}
                     >
-                        <Pressable
-                            style={styles.filterModalContent}
-                            onPress={(e) => e.stopPropagation()}
-                        >
-                            <View style={styles.filterModalHeader}>
-                                <Text style={styles.filterModalTitle}>Filter by</Text>
-                                <Pressable
-                                    onPress={() => setShowFilterDropdown(false)}
-                                    style={styles.filterModalCloseBtn}
-                                >
-                                    <Ionicons name="close" size={20} color={Colors.textTertiary} />
-                                </Pressable>
-                            </View>
-                            <View style={styles.filterModalDivider} />
-                            {filterOptions.map((option, index) => (
-                                <Pressable
-                                    key={option.value}
-                                    style={({ pressed }) => [
-                                        styles.filterModalOption,
-                                        pressed && styles.filterModalOptionPressed,
-                                        index === filterOptions.length - 1 && styles.filterModalOptionLast,
-                                    ]}
-                                    onPress={() => {
-                                        setFilter(option.value);
-                                        setShowFilterDropdown(false);
-                                    }}
-                                >
-                                    <View style={styles.filterModalOptionLeft}>
-                                        <View style={styles.filterModalRadio}>
-                                            {filter === option.value && (
-                                                <View style={styles.filterModalRadioInner} />
-                                            )}
-                                        </View>
-                                        <Text style={[
-                                            styles.filterModalOptionText,
-                                            filter === option.value && styles.filterModalOptionTextActive,
-                                        ]}>
-                                            {option.label}
-                                        </Text>
+                        <View style={styles.filterModalHeader}>
+                            <Text style={styles.filterModalTitle}>Filter by</Text>
+                            <Pressable
+                                onPress={() => setShowFilterDropdown(false)}
+                                style={styles.filterModalCloseBtn}
+                            >
+                                <Ionicons name="close" size={20} color={Colors.textTertiary} />
+                            </Pressable>
+                        </View>
+                        <View style={styles.filterModalDivider} />
+                        {filterOptions.map((option, index) => (
+                            <Pressable
+                                key={option.value}
+                                style={({ pressed }) => [
+                                    styles.filterModalOption,
+                                    pressed && styles.filterModalOptionPressed,
+                                    index === filterOptions.length - 1 && styles.filterModalOptionLast,
+                                ]}
+                                onPress={() => {
+                                    setFilter(option.value);
+                                    setShowFilterDropdown(false);
+                                }}
+                            >
+                                <View style={styles.filterModalOptionLeft}>
+                                    <View style={styles.filterModalRadio}>
+                                        {filter === option.value && (
+                                            <View style={styles.filterModalRadioInner} />
+                                        )}
                                     </View>
-                                    {filter === option.value && (
-                                        <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />
-                                    )}
-                                </Pressable>
-                            ))}
-                        </Pressable>
+                                    <Text style={[
+                                        styles.filterModalOptionText,
+                                        filter === option.value && styles.filterModalOptionTextActive,
+                                    ]}>
+                                        {option.label}
+                                    </Text>
+                                </View>
+                                {filter === option.value && (
+                                    <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />
+                                )}
+                            </Pressable>
+                        ))}
                     </Pressable>
-                </Modal>
+                </Pressable>
+            </Modal>
         </View>
     );
 }
@@ -691,7 +647,7 @@ const styles = StyleSheet.create({
     },
     headerBackground: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(10, 21, 17, 0.42)',
+        backgroundColor: 'rgba(255, 255, 255, 0.75)',
     },
     header: {
         flexDirection: 'row',
@@ -737,7 +693,12 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         position: 'relative',
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)',
+        borderColor: 'rgba(60, 60, 67, 0.12)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+        elevation: 3,
     },
     tipCardImage: {
         ...StyleSheet.absoluteFillObject,
@@ -764,7 +725,7 @@ const styles = StyleSheet.create({
     tipCardTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: Colors.textPrimary,
+        color: '#FFFFFF',
         lineHeight: 22,
     },
     tipCardDescription: {
@@ -776,7 +737,7 @@ const styles = StyleSheet.create({
     tipCardMetric: {
         fontFamily: fonts.bold,
         fontSize: 24,
-        color: Colors.textPrimary,
+        color: '#FFFFFF',
         marginBottom: 4,
     },
     tipCardReadMore: {
@@ -800,19 +761,13 @@ const styles = StyleSheet.create({
         gap: 10,
         borderRadius: 18,
         borderWidth: 1,
-        borderColor: 'rgba(168, 197, 160, 0.40)',
-        overflow: 'hidden',
-        shadowColor: '#0A1610',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.35,
-        shadowRadius: 20,
-        elevation: 10,
-    },
-    quickActionGradient: {
-        ...StyleSheet.absoluteFillObject,
-    },
-    quickActionSheen: {
-        ...StyleSheet.absoluteFillObject,
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 2,
     },
     quickActionIconWrap: {
         width: 46,
@@ -824,7 +779,7 @@ const styles = StyleSheet.create({
     quickActionText: {
         fontFamily: fonts.semiBold,
         fontSize: 13,
-        color: behaviorV1Theme.textPrimary,
+        color: Colors.textPrimary,
         letterSpacing: 0.2,
     },
     // Logs Section
@@ -880,15 +835,15 @@ const styles = StyleSheet.create({
         color: Colors.primary,
     },
     logsCard: {
-        backgroundColor: 'rgba(16, 28, 22, 0.72)',
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 16,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
-        shadowColor: '#0A1610',
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.10,
-        shadowRadius: 6,
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
         elevation: 2,
     },
     logEntry: {
@@ -909,7 +864,7 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.06)',
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
     },
     logInfo: {
         flex: 1,
@@ -940,7 +895,7 @@ const styles = StyleSheet.create({
     },
     logDivider: {
         height: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.06)',
+        backgroundColor: 'rgba(60, 60, 67, 0.08)',
         marginHorizontal: 4,
     },
     // Loading state styles
@@ -985,13 +940,13 @@ const styles = StyleSheet.create({
     filterModalContent: {
         width: '100%',
         maxWidth: 320,
-        backgroundColor: 'rgba(16, 28, 22, 0.92)',
+        backgroundColor: '#FFFFFF',
         borderRadius: 18,
         borderWidth: 1,
-        borderColor: 'rgba(168, 197, 160, 0.18)',
-        shadowColor: '#0A1610',
-        shadowOffset: { width: 0, height: 16 },
-        shadowOpacity: 0.5,
+        borderColor: 'rgba(60, 60, 67, 0.12)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.15,
         shadowRadius: 24,
         elevation: 16,
     },
@@ -1005,20 +960,20 @@ const styles = StyleSheet.create({
     filterModalTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         letterSpacing: 0.3,
     },
     filterModalCloseBtn: {
         width: 32,
         height: 32,
         borderRadius: 8,
-        backgroundColor: 'rgba(139, 168, 136, 0.12)',
+        backgroundColor: 'rgba(0, 0, 0, 0.05)',
         justifyContent: 'center',
         alignItems: 'center',
     },
     filterModalDivider: {
         height: 1,
-        backgroundColor: 'rgba(168, 197, 160, 0.12)',
+        backgroundColor: 'rgba(60, 60, 67, 0.08)',
     },
     filterModalOption: {
         flexDirection: 'row',
@@ -1027,10 +982,10 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingVertical: 16,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+        borderBottomColor: 'rgba(60, 60, 67, 0.06)',
     },
     filterModalOptionPressed: {
-        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        backgroundColor: 'rgba(0, 0, 0, 0.03)',
     },
     filterModalOptionLast: {
         borderBottomWidth: 0,
@@ -1045,7 +1000,7 @@ const styles = StyleSheet.create({
         height: 20,
         borderRadius: 10,
         borderWidth: 2,
-        borderColor: 'rgba(168, 197, 160, 0.3)',
+        borderColor: 'rgba(60, 60, 67, 0.2)',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -1053,7 +1008,7 @@ const styles = StyleSheet.create({
         width: 10,
         height: 10,
         borderRadius: 5,
-        backgroundColor: '#A8C5A0',
+        backgroundColor: Colors.primary,
     },
     filterModalOptionText: {
         fontFamily: fonts.medium,
@@ -1061,6 +1016,6 @@ const styles = StyleSheet.create({
         color: Colors.textSecondary,
     },
     filterModalOptionTextActive: {
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
 });

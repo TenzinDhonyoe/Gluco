@@ -4,6 +4,7 @@ import { OnboardingHeader } from '@/components/onboarding/OnboardingHeader';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { useOnboardingDraft } from '@/hooks/useOnboardingDraft';
 import { CoachingStyle, COMBBarrier, updateUserProfile } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -70,6 +71,7 @@ export default function OnboardingCoachingScreen() {
     }, [selectedStyle, selectedBarrier, ifThenPlan, updateDraft]);
 
     const handleContinue = async () => {
+        triggerHaptic('medium');
         setIsLoading(true);
         try {
             if (user) {
@@ -116,7 +118,7 @@ export default function OnboardingCoachingScreen() {
                                     <TouchableOpacity
                                         key={option.id}
                                         style={[styles.optionItem, isSelected && styles.optionItemSelected]}
-                                        onPress={() => setSelectedStyle(option.id)}
+                                        onPress={() => { triggerHaptic(); setSelectedStyle(option.id); }}
                                         activeOpacity={0.7}
                                     >
                                         <View style={styles.optionContent}>
@@ -140,7 +142,7 @@ export default function OnboardingCoachingScreen() {
                                         <TouchableOpacity
                                             key={option.id}
                                             style={[styles.barrierCard, isSelected && styles.barrierCardSelected]}
-                                            onPress={() => setSelectedBarrier(option.id)}
+                                            onPress={() => { triggerHaptic(); setSelectedBarrier(option.id); }}
                                             activeOpacity={0.75}
                                         >
                                             <Text style={styles.barrierTitle}>{option.label}</Text>
@@ -157,7 +159,7 @@ export default function OnboardingCoachingScreen() {
                                 value={ifThenPlan}
                                 onChangeText={setIfThenPlan}
                                 placeholder="If I finish lunch, then I take a 10-minute walk."
-                                placeholderTextColor="#777777"
+                                placeholderTextColor={Colors.textTertiary}
                                 style={styles.ifThenInput}
                                 multiline
                                 numberOfLines={3}
@@ -175,7 +177,7 @@ export default function OnboardingCoachingScreen() {
                         disabled={isLoading}
                     >
                         {isLoading ? (
-                            <ActivityIndicator color={Colors.textPrimary} />
+                            <ActivityIndicator color={Colors.buttonActionText} />
                         ) : (
                             <Text style={styles.continueButtonText}>Continue</Text>
                         )}
@@ -227,15 +229,15 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.inputBackground,
         borderRadius: 12,
         padding: 16,
         borderWidth: 1,
-        borderColor: 'transparent',
+        borderColor: Colors.borderCard,
     },
     optionItemSelected: {
-        backgroundColor: 'rgba(40, 94, 42, 0.3)',
-        borderColor: Colors.buttonPrimary,
+        backgroundColor: Colors.primaryLight,
+        borderColor: Colors.primary,
     },
     optionContent: {
         flex: 1,
@@ -277,7 +279,7 @@ const styles = StyleSheet.create({
     sectionHeading: {
         fontFamily: fonts.medium,
         fontSize: 12,
-        color: '#A5A5A5',
+        color: Colors.textSecondary,
         letterSpacing: 0.8,
         marginBottom: 10,
     },
@@ -287,14 +289,14 @@ const styles = StyleSheet.create({
     barrierCard: {
         borderRadius: 10,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.12)',
-        backgroundColor: 'rgba(63, 66, 67, 0.28)',
+        borderColor: Colors.borderCard,
+        backgroundColor: Colors.inputBackground,
         paddingVertical: 12,
         paddingHorizontal: 14,
     },
     barrierCardSelected: {
         borderColor: Colors.primary,
-        backgroundColor: 'rgba(52,148,217,0.2)',
+        backgroundColor: Colors.primaryLight,
     },
     barrierTitle: {
         fontFamily: fonts.medium,
@@ -305,14 +307,14 @@ const styles = StyleSheet.create({
         marginTop: 2,
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#A9A9A9',
+        color: Colors.textSecondary,
     },
     ifThenInput: {
         minHeight: 92,
         borderRadius: 10,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.12)',
-        backgroundColor: 'rgba(63, 66, 67, 0.28)',
+        borderColor: Colors.inputBorder,
+        backgroundColor: Colors.inputBackground,
         color: Colors.textPrimary,
         fontFamily: fonts.regular,
         fontSize: 14,
@@ -328,16 +330,14 @@ const styles = StyleSheet.create({
     continueButton: {
         width: '100%',
         height: 48,
-        backgroundColor: Colors.buttonSecondary,
-        borderWidth: 1,
-        borderColor: Colors.buttonSecondaryBorder,
-        borderRadius: 8,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
     },
     continueButtonText: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
 });

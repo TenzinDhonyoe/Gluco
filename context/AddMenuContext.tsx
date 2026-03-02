@@ -4,21 +4,18 @@ interface AddMenuContextType {
     isOpen: boolean;
     toggle: () => void;
     close: () => void;
-    isOnTabScreen: boolean;
-    setIsOnTabScreen: (value: boolean) => void;
 }
 
 const AddMenuContext = createContext<AddMenuContextType | undefined>(undefined);
 
 export function AddMenuProvider({ children }: { children: React.ReactNode }) {
     const [isOpen, setIsOpen] = useState(false);
-    const [isOnTabScreen, setIsOnTabScreen] = useState(false);
 
     const toggle = useCallback(() => setIsOpen((prev) => !prev), []);
     const close = useCallback(() => setIsOpen(false), []);
 
     return (
-        <AddMenuContext.Provider value={{ isOpen, toggle, close, isOnTabScreen, setIsOnTabScreen }}>
+        <AddMenuContext.Provider value={{ isOpen, toggle, close }}>
             {children}
         </AddMenuContext.Provider>
     );

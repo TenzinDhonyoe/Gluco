@@ -25,7 +25,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 
 
@@ -299,6 +299,7 @@ function TipCard({ tip }: { tip: { title: string; detail: string; icon: string }
 }
 
 export default function CheckExerciseImpactScreen() {
+    const insets = useSafeAreaInsets();
     const { user } = useAuth();
     const params = useLocalSearchParams();
     const initialText = params.initialText as string || '';
@@ -368,9 +369,9 @@ export default function CheckExerciseImpactScreen() {
 
     return (
         <View style={styles.container}>
-            <SafeAreaView style={styles.safeArea}>
+            <View style={styles.safeArea}>
                 {/* Header */}
-                <View style={styles.header}>
+                <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
                     <TouchableOpacity
                         style={styles.closeButton}
                         onPress={handleBack}
@@ -449,7 +450,7 @@ export default function CheckExerciseImpactScreen() {
                         </TouchableOpacity>
                     </ScrollView>
                 ) : null}
-            </SafeAreaView>
+            </View>
         </View>
     );
 }

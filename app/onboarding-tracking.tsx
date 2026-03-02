@@ -4,6 +4,7 @@ import { OnboardingHeader } from '@/components/onboarding/OnboardingHeader';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { useOnboardingDraft } from '@/hooks/useOnboardingDraft';
 import { requestHealthKitAuthorization } from '@/lib/healthkit';
 import { PromptWindow, TrackingMode, updateUserProfile } from '@/lib/supabase';
@@ -86,6 +87,7 @@ export default function OnboardingTrackingScreen() {
     ];
 
     const handleContinue = async () => {
+        triggerHaptic('medium');
         setIsLoading(true);
         try {
             if (isIOS && selectedMode === 'meals_wearables') {
@@ -114,7 +116,10 @@ export default function OnboardingTrackingScreen() {
 
     const handleSelectMode = (mode: TrackingMode) => {
         const option = trackingOptions.find(o => o.id === mode);
-        if (option && !option.disabled) setSelectedMode(mode);
+        if (option && !option.disabled) {
+            triggerHaptic();
+            setSelectedMode(mode);
+        }
     };
 
     return (
@@ -181,7 +186,7 @@ export default function OnboardingTrackingScreen() {
                                         <TouchableOpacity
                                             key={option.id}
                                             style={[styles.promptCard, isSelected && styles.promptCardSelected]}
-                                            onPress={() => setPromptWindow(option.id)}
+                                            onPress={() => { triggerHaptic(); setPromptWindow(option.id); }}
                                             activeOpacity={0.75}
                                         >
                                             <Text style={styles.promptCardTitle}>{option.label}</Text>
@@ -202,7 +207,7 @@ export default function OnboardingTrackingScreen() {
                         disabled={isLoading}
                     >
                         {isLoading ? (
-                            <ActivityIndicator color={Colors.textPrimary} />
+                            <ActivityIndicator color={Colors.buttonActionText} />
                         ) : (
                             <Text style={styles.continueButtonText}>Continue</Text>
                         )}
@@ -253,15 +258,15 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.inputBackground,
         borderRadius: 12,
         padding: 16,
         borderWidth: 1,
-        borderColor: 'transparent',
+        borderColor: Colors.borderCard,
     },
     optionItemSelected: {
-        backgroundColor: 'rgba(40, 94, 42, 0.3)',
-        borderColor: Colors.buttonPrimary,
+        backgroundColor: Colors.primaryLight,
+        borderColor: Colors.primary,
     },
     optionItemDisabled: {
         opacity: 0.5,
@@ -291,7 +296,7 @@ const styles = StyleSheet.create({
         color: Colors.textTertiary,
     },
     optionSubtitleDisabled: {
-        color: '#666666',
+        color: Colors.textTertiary,
     },
     recommendedBadge: {
         backgroundColor: Colors.buttonPrimary,
@@ -318,7 +323,7 @@ const styles = StyleSheet.create({
         borderColor: Colors.buttonPrimary,
     },
     radioOuterDisabled: {
-        borderColor: '#555555',
+        borderColor: Colors.textMuted,
     },
     radioInner: {
         width: 12,
@@ -333,7 +338,7 @@ const styles = StyleSheet.create({
     promptTitle: {
         fontFamily: fonts.medium,
         fontSize: 13,
-        color: '#B5B5B5',
+        color: Colors.textSecondary,
         letterSpacing: 0.6,
         marginBottom: 10,
     },
@@ -343,14 +348,14 @@ const styles = StyleSheet.create({
     promptCard: {
         borderRadius: 10,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.12)',
-        backgroundColor: 'rgba(63, 66, 67, 0.28)',
+        borderColor: Colors.borderCard,
+        backgroundColor: Colors.inputBackground,
         paddingVertical: 12,
         paddingHorizontal: 14,
     },
     promptCardSelected: {
         borderColor: Colors.primary,
-        backgroundColor: 'rgba(52,148,217,0.2)',
+        backgroundColor: Colors.primaryLight,
     },
     promptCardTitle: {
         fontFamily: fonts.medium,
@@ -361,7 +366,7 @@ const styles = StyleSheet.create({
         marginTop: 2,
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#A9A9A9',
+        color: Colors.textSecondary,
     },
     buttonContainer: {
         position: 'absolute',
@@ -372,16 +377,14 @@ const styles = StyleSheet.create({
     continueButton: {
         width: '100%',
         height: 48,
-        backgroundColor: Colors.buttonSecondary,
-        borderWidth: 1,
-        borderColor: Colors.buttonSecondaryBorder,
-        borderRadius: 8,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
     },
     continueButtonText: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
 });

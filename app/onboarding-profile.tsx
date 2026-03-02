@@ -4,6 +4,7 @@ import { OnboardingHeader } from '@/components/onboarding/OnboardingHeader';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { useOnboardingDraft } from '@/hooks/useOnboardingDraft';
 import { updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
@@ -104,6 +105,7 @@ export default function OnboardingProfileScreen() {
 
     // Picker open/close handlers
     const openRegionPicker = () => {
+        triggerHaptic();
         setShowRegionPicker(true);
         regionSlide.value = SCREEN_HEIGHT;
         regionSlide.value = withSpring(0, { damping: 20, stiffness: 90 });
@@ -114,6 +116,7 @@ export default function OnboardingProfileScreen() {
     };
 
     const openSexPicker = () => {
+        triggerHaptic();
         setShowBiologicalSexPicker(true);
         sexSlide.value = SCREEN_HEIGHT;
         sexSlide.value = withSpring(0, { damping: 20, stiffness: 90 });
@@ -124,6 +127,7 @@ export default function OnboardingProfileScreen() {
     };
 
     const openDatePicker = () => {
+        triggerHaptic();
         setShowBirthDatePicker(true);
         birthDateSlide.value = SCREEN_HEIGHT;
         birthDateSlide.value = withSpring(0, { damping: 20, stiffness: 90 });
@@ -145,6 +149,7 @@ export default function OnboardingProfileScreen() {
 
     const handleContinue = async () => {
         if (!firstName.trim() || !lastName.trim()) return;
+        triggerHaptic('medium');
         setIsLoading(true);
         try {
             if (user) {
@@ -287,7 +292,7 @@ export default function OnboardingProfileScreen() {
                         disabled={!isContinueEnabled || isLoading}
                     >
                         {isLoading ? (
-                            <ActivityIndicator color={Colors.textPrimary} />
+                            <ActivityIndicator color={Colors.buttonActionText} />
                         ) : (
                             <Text style={[styles.buttonText, !isContinueEnabled && styles.buttonTextDisabled]}>
                                 Continue
@@ -377,7 +382,7 @@ export default function OnboardingProfileScreen() {
                                 minimumDate={minDate}
                                 style={styles.datePicker}
                                 textColor={Colors.textPrimary}
-                                themeVariant="dark"
+                                themeVariant="light"
                             />
                         </Animated.View>
                     </View>
@@ -476,24 +481,21 @@ const styles = StyleSheet.create({
     continueButton: {
         width: '100%',
         height: 48,
-        backgroundColor: Colors.buttonSecondary,
-        borderWidth: 1,
-        borderColor: Colors.buttonSecondaryBorder,
-        borderRadius: 8,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
     },
     continueButtonDisabled: {
-        backgroundColor: Colors.borderCard,
-        borderColor: Colors.borderCard,
+        backgroundColor: Colors.buttonDisabled,
     },
     buttonText: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
     buttonTextDisabled: {
-        color: Colors.textTertiary,
+        color: Colors.buttonDisabledText,
     },
     // Modal styles
     modalOverlay: {
@@ -505,7 +507,7 @@ const styles = StyleSheet.create({
         ...StyleSheet.absoluteFillObject,
     },
     modalBottomSheet: {
-        backgroundColor: '#1c1c1e',
+        backgroundColor: Colors.backgroundCard,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         paddingBottom: 34,
@@ -516,7 +518,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingVertical: 4,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(63, 66, 67, 0.5)',
+        borderBottomColor: Colors.border,
     },
     modalHeaderButton: {
         paddingHorizontal: 16,
@@ -539,7 +541,7 @@ const styles = StyleSheet.create({
     },
     picker: {
         height: 216,
-        backgroundColor: '#1c1c1e',
+        backgroundColor: Colors.backgroundCard,
     },
     pickerItem: {
         color: Colors.textPrimary,
@@ -547,6 +549,6 @@ const styles = StyleSheet.create({
     },
     datePicker: {
         height: 216,
-        backgroundColor: '#1c1c1e',
+        backgroundColor: Colors.backgroundCard,
     },
 });

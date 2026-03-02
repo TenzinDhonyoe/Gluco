@@ -3,11 +3,9 @@ import { useRouter } from 'expo-router';
 import React from 'react';
 import { Alert, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import Purchases from 'react-native-purchases';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PAYWALL_ENABLED } from '@/app/index';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
-import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
@@ -39,10 +37,6 @@ export default function SettingsScreen() {
                 },
             ]
         );
-    };
-
-    const handleClose = () => {
-        router.back();
     };
 
     const handleManageSubscription = async () => {
@@ -85,26 +79,19 @@ export default function SettingsScreen() {
             <Text style={[styles.settingsLabel, isLogout && styles.logoutLabel]}>
                 {label}
             </Text>
-            <Ionicons
-                name="chevron-forward"
-                size={16}
-                color="#E7E8E9"
-            />
+            {!isLogout && (
+                <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={Colors.textTertiary}
+                />
+            )}
         </AnimatedPressable>
     );
 
     return (
         <View style={styles.container}>
-            <SafeAreaView style={styles.safeArea} edges={['top']}>
-                {/* Header */}
-                <View style={styles.header}>
-                    <LiquidGlassIconButton size={44} onPress={handleClose}>
-                        <Ionicons name="close" size={20} color="#E7E8E9" />
-                    </LiquidGlassIconButton>
-                    <Text style={styles.headerTitle}>SETTINGS</Text>
-                    <View style={styles.headerSpacer} />
-                </View>
-
+            <View style={styles.safeArea}>
                 {/* Main Settings Card */}
                 <View style={styles.settingsCard}>
                     {menuItems.map((item, index) => (
@@ -133,7 +120,7 @@ export default function SettingsScreen() {
                         isLogout
                     />
                 </View>
-            </SafeAreaView>
+            </View>
         </View>
     );
 }
@@ -145,22 +132,6 @@ const styles = StyleSheet.create({
     },
     safeArea: {
         flex: 1,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 16,
-    },
-    headerTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 18,
-        color: Colors.textPrimary,
-        letterSpacing: 2,
-    },
-    headerSpacer: {
-        width: 48,
     },
     settingsCard: {
         marginHorizontal: 16,
@@ -198,6 +169,6 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
     },
     logoutLabel: {
-        color: Colors.buttonDestructiveText,
+        color: Colors.buttonDestructive,
     },
 });

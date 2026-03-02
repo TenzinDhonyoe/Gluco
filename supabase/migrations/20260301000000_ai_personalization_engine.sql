@@ -32,10 +32,10 @@ CREATE POLICY "Users can view own AI output history"
     ON public.ai_output_history FOR SELECT
     USING (auth.uid() = user_id);
 
--- Insert-only for service role (edge functions); users cannot insert directly
-CREATE POLICY "Service role can insert AI output history"
+-- Users can only insert rows for their own user_id; service role bypasses RLS entirely
+CREATE POLICY "Users can insert own AI output history"
     ON public.ai_output_history FOR INSERT
-    WITH CHECK (true);
+    WITH CHECK (auth.uid() = user_id);
 
 COMMENT ON TABLE public.ai_output_history IS 'Append-only log of AI-generated outputs for repetition avoidance and audit.';
 
@@ -72,10 +72,10 @@ CREATE POLICY "Users can update own weekly reviews"
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
 
--- Insert for service role (edge functions)
-CREATE POLICY "Service role can insert weekly reviews"
+-- Users can only insert rows for their own user_id; service role bypasses RLS entirely
+CREATE POLICY "Users can insert own weekly reviews"
     ON public.weekly_reviews FOR INSERT
-    WITH CHECK (true);
+    WITH CHECK (auth.uid() = user_id);
 
 COMMENT ON TABLE public.weekly_reviews IS 'User-facing weekly pattern reviews with dismissal lifecycle.';
 

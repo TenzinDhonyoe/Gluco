@@ -1,36 +1,23 @@
-import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
-import { ImageBackground, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
-type ForestGlassBackgroundProps = {
-    blurIntensity?: number;
-};
-
-const FOREST_BACKGROUND = require('@/assets/images/backgrounds/background.png');
-
-export function ForestGlassBackground({ blurIntensity = 0 }: ForestGlassBackgroundProps) {
+export function ForestGlassBackground(_props: { blurIntensity?: number }) {
     return (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-            <ImageBackground
-                source={FOREST_BACKGROUND}
-                resizeMode="cover"
+            {/* Base solid background */}
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: '#F2F2F7' }]} />
+
+            {/* Teal accent gradient — soft wash at top, fades to base */}
+            <LinearGradient
+                colors={[
+                    'rgba(45, 212, 191, 0.25)',
+                    'rgba(45, 212, 191, 0.10)',
+                    'rgba(45, 212, 191, 0)',
+                ]}
+                locations={[0, 0.3, 0.55]}
                 style={StyleSheet.absoluteFill}
             />
-            {blurIntensity > 0 && (
-                <BlurView
-                    tint="dark"
-                    intensity={blurIntensity}
-                    style={StyleSheet.absoluteFill}
-                />
-            )}
-            <View style={styles.darkenOverlay} />
         </View>
     );
 }
-
-const styles = StyleSheet.create({
-    darkenOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    },
-});
