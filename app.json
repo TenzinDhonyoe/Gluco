@@ -7,7 +7,7 @@
     "description": "Track meals, glucose, and activity to discover personalized wellness insights.",
     "privacyUrl": "https://desert-butter-582.notion.site/Gluco-Privacy-Policy-2e2ea85c4e478070b60aca1c9c90c8f3",
     "orientation": "portrait",
-    "icon": "./assets/images/branding/gluco_app_icon.png",
+    "icon": "./assets/images/branding/gluco_app_icon_white.png",
     "scheme": "gluco",
     "userInterfaceStyle": "light",
     "backgroundColor": "#F2F2F7",
@@ -38,15 +38,13 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/branding/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/branding/android-icon-background.png",
-        "monochromeImage": "./assets/images/branding/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/branding/gluco_logo.png"
       },
       "package": "ca.gluco.solutions.gluco"
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/branding/favicon.png"
+      "favicon": "./assets/images/branding/gluco_logo.png"
     },
     "plugins": [
       "expo-router",
@@ -59,12 +57,12 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/mascots/gluco_app_mascott/gluco_splash.png",
-          "imageWidth": 200,
+          "image": "./assets/images/branding/gluco_logo.png",
+          "imageWidth": 60,
           "resizeMode": "contain",
-          "backgroundColor": "#151718",
+          "backgroundColor": "#F2F2F7",
           "dark": {
-            "backgroundColor": "#151718"
+            "backgroundColor": "#F2F2F7"
           }
         }
       ],
