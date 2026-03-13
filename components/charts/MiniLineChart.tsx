@@ -1,7 +1,8 @@
-import { Colors } from '@/constants/Colors';
 import React, { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg';
+
+const PADDING = { top: 4, bottom: 4, left: 4, right: 4 };
 
 interface MiniLineChartProps {
     data: (number | null)[];  // 7 values
@@ -16,12 +17,11 @@ export function MiniLineChart({
     height = 40,
     showEndpoint = true,
 }: MiniLineChartProps) {
-    const padding = { top: 4, bottom: 4, left: 4, right: 4 };
-    const chartHeight = height - padding.top - padding.bottom;
+    const chartHeight = height - PADDING.top - PADDING.bottom;
 
     const { pathData, lastPoint, hasData } = useMemo(() => {
         // Get indices and values of non-null data points
-        const validPoints: Array<{ index: number; value: number }> = [];
+        const validPoints: { index: number; value: number }[] = [];
         data.forEach((value, index) => {
             if (value !== null) {
                 validPoints.push({ index, value });
@@ -37,12 +37,12 @@ export function MiniLineChart({
         const maxValue = Math.max(...values);
         const range = Math.max(maxValue - minValue, 1); // Avoid division by zero
 
-        const chartWidth = 100 - padding.left - padding.right;
+        const chartWidth = 100 - PADDING.left - PADDING.right;
         const xStep = chartWidth / (data.length - 1);
 
         const pts = validPoints.map(p => ({
-            x: padding.left + p.index * xStep,
-            y: padding.top + chartHeight - ((p.value - minValue) / range) * chartHeight,
+            x: PADDING.left + p.index * xStep,
+            y: PADDING.top + chartHeight - ((p.value - minValue) / range) * chartHeight,
             value: p.value,
         }));
 
@@ -61,7 +61,7 @@ export function MiniLineChart({
             lastPoint: pts[pts.length - 1],
             hasData: true,
         };
-    }, [data, chartHeight, padding]);
+    }, [data, chartHeight]);
 
     if (!hasData) {
         return (

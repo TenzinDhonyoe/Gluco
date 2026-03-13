@@ -1,8 +1,11 @@
+import { MealGlucoseChart } from '@/components/charts/MealGlucoseChart';
 import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { useMealScoreDetail } from '@/hooks/useMealScores';
+import { getScoreColor, getScoreEmoji, type ScoreLabel } from '@/lib/mealScore';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import {
     type ActivityIntensity,
@@ -110,6 +113,14 @@ export default function LogDetailScreen() {
     const [editMealNotes, setEditMealNotes] = useState('');
     const [mealTypeModalOpen, setMealTypeModalOpen] = useState(false);
 
+    // Meal score (only fetched for meal type)
+    const mealScoreDetail = useMealScoreDetail(
+        type === 'meal' ? id : undefined,
+        user?.id,
+        meal?.logged_at,
+        undefined, // tokens not needed for inline display
+    );
+
     // Glucose state
     const [glucoseLog, setGlucoseLog] = useState<GlucoseLog | null>(null);
     const [editGlucoseLevel, setEditGlucoseLevel] = useState('');
@@ -207,7 +218,7 @@ export default function LogDetailScreen() {
         }
 
         fetchData();
-    }, [user, type, id]);
+    }, [user, type, id, isValidParams, initMealEditFields, initGlucoseEditFields, initActivityEditFields]);
 
     const handleToggleEdit = () => {
         if (isEditing) {
@@ -515,6 +526,58 @@ export default function LogDetailScreen() {
                         </View>
                     </View>
                 )}
+
+                {/* Glucose Response (if scored) */}
+                {mealScoreDetail.score && (() => {
+                    const sl = mealScoreDetail.score!.score_label as ScoreLabel;
+                    const sc = getScoreColor(sl);
+                    const labelWord = sl.charAt(0).toUpperCase() + sl.slice(1);
+                    return (
+                        <Pressable
+                            style={styles.formCard}
+                            onPress={() => router.push({ pathname: '/meal-score-detail' as any, params: { mealId: id! } })}
+                        >
+                            <Text style={styles.sectionTitle}>Glucose Response</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                                <Text style={{ fontFamily: fonts.bold, fontSize: 32, color: sc, marginRight: 12 }}>
+                                    {mealScoreDetail.score!.score}
+                                </Text>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ fontFamily: fonts.semiBold, fontSize: 14, color: Colors.textPrimary }}>
+                                        {labelWord} response {getScoreEmoji(sl)}
+                                    </Text>
+                                    <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: Colors.textTertiary, marginTop: 1 }}>
+                                        {mealScoreDetail.score!.glucose_reading_count} readings
+                                    </Text>
+                                </View>
+                            </View>
+                            {mealScoreDetail.glucoseReadings.length >= 2 && (
+                                <View style={{ marginBottom: 8, borderRadius: 10, overflow: 'hidden' }}>
+                                    <MealGlucoseChart
+                                        readings={mealScoreDetail.glucoseReadings.map(r => ({
+                                            value: r.value,
+                                            timestamp: r.timestamp.toISOString(),
+                                        }))}
+                                        scoreLabel={sl}
+                                        height={56}
+                                        showRangeBand={false}
+                                    />
+                                </View>
+                            )}
+                            {mealScoreDetail.score!.insight_text && (
+                                <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: Colors.textSecondary, lineHeight: 19, marginBottom: 8 }}>
+                                    {mealScoreDetail.score!.insight_text}
+                                </Text>
+                            )}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                                <Text style={{ fontFamily: fonts.medium, fontSize: 13, color: Colors.textTertiary }}>
+                                    View breakdown
+                                </Text>
+                                <Ionicons name="chevron-forward" size={13} color={Colors.textTertiary} />
+                            </View>
+                        </Pressable>
+                    );
+                })()}
             </>
         );
     };

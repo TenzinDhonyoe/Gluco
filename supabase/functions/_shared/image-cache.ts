@@ -92,6 +92,52 @@ export async function computeHashFromUrl(imageUrl: string): Promise<string> {
 }
 
 /**
+ * Fetch image once and return both the hash and base64 data.
+ * Eliminates the double-fetch where computeHashFromUrl and detectFoodItems
+ * each independently download the same image.
+ */
+export async function fetchAndHashImage(imageUrl: string): Promise<{
+    hash: string;
+    base64: string;
+    mimeType: string;
+    size: number;
+}> {
+    validatePhotoUrl(imageUrl);
+
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.status}`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
+    const mimeType = ALLOWED_IMAGE_TYPES.find(t => contentType.startsWith(t));
+    if (!mimeType) {
+        throw new Error('Response is not a valid image type');
+    }
+
+    const buffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+
+    const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
+    if (bytes.length > MAX_IMAGE_SIZE_BYTES) {
+        throw new Error(`Image too large (max ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB)`);
+    }
+
+    // Compute hash from raw bytes
+    const hash = await computeImageHash(bytes);
+
+    // Convert to base64
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+
+    return { hash, base64: btoa(binary), mimeType, size: bytes.length };
+}
+
+/**
  * Get cached image analysis result
  */
 export async function getCachedImageAnalysis(

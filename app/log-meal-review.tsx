@@ -25,7 +25,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import {
   Alert,
-  Animated,
   Dimensions,
   FlatList,
   Image,
@@ -148,88 +147,9 @@ function calculateMealScore(summary: { calories: number; carbs: number; protein:
 // ANNOTATION BUBBLE POSITIONS
 // ============================================
 
-function getBubblePositions(itemCount: number, photoHeight: number): { x: number; y: number; align: 'left' | 'right' }[] {
-  const positions: { x: number; y: number; align: 'left' | 'right' }[] = [
-    { x: 16, y: photoHeight * 0.15, align: 'left' },
-    { x: SCREEN_WIDTH - 16, y: photoHeight * 0.2, align: 'right' },
-    { x: 16, y: photoHeight * 0.4, align: 'left' },
-    { x: SCREEN_WIDTH - 16, y: photoHeight * 0.45, align: 'right' },
-    { x: 16, y: photoHeight * 0.65, align: 'left' },
-  ];
-  return positions.slice(0, Math.min(itemCount, 5));
-}
-
 // ============================================
 // SUB-COMPONENTS
 // ============================================
-
-function MealTypeBadge({ type }: { type: string }) {
-  const colors: Record<string, string> = {
-    Breakfast: '#FF9500',
-    Lunch: '#34C759',
-    Dinner: '#5856D6',
-    Snack: '#FF2D55',
-  };
-  const color = colors[type] || '#8E8E93';
-
-  return (
-    <View style={[styles.mealTypeBadge, { backgroundColor: `${color}20` }]}>
-      <Text style={[styles.mealTypeBadgeText, { color }]}>{type}</Text>
-    </View>
-  );
-}
-
-function FoodAnnotationBubble({
-  item,
-  position,
-  index,
-}: {
-  item: SelectedMealItem;
-  position: { x: number; y: number; align: 'left' | 'right' };
-  index: number;
-}) {
-  const fadeAnim = React.useRef(new Animated.Value(0)).current;
-  const translateAnim = React.useRef(new Animated.Value(position.align === 'left' ? -20 : 20)).current;
-
-  React.useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 400,
-        delay: index * 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateAnim, {
-        toValue: 0,
-        duration: 400,
-        delay: index * 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [fadeAnim, translateAnim, index]);
-
-  const bubbleStyle = position.align === 'left'
-    ? { left: position.x, top: position.y }
-    : { right: SCREEN_WIDTH - position.x, top: position.y };
-
-  const calories = Math.round((item.calories_kcal ?? 0) * (item.quantity || 1));
-
-  return (
-    <Animated.View
-      style={[
-        styles.annotationBubble,
-        bubbleStyle,
-        {
-          opacity: fadeAnim,
-          transform: [{ translateX: translateAnim }],
-        },
-      ]}
-    >
-      <Text style={styles.annotationName} numberOfLines={1}>{item.display_name}</Text>
-      <Text style={styles.annotationCalories}>{calories}</Text>
-    </Animated.View>
-  );
-}
 
 // Simple macro row configuration - matches mockup
 const SIMPLE_MACRO_CONFIG = [
@@ -377,32 +297,6 @@ function MetabolicScoreBadge({ score }: { score: number }) {
   );
 }
 
-function QuantityStepper({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (newValue: number) => void;
-}) {
-  return (
-    <View style={styles.quantityStepper}>
-      <Pressable
-        onPress={() => { triggerHaptic(); onChange(Math.max(1, value - 1)); }}
-        style={styles.stepperButton}
-      >
-        <Ionicons name="remove" size={16} color={Colors.textPrimary} />
-      </Pressable>
-      <Text style={styles.stepperValue}>{value}</Text>
-      <Pressable
-        onPress={() => { triggerHaptic(); onChange(value + 1); }}
-        style={styles.stepperButton}
-      >
-        <Ionicons name="add" size={16} color={Colors.textPrimary} />
-      </Pressable>
-    </View>
-  );
-}
-
 function AdjustmentCard({
   adjustment,
   isSelected,
@@ -451,7 +345,7 @@ export default function LogMealReviewScreen() {
   const [photoPath, setPhotoPath] = React.useState<string | null>(null);
   const [mealTime, setMealTime] = React.useState<Date>(new Date());
   const [isSaving, setIsSaving] = React.useState(false);
-  const [servings, setServings] = React.useState(1);
+  const [servings] = React.useState(1);
   const [quantityInputs, setQuantityInputs] = React.useState<Record<string, string>>({});
 
   const [glucoseValue, setGlucoseValue] = React.useState('');
@@ -485,8 +379,6 @@ export default function LogMealReviewScreen() {
   const hourRef = React.useRef<FlatList<string>>(null);
   const minuteRef = React.useRef<FlatList<string>>(null);
   const periodRef = React.useRef<FlatList<'AM' | 'PM'>>(null);
-
-  const PHOTO_HEIGHT = SCREEN_HEIGHT * 0.45;
 
   React.useEffect(() => {
     if (!timeModalOpen) return;
@@ -1321,35 +1213,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
 
-  // Annotation bubbles
-  annotationBubble: {
-    position: 'absolute',
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-    maxWidth: 140,
-  },
-  annotationName: {
-    fontFamily: fonts.semiBold,
-    fontSize: 13,
-    color: '#1a1a1a',
-    textAlign: 'center',
-  },
-  annotationCalories: {
-    fontFamily: fonts.bold,
-    fontSize: 15,
-    color: '#333',
-    marginTop: 2,
-  },
-
-
   // Floating header
   floatingHeader: {
     position: 'absolute',
@@ -1411,21 +1274,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
 
-  // Meal type badge
-  mealTypeBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginBottom: 12,
-  },
-  mealTypeBadgeText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-
   // Meal name row
   mealNameRow: {
     flexDirection: 'row',
@@ -1440,30 +1288,6 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: Colors.textPrimary,
     lineHeight: 28,
-  },
-
-  // Quantity stepper
-  quantityStepper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.04)',
-    borderRadius: 24,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-  },
-  stepperButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepperValue: {
-    fontFamily: fonts.semiBold,
-    fontSize: 16,
-    color: Colors.textPrimary,
-    marginHorizontal: 16,
   },
 
   // Macro grid

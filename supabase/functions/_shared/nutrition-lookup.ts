@@ -565,7 +565,7 @@ export async function lookupNutritionBatch(
     items: DetectedItem[]
 ): Promise<NutritionLookupResult[]> {
     const MAX_ITEMS = 15;
-    const BATCH_SIZE = 3;
+    const BATCH_SIZE = 5;
     const cappedItems = items.slice(0, MAX_ITEMS);
     const results: NutritionLookupResult[] = [];
 

@@ -7,7 +7,7 @@
 import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, {
     cancelAnimation,
@@ -48,42 +48,42 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
     const checkmarkOpacity = useSharedValue(0);
 
     // Start rotation animation
-    const startRotation = () => {
+    const startRotation = useCallback(() => {
         rotation.value = withRepeat(
             withTiming(1, { duration: ROTATION_MS, easing: Easing.linear }),
             -1,
             false
         );
-    };
+    }, [rotation]);
 
     // Show checkmark without stopping the rotation loop
-    const showCheckmark = () => {
+    const showCheckmark = useCallback(() => {
         syncIconOpacity.value = withTiming(0, { duration: 150 });
         checkmarkScale.value = withDelay(100, withSpring(1, { damping: 12, stiffness: 300 }));
         checkmarkOpacity.value = withDelay(100, withTiming(1, { duration: 150 }));
-    };
+    }, [syncIconOpacity, checkmarkScale, checkmarkOpacity]);
 
     // Reset icons for next sync
-    const resetIcons = () => {
+    const resetIcons = useCallback(() => {
         syncIconOpacity.value = 1;
         checkmarkScale.value = 0;
         checkmarkOpacity.value = 0;
-    };
+    }, [syncIconOpacity, checkmarkScale, checkmarkOpacity]);
 
     // Show banner with slide-in animation
-    const showBanner = () => {
+    const showBanner = useCallback(() => {
         setIsVisible(true);
         resetIcons();
         bannerOpacity.value = withSpring(1, { damping: 20, stiffness: 300 });
         bannerTranslateY.value = withSpring(0, { damping: 20, stiffness: 300 });
-    };
+    }, [resetIcons, bannerOpacity, bannerTranslateY]);
 
     const clearSyncStart = () => {
         syncStartRef.current = null;
     };
 
     // Hide banner with slide-out animation
-    const hideBanner = () => {
+    const hideBanner = useCallback(() => {
         bannerOpacity.value = withTiming(0, { duration: 250 });
         bannerTranslateY.value = withTiming(-50, { duration: 250 }, (finished) => {
             if (finished) {
@@ -92,7 +92,7 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
                 runOnJS(clearSyncStart)();
             }
         });
-    };
+    }, [bannerOpacity, bannerTranslateY]);
 
     // Handle sync state changes
     useEffect(() => {
@@ -149,12 +149,12 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
                 clearTimeout(completeTimerRef.current);
             }
         };
-    }, [isSyncing]);
+    }, [isSyncing, hideBanner, showBanner, showCheckmark]);
 
     useEffect(() => {
         startRotation();
         return () => cancelAnimation(rotation);
-    }, []);
+    }, [rotation, startRotation]);
 
     // Animated styles
     const bannerStyle = useAnimatedStyle(() => ({

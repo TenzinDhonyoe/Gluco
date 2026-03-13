@@ -1,7 +1,9 @@
 // supabase/functions/_shared/gemini-structured.ts
-// Gemini 2.5 Flash with structured JSON output for food detection only
+// Two-step Gemini prompting for food detection:
+// Step 1: Identify foods with dimensional analysis
+// Step 2: Estimate weights using dimensional reasoning (run 3x, take median)
 
-import { GoogleGenAI, Type as SchemaType } from 'npm:@google/genai@1.38.0';
+import { GoogleGenAI } from 'npm:@google/genai@1.38.0';
 import { convertToGrams } from './portion-estimator.ts';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash';
@@ -21,9 +23,10 @@ function getGenAIClient(): GoogleGenAI {
     return aiClient;
 }
 
-/**
- * Food category enum
- */
+// ============================================
+// TYPES
+// ============================================
+
 export type FoodCategory =
     | 'fruit'
     | 'vegetable'
@@ -36,19 +39,10 @@ export type FoodCategory =
     | 'prepared_meal'
     | 'other';
 
-/**
- * Portion estimate type
- */
 export type PortionEstimateType = 'none' | 'qualitative' | 'volume_ml' | 'weight_g';
 
-/**
- * Portion unit type
- */
 export type PortionUnit = 'ml' | 'g' | 'cup' | 'tbsp' | 'tsp' | 'piece' | 'slice' | 'serving';
 
-/**
- * Detected food item from Gemini
- */
 export interface DetectedFoodItem {
     name: string;
     synonyms: string[];
@@ -64,9 +58,6 @@ export interface DetectedFoodItem {
     confidence: number;
 }
 
-/**
- * Photo quality assessment
- */
 export interface PhotoQuality {
     is_blurry: boolean;
     has_occlusion: boolean;
@@ -74,164 +65,193 @@ export interface PhotoQuality {
     lighting_issue: boolean;
 }
 
-/**
- * Complete detection result from Gemini
- */
+// Step 1 raw output from Gemini
+interface Step1FoodItem {
+    food_name: string;
+    food_category: 'protein' | 'grain' | 'vegetable' | 'fruit' | 'dairy' | 'fat' | 'beverage' | 'mixed_dish' | 'condiment' | 'dessert';
+    plate_reference: number;
+    food_dimensions: {
+        height_cm: number;
+        spread_fraction_of_plate: number;
+        shape: 'mound' | 'flat' | 'liquid' | 'pieces' | 'layered';
+    };
+    visual_cues: string;
+    hidden_ingredients_likely: boolean;
+    confidence: 'low' | 'medium' | 'high';
+}
+
+// Step 2 raw output from Gemini
+interface Step2WeightEstimate {
+    food_name: string;
+    min_grams: number;
+    best_grams: number;
+    max_grams: number;
+    volume_ml: number;
+    density_used: number;
+    reasoning: string;
+}
+
+// Debug info for the two-step process
+export interface TwoStepDebug {
+    step1_output: Step1FoodItem[];
+    step2_runs: Step2WeightEstimate[][];
+    step2_median: Step2WeightEstimate[];
+}
+
 export interface FoodDetectionResult {
     items: DetectedFoodItem[];
     photo_quality: PhotoQuality;
+    two_step_debug?: TwoStepDebug;
+}
+
+// ============================================
+// PROMPTS
+// ============================================
+
+const STEP_1_PROMPT = `Analyze this food image. For each distinct food item visible, provide:
+1. food_name: specific name including cooking method (e.g., "grilled chicken breast" not just "chicken")
+2. food_category: one of [protein, grain, vegetable, fruit, dairy, fat, beverage, mixed_dish, condiment, dessert]
+3. plate_reference: estimate the plate/bowl diameter in cm. Standard dinner plate = 26cm, salad plate = 20cm, bowl = 15cm. Use visible utensils if no plate (fork length ~19cm, knife ~22cm)
+4. food_dimensions: { height_cm, spread_fraction_of_plate (0.0-1.0), shape: "mound"|"flat"|"liquid"|"pieces"|"layered" }
+5. visual_cues: any observable details about density, thickness, layering
+6. hidden_ingredients_likely: boolean — are sauces, oils, cheese, butter likely present but not fully visible?
+7. confidence: "low"|"medium"|"high"
+
+Respond ONLY with valid JSON array. No markdown, no explanation.`;
+
+const STEP_2_PROMPT_TEMPLATE = `Using the food analysis below AND the original image, estimate the weight in grams for each food item.
+
+For each item, show your dimensional reasoning:
+1. Estimate volume in mL based on the dimensions (height × area, using plate as reference)
+2. Apply food-type density: proteins ~1.1g/mL, grains/rice ~0.9g/mL, vegetables ~0.6g/mL, liquids ~1.0g/mL, mixed dishes ~0.9g/mL
+3. Convert volume to grams
+4. Provide three estimates: { min_grams, best_grams, max_grams }
+
+CRITICAL: Most AI models systematically underestimate portions. If anything, bias slightly high rather than low.
+
+Food analysis from Step 1:
+{step1_output}
+
+Respond ONLY with valid JSON array matching this schema:
+[{ "food_name": string, "min_grams": number, "best_grams": number, "max_grams": number, "volume_ml": number, "density_used": number, "reasoning": string }]`;
+
+// ============================================
+// HELPERS
+// ============================================
+
+/**
+ * Parse raw JSON from Gemini response text.
+ * Handles markdown fences, object wrappers like { "items": [...] }, etc.
+ */
+function parseRawJsonArray<T>(text: string): T[] {
+    let cleaned = text.trim();
+
+    // Strip markdown code fences
+    if (cleaned.startsWith('```')) {
+        cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+    }
+
+    const parsed = JSON.parse(cleaned);
+
+    // If it's already an array, return it
+    if (Array.isArray(parsed)) {
+        return parsed as T[];
+    }
+
+    // If it's an object with an array field, extract it
+    if (typeof parsed === 'object' && parsed !== null) {
+        const keys = Object.keys(parsed);
+        for (const key of keys) {
+            if (Array.isArray(parsed[key])) {
+                return parsed[key] as T[];
+            }
+        }
+    }
+
+    throw new Error('Response is not a JSON array');
 }
 
 /**
- * JSON Schema for Gemini structured output
- * This schema enforces the exact response format we need
+ * Map Step 1 food_category to FoodCategory
  */
-const FOOD_DETECTION_SCHEMA = {
-    type: SchemaType.OBJECT,
-    properties: {
-        items: {
-            type: SchemaType.ARRAY,
-            items: {
-                type: SchemaType.OBJECT,
-                properties: {
-                    name: {
-                        type: SchemaType.STRING,
-                        description: 'The name of the food item (e.g., "Grilled Chicken Breast", "Apple")',
-                    },
-                    synonyms: {
-                        type: SchemaType.ARRAY,
-                        items: { type: SchemaType.STRING },
-                        description: 'Alternative names for this food (e.g., ["chicken", "poultry"])',
-                    },
-                    category: {
-                        type: SchemaType.STRING,
-                        enum: ['fruit', 'vegetable', 'protein', 'grain', 'dairy', 'beverage', 'snack', 'dessert', 'prepared_meal', 'other'],
-                        description: 'Food category',
-                    },
-                    visible_portion_descriptor: {
-                        type: SchemaType.STRING,
-                        description: 'Visual description of the portion (e.g., "medium-sized", "half plate", "small bowl")',
-                    },
-                    portion: {
-                        type: SchemaType.OBJECT,
-                        properties: {
-                            estimate_type: {
-                                type: SchemaType.STRING,
-                                enum: ['none', 'qualitative', 'volume_ml', 'weight_g'],
-                                description: 'Type of portion estimate',
-                            },
-                            value: {
-                                type: SchemaType.NUMBER,
-                                nullable: true,
-                                description: 'Numeric portion value (null if qualitative)',
-                            },
-                            unit: {
-                                type: SchemaType.STRING,
-                                enum: ['ml', 'g', 'cup', 'tbsp', 'tsp', 'piece', 'slice', 'serving'],
-                                description: 'Portion unit',
-                            },
-                            confidence: {
-                                type: SchemaType.NUMBER,
-                                description: 'Confidence in portion estimate (0-1)',
-                            },
-                        },
-                        required: ['estimate_type', 'unit', 'confidence'],
-                    },
-                    preparation: {
-                        type: SchemaType.STRING,
-                        description: 'Preparation method if visible (e.g., "grilled", "fried", "raw")',
-                    },
-                    confidence: {
-                        type: SchemaType.NUMBER,
-                        description: 'Overall confidence in detection (0-1)',
-                    },
-                },
-                required: ['name', 'category', 'portion', 'confidence'],
-            },
-        },
-        photo_quality: {
-            type: SchemaType.OBJECT,
-            properties: {
-                is_blurry: { type: SchemaType.BOOLEAN },
-                has_occlusion: { type: SchemaType.BOOLEAN },
-                has_reference_object: { type: SchemaType.BOOLEAN },
-                lighting_issue: { type: SchemaType.BOOLEAN },
-            },
-            required: ['is_blurry', 'has_occlusion', 'has_reference_object', 'lighting_issue'],
-        },
-    },
-    required: ['items', 'photo_quality'],
-};
+function mapStep1Category(cat: Step1FoodItem['food_category']): FoodCategory {
+    switch (cat) {
+        case 'fat':
+        case 'condiment':
+            return 'other';
+        case 'mixed_dish':
+            return 'prepared_meal';
+        default:
+            return cat;
+    }
+}
 
 /**
- * System prompt for food detection (NO nutrition estimation)
+ * Map confidence label to numeric value
  */
-const DETECTION_SYSTEM_PROMPT = `You are an expert food recognition assistant. Your ONLY job is to identify food items and estimate their portion weight in grams.
+function mapConfidence(conf: 'low' | 'medium' | 'high'): number {
+    switch (conf) {
+        case 'high': return 0.9;
+        case 'medium': return 0.7;
+        case 'low': return 0.4;
+        default: return 0.5;
+    }
+}
 
-## CRITICAL RULES:
+/**
+ * Compute median estimates from multiple Step 2 runs.
+ * Groups by food_name (normalized lowercase), takes median of numeric fields.
+ */
+function computeMedianEstimates(runs: Step2WeightEstimate[][]): Step2WeightEstimate[] {
+    // Collect all unique food names across runs
+    const allNames = new Set<string>();
+    for (const run of runs) {
+        for (const item of run) {
+            allNames.add(item.food_name.toLowerCase().trim());
+        }
+    }
 
-1. **IDENTIFY FOODS ONLY** - Do NOT estimate calories or nutrition. Your job is identification and weight estimation.
+    const results: Step2WeightEstimate[] = [];
 
-2. **VISIBLE ITEMS ONLY** - Only identify foods you can clearly see. Do not guess hidden ingredients.
+    for (const normalizedName of allNames) {
+        // Gather all estimates for this food across runs
+        const estimates: Step2WeightEstimate[] = [];
+        for (const run of runs) {
+            const match = run.find(
+                item => item.food_name.toLowerCase().trim() === normalizedName
+            );
+            if (match) estimates.push(match);
+        }
 
-3. **PORTION WEIGHT IN GRAMS** - You MUST always estimate weight in grams for every item:
-   - ALWAYS set estimate_type to 'weight_g' and unit to 'g'
-   - Provide your best numeric estimate in the value field
-   - Use these reference weights when estimating:
-     * Apple/orange/pear: 150-200g
-     * Banana: 100-130g
-     * Chicken breast: 120-200g
-     * Steak/beef portion: 150-250g
-     * Fish fillet: 120-180g
-     * Egg: 50g
-     * Cooked rice (bowl): 150-250g
-     * Cooked pasta (plate): 180-300g
-     * Bread slice: 25-40g
-     * Sandwich: 180-280g
-     * Burger patty + bun: 180-250g
-     * Pizza slice: 100-150g
-     * Potato (medium): 170-220g
-     * Broccoli (serving): 100-180g
-     * Salad (bowl): 120-250g
-     * Soup (bowl): 250-400g
-     * Curry (serving): 250-350g
-     * Cookie: 30-50g
-     * Cup of liquid: ~240g
-   - Use plate, bowl, hand, or utensils in the image as size references
-   - If truly unable to estimate, set value to null (but try your best)
+        if (estimates.length === 0) continue;
 
-4. **CONFIDENCE LEVELS** (0-1 scale):
-   - 0.9-1.0: Crystal clear, easily identifiable
-   - 0.7-0.89: Reasonable certainty
-   - 0.5-0.69: Some uncertainty, could be similar foods
-   - Below 0.5: Significant uncertainty
+        const medianOf = (arr: number[]): number => {
+            const sorted = [...arr].sort((a, b) => a - b);
+            const mid = Math.floor(sorted.length / 2);
+            if (sorted.length % 2 === 1) return sorted[mid];
+            return (sorted[mid - 1] + sorted[mid]) / 2;
+        };
 
-5. **SYNONYMS** - Provide 1-3 alternative names that could help with database lookup
+        results.push({
+            food_name: estimates[0].food_name, // Use original casing from first run
+            min_grams: Math.round(medianOf(estimates.map(e => e.min_grams))),
+            best_grams: Math.round(medianOf(estimates.map(e => e.best_grams))),
+            max_grams: Math.round(medianOf(estimates.map(e => e.max_grams))),
+            volume_ml: Math.round(medianOf(estimates.map(e => e.volume_ml))),
+            density_used: medianOf(estimates.map(e => e.density_used)),
+            reasoning: estimates[0].reasoning, // Use reasoning from first run
+        });
+    }
 
-6. **CATEGORIES**:
-   - fruit: Fresh or processed fruits
-   - vegetable: Fresh or cooked vegetables
-   - protein: Meat, fish, eggs, tofu, legumes
-   - grain: Rice, bread, pasta, cereals
-   - dairy: Milk, cheese, yogurt
-   - beverage: Drinks, smoothies, coffee
-   - snack: Chips, crackers, nuts
-   - dessert: Sweets, cakes, ice cream
-   - prepared_meal: Mixed dishes, meals
-   - other: Anything that doesn't fit above
+    return results;
+}
 
-7. **PHOTO QUALITY**:
-   - is_blurry: Image focus issues
-   - has_occlusion: Foods partially hidden
-   - has_reference_object: Plate, hand, utensil visible (helps portion estimation)
-   - lighting_issue: Too dark or overexposed
-
-Remember: You are NOT a nutritionist. Your job is identification and gram-weight estimation only.`;
+// ============================================
+// URL VALIDATION
+// ============================================
 
 /**
  * Validate that a photo URL is safe to fetch (SSRF prevention).
- * Only allows HTTPS URLs from trusted Supabase storage domains.
- * Blocks private/internal IP ranges and metadata endpoints.
  */
 export function validatePhotoUrl(url: string): void {
     let parsed: URL;
@@ -247,7 +267,6 @@ export function validatePhotoUrl(url: string): void {
 
     const hostname = parsed.hostname.toLowerCase();
 
-    // Block private/internal IP ranges and cloud metadata endpoints
     if (
         hostname === 'localhost' ||
         hostname === '[::1]' ||
@@ -263,7 +282,6 @@ export function validatePhotoUrl(url: string): void {
         throw new Error('Photo URL points to a restricted address');
     }
 
-    // Only allow Supabase storage domains
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     let supabaseHost = '';
     try {
@@ -285,10 +303,10 @@ export function validatePhotoUrl(url: string): void {
     }
 }
 
-/**
- * Fetch an image from URL and convert to base64.
- * Validates URL safety, enforces size limits, and checks content type.
- */
+// ============================================
+// IMAGE FETCHING
+// ============================================
+
 async function fetchImageAsBase64(
     photoUrl: string
 ): Promise<{ data: string; mimeType: string; size: number }> {
@@ -299,29 +317,23 @@ async function fetchImageAsBase64(
         throw new Error(`Failed to fetch image: ${response.status}`);
     }
 
-    // Validate content type is an actual image
     const contentType = response.headers.get('content-type') || '';
     const mimeType = ALLOWED_IMAGE_TYPES.find(t => contentType.startsWith(t));
     if (!mimeType) {
         throw new Error('Response is not a valid image type');
     }
 
-    // Check content-length header before downloading
     const contentLength = response.headers.get('content-length');
     if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_SIZE_BYTES) {
         throw new Error(`Image too large (max ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB)`);
     }
 
     const buffer = await response.arrayBuffer();
-
-    // Double-check actual size after download
     if (buffer.byteLength > MAX_IMAGE_SIZE_BYTES) {
         throw new Error(`Image too large (max ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB)`);
     }
 
     const bytes = new Uint8Array(buffer);
-
-    // Convert to base64
     let binary = '';
     const chunkSize = 0x8000;
     for (let i = 0; i < bytes.length; i += chunkSize) {
@@ -335,79 +347,238 @@ async function fetchImageAsBase64(
     };
 }
 
+// ============================================
+// TWO-STEP GEMINI CALLS
+// ============================================
+
 /**
- * Detect food items in an image using Gemini with structured output
+ * Step 1: Identify foods with dimensional analysis
+ */
+async function step1FoodAnalysis(
+    imageBase64: string,
+    mimeType: string,
+    mealType?: string,
+    mealTime?: string
+): Promise<Step1FoodItem[]> {
+    const ai = getGenAIClient();
+    const model = Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL;
+
+    const contextHints: string[] = [];
+    if (mealType) contextHints.push(`Meal type: ${mealType}`);
+    if (mealTime) contextHints.push(`Time: ${mealTime}`);
+
+    const prompt = contextHints.length > 0
+        ? `${STEP_1_PROMPT}\n\nContext: ${contextHints.join(', ')}`
+        : STEP_1_PROMPT;
+
+    const response = await ai.models.generateContent({
+        model,
+        contents: [
+            {
+                role: 'user',
+                parts: [
+                    { text: prompt },
+                    { inlineData: { mimeType, data: imageBase64 } },
+                ],
+            },
+        ],
+        config: {
+            temperature: 0.2,
+            maxOutputTokens: 2048,
+            responseMimeType: 'application/json',
+        },
+    });
+
+    const content = response.text || '';
+    if (!content) {
+        throw new Error('Empty response from Gemini Step 1');
+    }
+
+    return parseRawJsonArray<Step1FoodItem>(content);
+}
+
+/**
+ * Step 2: Estimate weights using dimensional reasoning
+ */
+async function step2WeightEstimation(
+    imageBase64: string,
+    mimeType: string,
+    step1Output: Step1FoodItem[]
+): Promise<Step2WeightEstimate[]> {
+    const ai = getGenAIClient();
+    const model = Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL;
+
+    const prompt = STEP_2_PROMPT_TEMPLATE.replace(
+        '{step1_output}',
+        JSON.stringify(step1Output, null, 2)
+    );
+
+    const response = await ai.models.generateContent({
+        model,
+        contents: [
+            {
+                role: 'user',
+                parts: [
+                    { text: prompt },
+                    { inlineData: { mimeType, data: imageBase64 } },
+                ],
+            },
+        ],
+        config: {
+            temperature: 0.4,
+            maxOutputTokens: 2048,
+            responseMimeType: 'application/json',
+        },
+    });
+
+    const content = response.text || '';
+    if (!content) {
+        throw new Error('Empty response from Gemini Step 2');
+    }
+
+    return parseRawJsonArray<Step2WeightEstimate>(content);
+}
+
+// ============================================
+// CORE TWO-STEP PIPELINE
+// ============================================
+
+/**
+ * Internal two-step detection pipeline.
+ * Used by both detectFoodItems() and detectFoodItemsFromBase64().
+ */
+async function twoStepDetection(
+    imageBase64: string,
+    mimeType: string,
+    mealType?: string,
+    mealTime?: string
+): Promise<FoodDetectionResult> {
+    const ai = getGenAIClient();
+
+    // Step 1: Identify foods
+    const step1Start = Date.now();
+    const step1Output = await step1FoodAnalysis(imageBase64, mimeType, mealType, mealTime);
+    console.log(`Step 1 completed in ${Date.now() - step1Start}ms, found ${step1Output.length} items`);
+
+    if (step1Output.length === 0) {
+        return {
+            items: [],
+            photo_quality: {
+                is_blurry: false,
+                has_occlusion: false,
+                has_reference_object: false,
+                lighting_issue: false,
+            },
+        };
+    }
+
+    // Step 2: Run 3x in parallel for median estimation
+    const step2Start = Date.now();
+    const step2Promises = [
+        step2WeightEstimation(imageBase64, mimeType, step1Output).catch(err => {
+            console.error('Step 2 run 1 failed:', err);
+            return null;
+        }),
+        step2WeightEstimation(imageBase64, mimeType, step1Output).catch(err => {
+            console.error('Step 2 run 2 failed:', err);
+            return null;
+        }),
+    ];
+
+    const step2Results = await Promise.all(step2Promises);
+    const successfulRuns = step2Results.filter((r): r is Step2WeightEstimate[] => r !== null);
+    console.log(`Step 2 completed in ${Date.now() - step2Start}ms, ${successfulRuns.length}/2 runs succeeded`);
+
+    // Compute median estimates (or empty if all failed)
+    const medianEstimates = successfulRuns.length > 0
+        ? computeMedianEstimates(successfulRuns)
+        : [];
+
+    // Build FoodDetectionResult from Step 1 + Step 2 median
+    const items: DetectedFoodItem[] = step1Output.map(s1Item => {
+        const name = s1Item.food_name?.trim() || 'Unknown food';
+        const category = mapStep1Category(s1Item.food_category);
+        const confidence = mapConfidence(s1Item.confidence);
+
+        // Find matching median estimate by normalized name
+        const normalizedName = name.toLowerCase().trim();
+        const median = medianEstimates.find(
+            m => m.food_name.toLowerCase().trim() === normalizedName
+        );
+
+        let portionValue: number | null;
+        let portionConfidence: number;
+
+        if (median) {
+            portionValue = median.best_grams;
+            portionConfidence = confidence;
+        } else {
+            // Fallback: use convertToGrams from portion-estimator
+            const fallbackPortion = {
+                estimate_type: 'qualitative' as const,
+                value: null as number | null,
+                unit: 'serving' as const,
+            };
+            portionValue = convertToGrams(name, category, fallbackPortion);
+            portionConfidence = Math.min(confidence, 0.5);
+        }
+
+        return {
+            name,
+            synonyms: [],
+            category,
+            visible_portion_descriptor: s1Item.visual_cues || '',
+            portion: {
+                estimate_type: 'weight_g' as PortionEstimateType,
+                value: portionValue,
+                unit: 'g' as PortionUnit,
+                confidence: portionConfidence,
+            },
+            confidence,
+        };
+    });
+
+    // Synthesize photo quality from Step 1 data
+    const photo_quality: PhotoQuality = {
+        is_blurry: false,
+        has_occlusion: step1Output.some(item => item.hidden_ingredients_likely),
+        has_reference_object: step1Output.length > 0 && step1Output[0].plate_reference > 0,
+        lighting_issue: false,
+    };
+
+    const result: FoodDetectionResult = {
+        items,
+        photo_quality,
+        two_step_debug: {
+            step1_output: step1Output,
+            step2_runs: successfulRuns,
+            step2_median: medianEstimates,
+        },
+    };
+
+    // Still run normalization for validation/safety-net
+    return normalizeDetectionResult(result);
+}
+
+// ============================================
+// PUBLIC API
+// ============================================
+
+/**
+ * Detect food items in an image using two-step Gemini prompting
  */
 export async function detectFoodItems(
     photoUrl: string,
     mealType?: string,
     mealTime?: string
 ): Promise<FoodDetectionResult> {
-    const ai = getGenAIClient();
-    const model = Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL;
-
-    // Fetch and encode image
     const { data: imageBase64, mimeType, size } = await fetchImageAsBase64(photoUrl);
-
     console.log(`Detecting food items in image (${size} bytes)`);
 
-    // Build context hints
-    const contextHints: string[] = [];
-    if (mealType) contextHints.push(`Meal type: ${mealType}`);
-    if (mealTime) contextHints.push(`Time: ${mealTime}`);
-
-    const userPrompt = `Analyze this food photo and identify ALL visible food items.
-
-For each item, provide:
-1. A specific name (e.g., "Grilled Chicken Breast" not just "meat")
-2. Synonyms for database lookup
-3. Category
-4. Visual portion description
-5. Estimated weight in grams (estimate_type: 'weight_g', unit: 'g')
-6. Your confidence level
-
-${contextHints.length > 0 ? `\nContext: ${contextHints.join(', ')}` : ''}
-
-Identify foods confidently. ALWAYS estimate weight in grams for each item.`;
-
     try {
-        const response = await ai.models.generateContent({
-            model,
-            contents: [
-                {
-                    role: 'user',
-                    parts: [
-                        { text: DETECTION_SYSTEM_PROMPT },
-                        { text: userPrompt },
-                        { inlineData: { mimeType, data: imageBase64 } },
-                    ],
-                },
-            ],
-            config: {
-                temperature: 0.2,
-                topP: 0.8,
-                topK: 40,
-                maxOutputTokens: 2048,
-                responseMimeType: 'application/json',
-                responseSchema: FOOD_DETECTION_SCHEMA,
-            },
-        });
-
-        const content = response.text || '';
-
-        if (!content) {
-            throw new Error('Empty response from Gemini');
-        }
-
-        // Parse JSON response
-        const parsed = JSON.parse(content) as FoodDetectionResult;
-
-        // Validate and normalize
-        return normalizeDetectionResult(parsed);
+        return await twoStepDetection(imageBase64, mimeType, mealType, mealTime);
     } catch (error) {
         console.error('Food detection failed:', error);
-
-        // Return empty result on failure
         return {
             items: [],
             photo_quality: {
@@ -419,6 +590,35 @@ Identify foods confidently. ALWAYS estimate weight in grams for each item.`;
         };
     }
 }
+
+/**
+ * Detect food items from base64 image data directly
+ */
+export async function detectFoodItemsFromBase64(
+    imageBase64: string,
+    mimeType: string = 'image/jpeg',
+    mealType?: string,
+    mealTime?: string
+): Promise<FoodDetectionResult> {
+    try {
+        return await twoStepDetection(imageBase64, mimeType, mealType, mealTime);
+    } catch (error) {
+        console.error('Food detection failed:', error);
+        return {
+            items: [],
+            photo_quality: {
+                is_blurry: false,
+                has_occlusion: false,
+                has_reference_object: false,
+                lighting_issue: false,
+            },
+        };
+    }
+}
+
+// ============================================
+// NORMALIZATION
+// ============================================
 
 /**
  * Normalize and validate detection result
@@ -438,12 +638,10 @@ function normalizeDetectionResult(raw: FoodDetectionResult): FoodDetectionResult
     ];
 
     const items = (raw.items || []).map((item): DetectedFoodItem => {
-        // Normalize category
         const category = validCategories.includes(item.category as FoodCategory)
             ? item.category as FoodCategory
             : 'other';
 
-        // Normalize portion
         const portion = {
             estimate_type: validEstimateTypes.includes(item.portion?.estimate_type as PortionEstimateType)
                 ? item.portion.estimate_type as PortionEstimateType
@@ -455,17 +653,14 @@ function normalizeDetectionResult(raw: FoodDetectionResult): FoodDetectionResult
             confidence: Math.max(0, Math.min(1, item.portion?.confidence ?? 0.5)),
         };
 
-        // Normalize confidence
         const confidence = Math.max(0, Math.min(1, item.confidence ?? 0.5));
 
-        // Safety net: convert non-weight_g portions to grams
         const name = item.name?.trim() || 'Unknown food';
         if (portion.estimate_type !== 'weight_g' || portion.value === null || portion.value <= 0) {
             const gramsEstimate = convertToGrams(name, category, portion);
             portion.estimate_type = 'weight_g';
             portion.value = gramsEstimate;
             portion.unit = 'g';
-            // Lower confidence since this is a fallback conversion
             portion.confidence = Math.min(portion.confidence, 0.5);
         }
 
@@ -480,7 +675,6 @@ function normalizeDetectionResult(raw: FoodDetectionResult): FoodDetectionResult
         };
     });
 
-    // Normalize photo quality
     const photo_quality: PhotoQuality = {
         is_blurry: Boolean(raw.photo_quality?.is_blurry),
         has_occlusion: Boolean(raw.photo_quality?.has_occlusion),
@@ -488,82 +682,5 @@ function normalizeDetectionResult(raw: FoodDetectionResult): FoodDetectionResult
         lighting_issue: Boolean(raw.photo_quality?.lighting_issue),
     };
 
-    return { items, photo_quality };
-}
-
-/**
- * Detect food items from base64 image data directly
- */
-export async function detectFoodItemsFromBase64(
-    imageBase64: string,
-    mimeType: string = 'image/jpeg',
-    mealType?: string,
-    mealTime?: string
-): Promise<FoodDetectionResult> {
-    const ai = getGenAIClient();
-    const model = Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL;
-
-    // Build context hints
-    const contextHints: string[] = [];
-    if (mealType) contextHints.push(`Meal type: ${mealType}`);
-    if (mealTime) contextHints.push(`Time: ${mealTime}`);
-
-    const userPrompt = `Analyze this food photo and identify ALL visible food items.
-
-For each item, provide:
-1. A specific name (e.g., "Grilled Chicken Breast" not just "meat")
-2. Synonyms for database lookup
-3. Category
-4. Visual portion description
-5. Estimated weight in grams (estimate_type: 'weight_g', unit: 'g')
-6. Your confidence level
-
-${contextHints.length > 0 ? `\nContext: ${contextHints.join(', ')}` : ''}
-
-Identify foods confidently. ALWAYS estimate weight in grams for each item.`;
-
-    try {
-        const response = await ai.models.generateContent({
-            model,
-            contents: [
-                {
-                    role: 'user',
-                    parts: [
-                        { text: DETECTION_SYSTEM_PROMPT },
-                        { text: userPrompt },
-                        { inlineData: { mimeType, data: imageBase64 } },
-                    ],
-                },
-            ],
-            config: {
-                temperature: 0.2,
-                topP: 0.8,
-                topK: 40,
-                maxOutputTokens: 2048,
-                responseMimeType: 'application/json',
-                responseSchema: FOOD_DETECTION_SCHEMA,
-            },
-        });
-
-        const content = response.text || '';
-
-        if (!content) {
-            throw new Error('Empty response from Gemini');
-        }
-
-        const parsed = JSON.parse(content) as FoodDetectionResult;
-        return normalizeDetectionResult(parsed);
-    } catch (error) {
-        console.error('Food detection failed:', error);
-
-        return {
-            items: [],
-            photo_quality: {
-                is_blurry: false,
-                has_occlusion: false,
-                has_reference_object: false,
-                lighting_issue: false,
-            },
-        };
-    }
+    return { items, photo_quality, two_step_debug: raw.two_step_debug };
 }

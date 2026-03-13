@@ -17,7 +17,7 @@ Gluco is a React Native health & wellness tracking app — meal logging, glucose
 - RevenueCat for subscriptions
 - Styling: `StyleSheet.create()` + `constants/Colors.ts` + `DESIGN.md` (Liquid Glass design system)
 - Fonts: Outfit family (`hooks/useFonts.ts`)
-- Animations: `react-native-reanimated` v4
+- Animations: `react-native-reanimated` v3
 - Tab bar: NativeTabs (`expo-router/unstable-native-tabs`) — native UITabBarController with Liquid Glass on iOS 26
 
 ## Commands
@@ -36,12 +36,12 @@ eas build --platform ios --profile production    # App Store
 
 ```
 app/                     # Screens & navigation (Expo Router, file-based)
-  (tabs)/                #   Tab screens: index (Home), log, insights
+  (tabs)/                #   Tab screens: index (Home), log, insights, chat
   components/scanner/    #   Meal scanner sub-components
 components/              # Reusable UI (animations, charts, cards, controls, ui)
 hooks/                   # Custom React hooks (data fetching, caching)
 lib/                     # Business logic & integrations
-  supabase.ts            #   ALL typed API helpers + types (~3,500 lines)
+  supabase.ts            #   ALL typed API helpers + types (~4,200 lines)
   healthkit.ts           #   HealthKit integration (iOS-only)
   insights.ts            #   Rules-based insight generation + safe language
   foodSearch/            #   Multi-stage food search pipeline
@@ -49,7 +49,7 @@ lib/                     # Business logic & integrations
   experience.ts          #   Experience variant management (legacy vs behavior_v1)
 context/                 # React Context providers (Auth, Subscription, TabTransition)
 constants/               # Colors.ts, theme, Images, legal
-supabase/functions/      # Deno edge functions (20+)
+supabase/functions/      # Deno edge functions (24)
   _shared/               #   Shared: auth.ts, safety.ts, genai.ts, nutrition-*.ts
 docs/                    # Documentation
   features/              #   15 feature docs (what features do)
@@ -139,13 +139,13 @@ Detailed feature documentation (15 files):
 - Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions).
 - If something goes sideways, STOP and re-plan immediately — don't keep pushing broken approaches.
 - Use plan mode for verification steps, not just building.
-- Write detailed specs upfront. Ambiguity in Gluco is expensive — we have `lib/supabase.ts` (~3,500 lines), 20+ edge functions, and complex pipelines (photo analysis, food search, insights). Spell out what you're changing and why.
+- Write detailed specs upfront. Ambiguity in Gluco is expensive — we have `lib/supabase.ts` (~4,200 lines), 24 edge functions, and complex pipelines (photo analysis, food search, insights). Spell out what you're changing and why.
 
 ### 2. Subagent Strategy
 
 - Use subagents to keep the main context window clean. One task per subagent.
 - See [`docs/reference/codebase-navigation.md`](docs/reference/codebase-navigation.md) for search strategies, subagent prompt templates, and the canonical data flow path (`Screen → Hook → lib/supabase.ts → Edge Function → DB`).
-- Key rule: never start by reading all of `lib/supabase.ts` (~3,500 lines). Use Grep to find the specific function, then Read the surrounding context.
+- Key rule: never start by reading all of `lib/supabase.ts` (~4,200 lines). Use Grep to find the specific function, then Read the surrounding context.
 
 ### 3. Self-Improvement Loop
 

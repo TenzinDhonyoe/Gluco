@@ -10,8 +10,10 @@
 
 import {
     generateInsights,
+    getInsightReadiness,
     InsightData,
     InsightGenerationOptions,
+    InsightReadiness,
     PersonalInsight,
     TrackingMode,
 } from '@/lib/insights';
@@ -46,6 +48,7 @@ interface UsePersonalInsightsResult {
     loading: boolean;
     source: 'cache' | 'llm' | 'fallback' | 'none';
     dismissInsight: (id: string) => void;
+    insightReadiness: InsightReadiness;
 }
 
 export function usePersonalInsights({
@@ -195,6 +198,12 @@ export function usePersonalInsights({
     // Secondary insights are the rest
     const secondaryInsights = activeInsights.slice(1);
 
+    // Insight readiness for new-user progress indicator
+    const insightReadiness = useMemo(() =>
+        getInsightReadiness(fallbackData ?? {}),
+        [fallbackData]
+    );
+
     return {
         insights: activeInsights,
         primaryInsight,
@@ -202,5 +211,6 @@ export function usePersonalInsights({
         loading,
         source,
         dismissInsight,
+        insightReadiness,
     };
 }

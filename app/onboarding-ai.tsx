@@ -1,4 +1,4 @@
-import { ONBOARDING_STEP_KEY, PAYWALL_ENABLED } from '@/app/index';
+import { ONBOARDING_STEP_KEY } from '@/app/index';
 import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { OnboardingHeader } from '@/components/onboarding/OnboardingHeader';
 import { Disclaimer } from '@/components/ui/Disclaimer';
@@ -61,11 +61,7 @@ export default function OnboardingAiScreen() {
             }
             await AsyncStorage.removeItem(ONBOARDING_STEP_KEY);
             await clearDraft();
-            if (PAYWALL_ENABLED) {
-                router.replace('/paywall' as never);
-            } else {
-                router.replace('/(tabs)' as never);
-            }
+            router.replace('/onboarding-personalize' as never);
         } catch {
             Alert.alert('Error', 'Failed to save your preferences. Please try again.');
         } finally {

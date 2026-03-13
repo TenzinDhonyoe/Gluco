@@ -62,7 +62,10 @@ type ReminderCategory =
     | 'experiment_updates'
     | 'active_action_midday'
     | 'post_meal_action'
-    | 'weekly_summary';
+    | 'weekly_summary'
+    | 'streak_reminder'
+    | 'daily_checkin'
+    | 'meal_score';
 
 const DAILY_NOTIFICATION_CAP = 2;
 const DEFAULT_NOTIFICATION_PREFS: Record<ReminderCategory, boolean> = {
@@ -73,6 +76,9 @@ const DEFAULT_NOTIFICATION_PREFS: Record<ReminderCategory, boolean> = {
     active_action_midday: true,
     post_meal_action: true,
     weekly_summary: true,
+    streak_reminder: true,
+    daily_checkin: true,
+    meal_score: true,
 };
 
 let notificationPrefsColumnAvailable: boolean | null = null;
@@ -589,5 +595,195 @@ export async function configureAndroidChannel(): Promise<void> {
             enableVibrate: true,
             showBadge: true,
         });
+    }
+}
+
+// ============================================
+// STREAK REMINDER
+// ============================================
+
+/**
+ * Schedule a streak reminder at 7 PM if no check-in today.
+ * "Your streak is at X days — check in now to keep it going"
+ */
+export async function scheduleStreakReminder(
+    streakDays: number,
+    userId?: string
+): Promise<string | null> {
+    if (IS_SERVER) return null;
+    const Notifications = await getNotificationsModule();
+    if (!Notifications) return null;
+
+    try {
+        const enabled = await isReminderEnabled(userId, 'streak_reminder');
+        if (!enabled) return null;
+
+        // Target 7 PM today
+        const now = new Date();
+        const target = new Date(now);
+        target.setHours(19, 0, 0, 0);
+
+        // If past 7 PM, skip
+        if (target.getTime() <= now.getTime()) return null;
+
+        const duplicate = await hasScheduledCategory(target, 'streak_reminder');
+        if (duplicate) return null;
+
+        const underCap = await isUnderDailyCap(target);
+        if (!underCap) return null;
+
+        const hasPermission = await requestNotificationPermissions();
+        if (!hasPermission) return null;
+
+        const secondsUntil = Math.max(1, (target.getTime() - now.getTime()) / 1000);
+        return await Notifications.scheduleNotificationAsync({
+            content: {
+                title: 'Keep your streak going',
+                body: `Your streak is at ${streakDays} days — check in now to keep it going.`,
+                data: {
+                    route: '/daily-checkin',
+                    category: 'streak_reminder',
+                    scheduleDay: toDateKey(target),
+                } as Record<string, unknown>,
+                sound: true,
+            },
+            trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                seconds: secondsUntil,
+            },
+        });
+    } catch (error) {
+        console.error('Failed to schedule streak reminder:', error);
+        return null;
+    }
+}
+
+// ============================================
+// DAILY CHECK-IN REMINDER
+// ============================================
+
+/**
+ * Schedule a daily check-in reminder based on user's prompt_window preference.
+ * "Quick check-in: How's your energy today?"
+ */
+export async function scheduleDailyCheckinReminder(
+    promptWindow: 'morning' | 'midday' | 'evening' | undefined,
+    userId?: string
+): Promise<string | null> {
+    if (IS_SERVER) return null;
+    const Notifications = await getNotificationsModule();
+    if (!Notifications) return null;
+
+    try {
+        const enabled = await isReminderEnabled(userId, 'daily_checkin');
+        if (!enabled) return null;
+
+        const now = new Date();
+        const target = new Date(now);
+
+        // Set time based on prompt window
+        switch (promptWindow) {
+            case 'morning':
+                target.setHours(9, 0, 0, 0);
+                break;
+            case 'midday':
+                target.setHours(12, 30, 0, 0);
+                break;
+            case 'evening':
+            default:
+                target.setHours(18, 0, 0, 0);
+                break;
+        }
+
+        // If past target time, skip (will reschedule tomorrow)
+        if (target.getTime() <= now.getTime()) return null;
+
+        const duplicate = await hasScheduledCategory(target, 'daily_checkin');
+        if (duplicate) return null;
+
+        const underCap = await isUnderDailyCap(target);
+        if (!underCap) return null;
+
+        const hasPermission = await requestNotificationPermissions();
+        if (!hasPermission) return null;
+
+        const secondsUntil = Math.max(1, (target.getTime() - now.getTime()) / 1000);
+        return await Notifications.scheduleNotificationAsync({
+            content: {
+                title: 'Quick check-in',
+                body: 'How\'s your energy today? Tap to check in (15 seconds).',
+                data: {
+                    route: '/daily-checkin',
+                    category: 'daily_checkin',
+                    scheduleDay: toDateKey(target),
+                } as Record<string, unknown>,
+                sound: true,
+            },
+            trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                seconds: secondsUntil,
+            },
+        });
+    } catch (error) {
+        console.error('Failed to schedule daily checkin reminder:', error);
+        return null;
+    }
+}
+
+/**
+ * Schedule an immediate notification when a meal score is calculated.
+ */
+export async function scheduleMealScoreNotification(
+    mealId: string,
+    mealName: string,
+    score: number,
+    scoreLabel: string,
+    insightFirstSentence: string,
+    userId?: string,
+): Promise<string | null> {
+    if (IS_SERVER) return null;
+    const Notifications = await getNotificationsModule();
+    if (!Notifications) return null;
+
+    try {
+        const enabled = await isReminderEnabled(userId, 'meal_score');
+        if (!enabled) return null;
+
+        const now = new Date();
+        const underCap = await isUnderDailyCap(now);
+        if (!underCap) return null;
+
+        const hasPermission = await requestNotificationPermissions();
+        if (!hasPermission) return null;
+
+        const emoji = scoreLabel === 'gentle' ? '🟢'
+            : scoreLabel === 'moderate' ? '🟡'
+            : scoreLabel === 'notable' ? '🟠'
+            : '🔴';
+
+        const notificationId = await Notifications.scheduleNotificationAsync({
+            content: {
+                title: `Meal Score: ${score} ${emoji}`,
+                body: insightFirstSentence,
+                data: {
+                    mealId,
+                    mealName,
+                    route: '/meal-score-detail',
+                    mealScoreRoute: true,
+                    category: 'meal_score',
+                    scheduleDay: toDateKey(now),
+                } as Record<string, unknown>,
+                sound: true,
+            },
+            trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                seconds: 1,
+            },
+        });
+
+        return notificationId;
+    } catch (error) {
+        console.error('Failed to schedule meal score notification:', error);
+        return null;
     }
 }

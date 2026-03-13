@@ -1,6 +1,6 @@
 import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
-import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
+import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import {
     addMealItems,
@@ -201,8 +201,6 @@ const loadingStyles = StyleSheet.create({
 export default function PreMealCheckScreen() {
     const params = useLocalSearchParams();
     const { user, profile } = useAuth();
-    const glucoseUnit = useGlucoseUnit();
-
     // Parse meal data from params
     const mealName = (params.mealName as string) || 'Meal';
     const mealTime = params.mealTime ? new Date(params.mealTime as string) : new Date();
@@ -235,8 +233,8 @@ export default function PreMealCheckScreen() {
 
     // API State
     const [loading, setLoading] = React.useState(true);
-    const [error, setError] = React.useState<string | null>(null);
-    const [result, setResult] = React.useState<PremealResult | null>(null);
+    const [, setError] = React.useState<string | null>(null);
+    const [, setResult] = React.useState<PremealResult | null>(null);
     const [drivers, setDrivers] = React.useState<PremealDriver[]>([]);
     const [tips, setTips] = React.useState<(PremealAdjustmentTip & { id: string; selected: boolean })[]>([]);
 
@@ -413,6 +411,7 @@ export default function PreMealCheckScreen() {
         }
 
         fetchAnalysis();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [profile, user?.id]); // Wait for profile to load before analysis
 
     const toggleTip = (id: string) => {

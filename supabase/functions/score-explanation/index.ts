@@ -135,7 +135,7 @@ async function isAiEnabled(supabase: ReturnType<typeof createClient>, userId: st
         .select('ai_enabled')
         .eq('id', userId)
         .single();
-    return data?.ai_enabled !== false;
+    return data?.ai_enabled === true;
 }
 
 // ============================================
@@ -267,7 +267,7 @@ Focus on what they can DO, not on the numbers themselves.`;
         log('ERROR', 'score-explanation failed', { requestId, error: errorMessage });
 
         return new Response(
-            JSON.stringify({ error: 'Internal server error', message: errorMessage, requestId }),
+            JSON.stringify({ error: 'Internal server error' }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
     }

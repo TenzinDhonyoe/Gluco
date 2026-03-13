@@ -48,7 +48,16 @@ export async function initializeRevenueCat(): Promise<boolean> {
         if (!Purchases) return false;
 
         const { LOG_LEVEL, STOREKIT_VERSION } = await import('react-native-purchases');
-        if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
+        if (__DEV__) {
+            Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
+            Purchases.setLogHandler((level, message) => {
+                // Silence noisy cancellation errors — not real failures
+                if (level === LOG_LEVEL.ERROR && /cancelled|canceled/i.test(message)) return;
+                if (level === LOG_LEVEL.ERROR) console.error(`[RevenueCat] ${message}`);
+                else if (level === LOG_LEVEL.WARN) console.warn(`[RevenueCat] ${message}`);
+                else console.log(`[RevenueCat] ${message}`);
+            });
+        }
 
         if (Platform.OS === 'ios') {
             if (!REVENUECAT_IOS_API_KEY) {

@@ -1,6 +1,10 @@
 import { AnimatedInteger } from '@/components/animations/animated-number';
+import { DailyCheckinBanner } from '@/components/cards/DailyCheckinBanner';
+import { MealScoreCard } from '@/components/cards/MealScoreCard';
+import { StreakCard } from '@/components/cards/StreakCard';
 import { TodayMealCheckinsList } from '@/components/cards/TodayMealCheckinsList';
 import { PersonalInsightsCarousel } from '@/components/carousels/PersonalInsightsCarousel';
+import { MilestoneCelebration } from '@/components/celebrations/MilestoneCelebration';
 import { GlucoseTrendIndicator, type TrendStatus } from '@/components/charts/GlucoseTrendIndicator';
 import { MetabolicScoreRing } from '@/components/charts/MetabolicScoreRing';
 import { SegmentedControl } from '@/components/controls/segmented-control';
@@ -19,8 +23,12 @@ import { fonts } from '@/hooks/useFonts';
 import { SleepData, useSleepData } from '@/hooks/useSleepData';
 import { useGlucoseTargetRange, useTodayScreenData } from '@/hooks/useTodayScreenData';
 import { useWeightTrends } from '@/hooks/useWeightTrends';
+import { useDailyCheckin } from '@/hooks/useDailyCheckin';
+import { useStreak } from '@/hooks/useStreak';
+import { useMealScores } from '@/hooks/useMealScores';
 import { isBehaviorV1Experience } from '@/lib/experience';
 import { InsightData, TrackingMode } from '@/lib/insights';
+import { type ScoreLabel } from '@/lib/mealScore';
 import { getMetabolicWeeklyScores, GlucoseLog, invokeMetabolicScore, invokeScoreExplanation, MealWithCheckin, MetabolicScoreComponentsV2, MetabolicWeeklyScore, ScoreExplanation } from '@/lib/supabase';
 import { getDateRange, getRangeDays, RangeKey } from '@/lib/utils/dateRanges';
 import { GlucoseUnit } from '@/lib/utils/glucoseUnits';
@@ -84,6 +92,8 @@ type BehaviorMomentumChipTone = 'neutral' | 'success';
 type BehaviorMomentumChip = {
     label: string;
     tone: BehaviorMomentumChipTone;
+    icon?: keyof typeof Ionicons.glyphMap;
+    iconColor?: string;
 };
 
 function getHomeMetabolicTone(score: number | null, isEarlyJourney: boolean): HomeMetabolicTone {
@@ -168,6 +178,7 @@ const GlucoseTrendsCard = React.memo(({ range, allLogs, isLoading, glucoseUnit }
         </View>
     );
 }, (prev, next) => prev.range === next.range && prev.isLoading === next.isLoading && prev.allLogs.length === next.allLogs.length && prev.glucoseUnit === next.glucoseUnit);
+GlucoseTrendsCard.displayName = 'GlucoseTrendsCard';
 
 
 // Stat Card Component
@@ -254,6 +265,7 @@ const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
         </View>
     );
 }, (prev, next) => prev.range === next.range && prev.glucoseLogs === next.glucoseLogs);
+DaysInRangeCard.displayName = 'DaysInRangeCard';
 
 // Memoized Activity Stat Card - Unified (HealthKit + Manual)
 const ActivityStatCard = React.memo(({
@@ -345,6 +357,7 @@ const ActivityStatCard = React.memo(({
     prev.healthKitMinutes === next.healthKitMinutes &&
     prev.isHealthKitAuthorized === next.isHealthKitAuthorized
 );
+ActivityStatCard.displayName = 'ActivityStatCard';
 
 // Fibre thresholds based on Canada DV (25g/day target) and average intake (~15g)
 const FIBRE_TARGET = 25;
@@ -426,6 +439,7 @@ const FibreStatCard = React.memo(({ range, fibreSummary }: {
         </View>
     );
 }, (prev, next) => prev.range === next.range && prev.fibreSummary === next.fibreSummary);
+FibreStatCard.displayName = 'FibreStatCard';
 
 // Sleep thresholds based on CDC recommendations (7+ hours for adults)
 // <6: Poor, 6-7: Fair, >7: Good
@@ -496,6 +510,7 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
         </AnimatedPressable>
     );
 }, (prev, next) => prev.range === next.range && prev.sleepData === next.sleepData);
+SleepStatCard.displayName = 'SleepStatCard';
 
 // Steps Stat Card - for wearables_only mode (Apple Health)
 const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }: {
@@ -559,6 +574,7 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
         </AnimatedPressable>
     );
 });
+StepsStatCard.displayName = 'StepsStatCard';
 
 // Metabolic Score Card - matches stat card styling, compact until data exists
 const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }: {
@@ -630,6 +646,7 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
         </AnimatedPressable>
     );
 });
+MetabolicScoreCard.displayName = 'MetabolicScoreCard';
 
 
 
@@ -1002,14 +1019,14 @@ function BehaviorMetabolicHeroCard({
                             </>
                         ) : (
                             <>
-                                <Text style={styles.behaviorScoreUnlockTitle}>Unlocking score</Text>
+                                <Text style={styles.behaviorScoreUnlockTitle}>Score Locked</Text>
                                 <View style={styles.behaviorUnlockProgressPill}>
                                     <Text style={styles.behaviorUnlockProgressText}>
                                         {unlockedDays} of {unlockDaysTarget} days complete
                                     </Text>
                                 </View>
                                 <Text style={styles.behaviorScoreMeta}>
-                                    Complete 7 days to unlock your Metabolic Score
+                                    Log for 7 days to see your personalized score
                                 </Text>
                             </>
                         )}
@@ -1038,6 +1055,13 @@ function BehaviorMetabolicHeroCard({
                                         : styles.behaviorMomentumChipNeutral,
                                 ]}
                             >
+                                {chip.icon && (
+                                    <Ionicons
+                                        name={chip.icon}
+                                        size={12}
+                                        color={chip.iconColor ?? (chip.tone === 'success' ? Colors.success : behaviorV1Theme.textSecondary)}
+                                    />
+                                )}
                                 <Text
                                     style={[
                                         styles.behaviorMomentumChipText,
@@ -1053,53 +1077,6 @@ function BehaviorMetabolicHeroCard({
                     </View>
                 )}
 
-            </BlurView>
-        </View>
-    );
-}
-
-
-function BehaviorCheckinPromptCard({
-    onTrack,
-    onDismiss,
-}: {
-    onTrack: () => void;
-    onDismiss: () => void;
-}) {
-    return (
-        <View style={styles.behaviorSecondaryGlassWrapper}>
-            <BlurView intensity={80} tint="light" style={styles.checkinPromptCard}>
-                <LinearGradient
-                    colors={['rgba(52, 211, 153, 0.9)', 'rgba(45, 212, 191, 0.7)', 'rgba(52, 211, 153, 0.8)']}
-                    locations={[0, 0.4, 1]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                />
-                <View style={[styles.behaviorSecondaryGlassHighlight, { borderColor: 'rgba(255,255,255,0.6)' }]} />
-                <View style={styles.checkinPromptEmojiRow}>
-                    {[
-                        { emoji: '🍗', size: 30, font: 14 },
-                        { emoji: '🍎', size: 36, font: 17 },
-                        { emoji: '🍴', size: 46, font: 22 },
-                        { emoji: '🥬', size: 36, font: 17 },
-                        { emoji: '🍩', size: 30, font: 14 },
-                    ].map((item, i) => (
-                        <View key={i} style={[styles.checkinPromptEmojiBubble, { width: item.size, height: item.size, borderRadius: item.size / 2 }]}>
-                            <Text style={{ fontSize: item.font }}>{item.emoji}</Text>
-                        </View>
-                    ))}
-                </View>
-                <Text style={styles.checkinPromptQuestion}>How did that meal affect you?</Text>
-                <Text style={styles.checkinPromptWhy}>
-                    Track within 20 minutes of eating to see{'\n'}how food affects your levels
-                </Text>
-                <AnimatedPressable style={styles.checkinPromptCta} onPress={onTrack}>
-                    <Text style={styles.checkinPromptCtaText}>Track my levels</Text>
-                </AnimatedPressable>
-                <TouchableOpacity style={styles.checkinPromptDismiss} onPress={onDismiss} activeOpacity={0.7}>
-                    <Text style={styles.checkinPromptDismissText}>Remind me later</Text>
-                </TouchableOpacity>
             </BlurView>
         </View>
     );
@@ -1194,6 +1171,7 @@ const WeeklyBarChart = React.memo(({ data, color, height = 40 }: {
         </View>
     );
 });
+WeeklyBarChart.displayName = 'WeeklyBarChart';
 
 function BehaviorMomentumCard({
     label,
@@ -1450,7 +1428,6 @@ export default function TodayScreen() {
     const [scoreComponentsV2, setScoreComponentsV2] = useState<MetabolicScoreComponentsV2 | null>(null);
     const [scoresLoading, setScoresLoading] = useState(true);
     const [advancedGlucoseExpanded, setAdvancedGlucoseExpanded] = useState(false);
-    const [dismissedCheckinMealId, setDismissedCheckinMealId] = useState<string | null>(null);
     const [scoreExplanationVisible, setScoreExplanationVisible] = useState(false);
     const [scoreExplanation, setScoreExplanation] = useState<ScoreExplanation | null>(null);
     const [scoreExplanationLoading, setScoreExplanationLoading] = useState(false);
@@ -1601,6 +1578,7 @@ export default function TodayScreen() {
         activeActions: behaviorActiveActions,
         nextBestAction,
         dismissInsight,
+        insightReadiness,
         loading: insightsLoading
     } = useBehaviorHomeData({
         userId: user?.id,
@@ -1616,6 +1594,19 @@ export default function TodayScreen() {
         },
     });
 
+
+    // Retention features: streak, daily check-in, wellness score
+    const { streak, longestStreak, shieldAvailable, milestone, shieldUsed, streakBroken, clearMilestone } = useStreak();
+    const { isCompleted: dailyCheckinCompleted } = useDailyCheckin();
+    const { scores: mealScores } = useMealScores(user?.id);
+
+    // Most recent scored meal for the MealScoreCard (last 24 hours)
+    const latestMealScore = useMemo(() => {
+        if (mealScores.length === 0) return null;
+        const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+        const recent = mealScores.find(s => new Date(s.created_at).getTime() > oneDayAgo);
+        return recent ?? null;
+    }, [mealScores]);
 
     // Recent meals for the check-in section (newest first, max 5)
     const checkinMeals = useMemo(() => {
@@ -1896,24 +1887,19 @@ export default function TodayScreen() {
     }, [scoreUnlocked, isEarlyJourney, behaviorStreakDays, journeyDay, resolvedHomeScore]);
 
     const heroMomentumChips = useMemo(() => {
-        const chips: { label: string; tone: 'neutral' | 'success' }[] = [
-            {
-                label: `Day ${journeyDay}`,
-                tone: 'neutral',
-            },
-        ];
-        if (behaviorStreakDays > 0) {
-            chips.push({
-                label: `${behaviorStreakDays}d streak`,
-                tone: 'success',
-            });
-        }
+        const chips: BehaviorMomentumChip[] = [];
+        chips.push({
+            label: `${streak}d streak`,
+            tone: streak > 0 ? 'success' : 'neutral',
+            icon: 'flame',
+            iconColor: '#FF6B35',
+        });
         chips.push({
             label: `${weeklyBehaviorLogCount} of ${WEEKLY_LOG_GOAL} logs this week`,
             tone: weeklyBehaviorLogCount >= WEEKLY_LOG_GOAL ? 'success' : 'neutral',
         });
         return chips;
-    }, [journeyDay, behaviorStreakDays, weeklyBehaviorLogCount]);
+    }, [streak, weeklyBehaviorLogCount]);
 
     const sleepMomentumState = useMemo(() => {
         const isSleepAvailable = sleepData?.isAvailable ?? Platform.OS === 'ios';
@@ -2162,12 +2148,6 @@ export default function TodayScreen() {
         extrapolate: 'clamp',
     });
 
-    const behaviorQueueParallax = scrollY.interpolate({
-        inputRange: [0, 360],
-        outputRange: [0, -5],
-        extrapolate: 'clamp',
-    });
-
     const behaviorHeroScale = scrollY.interpolate({
         inputRange: [0, 260],
         outputRange: [1, 0.975],
@@ -2192,11 +2172,6 @@ export default function TodayScreen() {
     const behaviorAdvancedTranslateIn = behaviorAdvancedReveal.interpolate({
         inputRange: [0, 1],
         outputRange: [14, 0],
-    });
-
-    const behaviorQueueTranslateIn = behaviorQueueReveal.interpolate({
-        inputRange: [0, 1],
-        outputRange: [12, 0],
     });
 
     // Header height calculation:
@@ -2267,7 +2242,7 @@ export default function TodayScreen() {
             >
                 {isBehaviorV1 ? (
                     <>
-                        {/* Metabolic Score Hero Card */}
+                        {/* Metabolic Score Hero Card (with conjoined check-in banner) */}
                         <Animated.View
                             style={[
                                 styles.behaviorHeroStack,
@@ -2281,6 +2256,19 @@ export default function TodayScreen() {
                                 },
                             ]}
                         >
+                            {/* Daily Check-in pill — sits flush on top of the hero card */}
+                            {!dailyCheckinCompleted && (
+                                <TouchableOpacity
+                                    style={styles.checkinPillAttached}
+                                    onPress={() => router.push('/daily-checkin' as any)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Ionicons name="sunny-outline" size={16} color="#E8A855" />
+                                    <Text style={styles.checkinPillText}>Today's check-in takes 15 seconds</Text>
+                                    <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />
+                                </TouchableOpacity>
+                            )}
+
                             <BehaviorMetabolicHeroCard
                                 score={resolvedHomeScore}
                                 scoreLoading={scoresLoading}
@@ -2398,6 +2386,22 @@ export default function TodayScreen() {
                             />
                         </Animated.View>
 
+                        {/* Latest Meal Score */}
+                        {latestMealScore && (
+                            <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
+                                <MealScoreCard
+                                    mealName={latestMealScore.meal_name}
+                                    mealTime={latestMealScore.window_start}
+                                    score={latestMealScore.score}
+                                    scoreLabel={latestMealScore.score_label as ScoreLabel}
+                                    insightText={latestMealScore.insight_text}
+                                    glucoseReadings={[]}
+
+                                    onPress={() => router.push({ pathname: '/meal-score-detail' as any, params: { mealId: latestMealScore.meal_id } })}
+                                />
+                            </View>
+                        )}
+
                         {/* Advanced Glucose — unchanged, conditional */}
                         {canShowAdvancedGlucose && (
                             <Animated.View
@@ -2417,6 +2421,11 @@ export default function TodayScreen() {
                     </>
                 ) : (
                     <>
+                        {/* Daily Check-in Banner */}
+                        <View style={{ marginBottom: 12 }}>
+                            <DailyCheckinBanner isCompleted={dailyCheckinCompleted} />
+                        </View>
+
                         {/* Glucose Trends - legacy experience */}
                         {showGlucoseUI && (
                             <View style={styles.trendsSection}>
@@ -2427,8 +2436,35 @@ export default function TodayScreen() {
                         {/* Active Experiment Widget */}
                         <ActiveExperimentWidget />
 
+                        {/* Streak Card */}
+                        <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
+                            <StreakCard
+                                streak={streak}
+                                longestStreak={longestStreak}
+                                shieldAvailable={shieldAvailable}
+                                shieldUsed={shieldUsed}
+                                streakBroken={streakBroken}
+                            />
+                        </View>
+
                         {/* Metabolic Score Card - Full width prominent card */}
                         <MetabolicScoreCard weeklyScores={weeklyScores} currentScore={currentScore} isLoading={scoresLoading} />
+
+                        {/* Latest Meal Score */}
+                        {latestMealScore && (
+                            <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
+                                <MealScoreCard
+                                    mealName={latestMealScore.meal_name}
+                                    mealTime={latestMealScore.window_start}
+                                    score={latestMealScore.score}
+                                    scoreLabel={latestMealScore.score_label as ScoreLabel}
+                                    insightText={latestMealScore.insight_text}
+                                    glucoseReadings={[]}
+
+                                    onPress={() => router.push({ pathname: '/meal-score-detail' as any, params: { mealId: latestMealScore.meal_id } })}
+                                />
+                            </View>
+                        )}
 
                         {/* Stats Grid */}
                         <View style={styles.statsGrid}>
@@ -2518,6 +2554,7 @@ export default function TodayScreen() {
                             isLoading={insightsLoading}
                             onMealPress={() => setSpikeSheetVisible(true)}
                             onExercisePress={() => setExerciseSheetVisible(true)}
+                            insightReadiness={insightReadiness}
                         />
 
                         {/* Today's Meals Section */}
@@ -2612,6 +2649,13 @@ export default function TodayScreen() {
                     </Animated.View>
                 </Pressable>
             </Modal>
+            {/* Milestone Celebration Overlay */}
+            {milestone && (
+                <MilestoneCelebration
+                    milestone={milestone}
+                    onDismiss={clearMilestone}
+                />
+            )}
         </View>
     );
 }
@@ -2693,6 +2737,36 @@ const styles = StyleSheet.create({
         borderLeftWidth: 1.5,
         borderColor: 'rgba(255, 255, 255, 0.9)',
         borderRadius: 28,
+    },
+    checkinPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        marginBottom: 10,
+        borderRadius: 40,
+        backgroundColor: 'rgba(232, 168, 85, 0.12)',
+        borderWidth: 0.5,
+        borderColor: 'rgba(232, 168, 85, 0.25)',
+    },
+    checkinPillAttached: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        marginBottom: 4,
+        borderRadius: 40,
+        backgroundColor: 'rgba(232, 168, 85, 0.12)',
+        borderWidth: 0.5,
+        borderColor: 'rgba(232, 168, 85, 0.25)',
+    },
+    checkinPillText: {
+        flex: 1,
+        fontSize: 13,
+        fontFamily: fonts.medium,
+        color: Colors.textPrimary,
     },
     behaviorSecondaryGlassWrapper: {
         marginBottom: CARD_SPACING,
@@ -2808,6 +2882,9 @@ const styles = StyleSheet.create({
         marginTop: 10,
     },
     behaviorMomentumChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
         borderRadius: 999,
         borderWidth: 1,
         paddingHorizontal: 10,

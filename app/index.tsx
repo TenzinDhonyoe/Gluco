@@ -11,10 +11,10 @@ import { ResizeMode, Video } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Dimensions,
-    Image,
     Linking,
     SafeAreaView,
     StyleSheet,
@@ -33,7 +33,6 @@ export const PAYWALL_SEEN_KEY = 'paywall_seen';
 // Feature flag: Set to true to enable paywall after onboarding
 // Currently disabled for beta - all users get full access
 export const PAYWALL_ENABLED = true;
-const SPLASH_LOGO = require('../assets/images/mascots/gluco_app_mascott/gluco_splash.png');
 
 // Semantic step routes (new naming)
 const ONBOARDING_STEP_ROUTES: Record<string, string> = {
@@ -125,6 +124,9 @@ export default function WelcomeScreen() {
             if (hasNavigated.current) return;
             // Don't navigate if this screen is not focused (another screen is on top)
             if (!isFocused) return;
+
+            // Hide native splash now that we know what to do
+            SplashScreen.hideAsync();
 
             if (user) {
                 // User is logged in
@@ -242,13 +244,9 @@ export default function WelcomeScreen() {
         );
     }
 
-    // Show loading while checking auth or while a signed-in user is being routed
+    // While loading/checking auth, return nothing — native splash stays visible
     if (loading || isCheckingAuth || user) {
-        return (
-            <View style={[styles.container, styles.loadingContainer]}>
-                <Image source={SPLASH_LOGO} style={styles.loadingLogo} />
-            </View>
-        );
+        return <View style={[styles.container, styles.loadingContainer]} />;
     }
 
     return (
@@ -313,12 +311,7 @@ const styles = StyleSheet.create({
     loadingContainer: {
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#151718',
-    },
-    loadingLogo: {
-        width: 200,
-        height: 200,
-        resizeMode: 'contain',
+        backgroundColor: '#F2F2F7',
     },
     backgroundVideo: {
         position: 'absolute',

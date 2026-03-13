@@ -87,6 +87,7 @@ export const ChromaRing: React.FC<IChromaRing> = memo<IChromaRing>(
     );
   },
 );
+ChromaRing.displayName = 'ChromaRing';
 
 const styles = StyleSheet.create({
   container: {

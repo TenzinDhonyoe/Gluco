@@ -56,10 +56,6 @@ export default function NotificationsListScreen() {
         loadMeals();
     }, [loadMeals]);
 
-    const handleBack = () => {
-        router.back();
-    };
-
     const handleMealPress = (meal: MealWithCheckin) => {
         router.push({
             pathname: '/meal-checkin',

@@ -2,7 +2,8 @@ import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { CravingsLevel, EnergyLevel, ensureSignedMealPhotoUrl, FullnessLevel, MoodLevel, upsertMealCheckin } from '@/lib/supabase';
+import { getScoreColor, getScoreEmoji, type ScoreLabel } from '@/lib/mealScore';
+import { CravingsLevel, EnergyLevel, ensureSignedMealPhotoUrl, FullnessLevel, getMealScore, MoodLevel, type MealScore, upsertMealCheckin } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -44,6 +45,7 @@ export default function MealCheckinScreen() {
     const { mealId, mealName, photoPath } = useLocalSearchParams<{ mealId: string; mealName?: string; photoPath?: string }>();
     const { user } = useAuth();
 
+    const [mealScore, setMealScore] = useState<MealScore | null>(null);
     const [energy, setEnergy] = useState<EnergyLevel | null>(null);
     const [fullness, setFullness] = useState<FullnessLevel | null>(null);
     const [cravings, setCravings] = useState<CravingsLevel | null>(null);
@@ -59,6 +61,13 @@ export default function MealCheckinScreen() {
             ensureSignedMealPhotoUrl(photoPath).then(setSignedPhotoUrl);
         }
     }, [photoPath]);
+
+    // Fetch meal score if available
+    useEffect(() => {
+        if (mealId) {
+            getMealScore(mealId).then(setMealScore).catch(() => {});
+        }
+    }, [mealId]);
 
     const handleSave = async () => {
         if (!user?.id || !mealId) return;
@@ -116,6 +125,35 @@ export default function MealCheckinScreen() {
                     {mealName && (
                         <Text style={styles.mealName}>{mealName}</Text>
                     )}
+
+                    {/* Meal score pill — non-intrusive at top */}
+                    {mealScore && (() => {
+                        const sl = mealScore.score_label as ScoreLabel;
+                        const sc = getScoreColor(sl);
+                        const word = sl.charAt(0).toUpperCase() + sl.slice(1);
+                        return (
+                            <View style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 8,
+                                paddingHorizontal: 14,
+                                paddingVertical: 8,
+                                marginHorizontal: 20,
+                                marginBottom: 12,
+                                borderRadius: 40,
+                                backgroundColor: `${sc}10`,
+                                borderWidth: 0.5,
+                                borderColor: `${sc}25`,
+                            }}>
+                                <Text style={{ fontFamily: fonts.bold, fontSize: 18, color: sc }}>
+                                    {mealScore.score}
+                                </Text>
+                                <Text style={{ fontFamily: fonts.medium, fontSize: 13, color: Colors.textSecondary }}>
+                                    {word} response {getScoreEmoji(sl)}
+                                </Text>
+                            </View>
+                        );
+                    })()}
 
                         <ScrollView
                             style={styles.scrollView}

@@ -12,11 +12,10 @@ import {
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Dimensions,
     ScrollView,
     StyleSheet,
     Text,
@@ -24,8 +23,6 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function ExperimentResultsScreen() {
     const params = useLocalSearchParams();
@@ -42,11 +39,7 @@ export default function ExperimentResultsScreen() {
     } | null>(null);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        loadData();
-    }, [id, user]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         if (!id || typeof id !== 'string' || !user) return;
         try {
             const exp = await getUserExperiment(id);
@@ -73,12 +66,14 @@ export default function ExperimentResultsScreen() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [id, user]);
 
-    const handleSaveInsight = () => {
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    const handleDone = () => {
         triggerHaptic('medium');
-        // TODO: Implement "Save to My Insights" logic (Phase 4)
-        Alert.alert('Insight Saved', 'This finding has been pinned to your dashboard for the week.');
         router.push('/(tabs)/' as any);
     };
 
@@ -170,8 +165,8 @@ export default function ExperimentResultsScreen() {
                         </View>
                     )}
 
-                    <TouchableOpacity style={styles.primaryButton} onPress={handleSaveInsight}>
-                        <Text style={styles.primaryButtonText}>Save this Insight</Text>
+                    <TouchableOpacity style={styles.primaryButton} onPress={handleDone}>
+                        <Text style={styles.primaryButtonText}>Done</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.secondaryButton} onPress={() => { triggerHaptic(); router.push('/experiments-list' as any); }}>

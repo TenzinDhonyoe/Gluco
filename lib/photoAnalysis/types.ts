@@ -83,6 +83,13 @@ export interface AnalyzedFoodItem {
     nutrition_source: NutritionSource;
     nutrition_confidence: number;
 
+    // Weight estimation from two-step process
+    weight_estimate?: {
+        min_grams: number;
+        best_grams: number;
+        max_grams: number;
+    };
+
     // Additional metadata
     matched_food_name?: string;
     matched_food_brand?: string;
@@ -145,6 +152,9 @@ export interface AnalysisDebugInfo {
     processingTimeMs: number;
     detectionTimeMs: number;
     nutritionLookupTimeMs: number;
+    step1_output?: unknown[];
+    step2_runs?: unknown[][];
+    step2_median?: unknown[];
 }
 
 /**

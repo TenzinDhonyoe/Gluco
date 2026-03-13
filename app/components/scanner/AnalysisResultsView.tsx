@@ -33,7 +33,6 @@ import Animated, {
     FadeInDown,
     FadeOut,
     FadeOutUp,
-    interpolateColor,
     Layout,
     useAnimatedStyle,
     useSharedValue,
@@ -105,13 +104,6 @@ function formatTimestamp(): string {
     return `${displayHour}:${displayMin} ${ampm} • Today`;
 }
 
-// Get score color based on value (0-100)
-function getScoreColor(score: number): string {
-    if (score >= 70) return Colors.success; // Green
-    if (score >= 40) return Colors.warning; // Yellow/Orange
-    return Colors.error; // Red
-}
-
 // Get outcome text for action types
 function getOutcomeText(actionType: string): string {
     const outcomes: Record<string, string> = {
@@ -159,16 +151,7 @@ function AnimatedScoreBadge({ score }: { score: number }) {
 
     useEffect(() => {
         animatedScore.value = withSpring(score, { damping: 15, stiffness: 100 });
-    }, [score]);
-
-    const textStyle = useAnimatedStyle(() => {
-        const color = interpolateColor(
-            animatedScore.value,
-            [0, 40, 70, 100],
-            [Colors.error, Colors.error, Colors.warning, Colors.success]
-        );
-        return { color };
-    });
+    }, [score, animatedScore]);
 
 
 
@@ -257,7 +240,7 @@ export default function AnalysisResultsView({
                 true
             );
         }
-    }, [isLoadingInsights]);
+    }, [isLoadingInsights, mascotScale]);
 
     const mascotStyle = useAnimatedStyle(() => ({
         transform: [{ scale: mascotScale.value }],
@@ -412,16 +395,6 @@ export default function AnalysisResultsView({
     const primaryTip = sortedTips[0] || null;
     const secondaryTips = sortedTips.slice(1);
 
-    // Personalized tip based on score
-    const personalizedTip = useMemo(() => {
-        if (wellnessScore >= 70) {
-            return "Great choice! This meal has a good balance of nutrients for steady energy.";
-        } else if (wellnessScore >= 40) {
-            return "This meal is okay, but consider the suggestions below to optimize your response.";
-        } else {
-            return "Consider pairing this meal with protein or fiber to help moderate your glucose response.";
-        }
-    }, [wellnessScore]);
 
     return (
         <View style={styles.container}>

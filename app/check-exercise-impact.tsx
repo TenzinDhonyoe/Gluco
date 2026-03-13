@@ -316,6 +316,7 @@ export default function CheckExerciseImpactScreen() {
         }
 
         analyzeExercise();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const analyzeExercise = async () => {

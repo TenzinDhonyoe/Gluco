@@ -1,6 +1,6 @@
 import { useNextBestAction } from '@/hooks/useNextBestAction';
 import { usePersonalInsights } from '@/hooks/usePersonalInsights';
-import { InsightData, InsightGenerationOptions, PersonalInsight, TrackingMode } from '@/lib/insights';
+import { InsightData, InsightGenerationOptions, InsightReadiness, PersonalInsight, TrackingMode } from '@/lib/insights';
 import { getUserActionsByStatus, NextBestAction, UserAction } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
@@ -24,6 +24,7 @@ interface UseBehaviorHomeDataResult {
     nextBestActionSource: 'ai' | 'rules' | 'fallback' | null;
     loading: boolean;
     dismissInsight: (id: string) => void;
+    insightReadiness: InsightReadiness;
     refetchActions: () => Promise<void>;
     trackNextBestActionTap: () => void;
 }
@@ -57,6 +58,7 @@ export function useBehaviorHomeData({
         insights,
         loading: insightsLoading,
         dismissInsight,
+        insightReadiness,
     } = usePersonalInsights({
         userId,
         trackingMode,
@@ -138,6 +140,7 @@ export function useBehaviorHomeData({
         nextBestActionSource: nbaSource,
         loading: insightsLoading || actionsLoading || nbaLoading,
         dismissInsight,
+        insightReadiness,
         refetchActions,
         trackNextBestActionTap: nbaTrackTap,
     };

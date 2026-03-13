@@ -14,7 +14,6 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Animated,
-    Dimensions,
     Image,
     Linking,
     Modal,
@@ -27,7 +26,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const TIP_CARD_WIDTH = 271;
 const TIP_CARD_HEIGHT = 262;
 
@@ -187,51 +185,12 @@ function ActivityIcon({ color = Colors.activity }: { color?: string }) {
     );
 }
 
-function FilterIcon() {
-    return (
-        <View style={iconStyles.filterIcon}>
-            <View style={iconStyles.filterLine}>
-                <View style={[iconStyles.filterDot, { left: 2 }]} />
-            </View>
-            <View style={iconStyles.filterLine}>
-                <View style={[iconStyles.filterDot, { right: 2 }]} />
-            </View>
-            <View style={iconStyles.filterLine}>
-                <View style={[iconStyles.filterDot, { left: 4 }]} />
-            </View>
-        </View>
-    );
-}
-
 const iconStyles = StyleSheet.create({
     container: {
         width: 24,
         height: 24,
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    filterIcon: {
-        width: 16,
-        height: 16,
-        justifyContent: 'space-between',
-        paddingVertical: 2,
-    },
-    filterLine: {
-        width: 16,
-        height: 2,
-        backgroundColor: Colors.textTertiary,
-        borderRadius: 1,
-        position: 'relative',
-    },
-    filterDot: {
-        position: 'absolute',
-        width: 4,
-        height: 4,
-        backgroundColor: '#F2F2F7',
-        borderRadius: 2,
-        top: -1,
-        borderWidth: 1,
-        borderColor: Colors.textTertiary,
     },
 });
 

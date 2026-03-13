@@ -4,7 +4,6 @@ import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { useWeightTrends } from '@/hooks/useWeightTrends';
 import { createWeightLog } from '@/lib/supabase';
-import { router } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
     ActivityIndicator,
@@ -15,7 +14,6 @@ import {
     TextInput,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 function formatDelta(delta: number | null): string {
     if (delta === null) return 'No 7-day baseline yet';

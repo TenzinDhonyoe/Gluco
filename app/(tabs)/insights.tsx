@@ -49,6 +49,7 @@ import {
     updateUserAction,
     upsertMetabolicDailyFeature,
 } from '@/lib/supabase';
+import { recordStreakActivity } from '@/lib/streaks';
 import { formatGlucoseWithUnit } from '@/lib/utils/glucoseUnits';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
@@ -117,11 +118,11 @@ interface MetabolicScoreResponse {
         };
     };
     // Aggregates from the API (approximate from drivers)
-    drivers?: Array<{
+    drivers?: {
         key: string;
         points: number;
         text: string;
-    }>;
+    }[];
 }
 
 // Parsed metabolic score data for UI
@@ -201,20 +202,10 @@ function mapTemplateFocus(slug: string, category: string): ActionFocusKey {
     return 'activity';
 }
 
-const PROGRESS_RANGES = [30, 90, 180];
-
 function addHours(date: Date, hours: number): Date {
     const result = new Date(date.getTime());
     result.setHours(result.getHours() + hours);
     return result;
-}
-
-function clamp(value: number, min: number, max: number): number {
-    return Math.min(Math.max(value, min), max);
-}
-
-function clamp01(value: number): number {
-    return clamp(value, 0, 1);
 }
 
 function mapInsightCategoryToFocus(category: InsightCategory): ActionFocusKey {
@@ -238,36 +229,6 @@ function mapActionTypeToFocus(actionType: string): ActionFocusKey {
         return 'glucose';
     }
     return 'activity';
-}
-
-// Calculate component score (0-100) based on "badness" formulas
-// 100 = Perfect, 0 = Bad
-function calculateComponentScore(type: 'sleep' | 'activity' | 'glucose', value: number | null): number | null {
-    if (value === null) return null;
-
-    let badness = 0;
-
-    switch (type) {
-        case 'sleep':
-            // Sleep duration: clamp01(abs(weeklySleep - 7.5) / 2.5)
-            // 7.5 is ideal. < 5 or > 10 is max badness.
-            badness = clamp01(Math.abs(value - 7.5) / 2.5);
-            break;
-        case 'activity':
-            // Steps: clamp01(1 - (weeklySteps - 3000) / (12000 - 3000))
-            // 12000 is ideal (0 badness). 3000 is max badness.
-            badness = clamp01(1 - (value - 3000) / (9000));
-            break;
-        case 'glucose':
-            // Glucose: Using Time In Range % as the metric.
-            // 100% TIR = 0 badness. 50% TIR = 1 badness (?)
-            // Let's say < 50% TIR is max badness.
-            // badness = clamp01(1 - (tir - 50) / (100 - 50))
-            badness = clamp01(1 - (value - 50) / 50);
-            break;
-    }
-
-    return Math.round(100 * (1 - badness));
 }
 
 function addDays(date: Date, days: number): Date {
@@ -435,13 +396,9 @@ export default function InsightsScreen() {
     const [metabolicScore, setMetabolicScore] = useState<MetabolicScoreData | null>(null);
     const [metabolicScoreLoading, setMetabolicScoreLoading] = useState(false);
 
-    const {
-        review: weeklyReview,
-        loading: weeklyReviewLoading,
-        dismiss: dismissWeeklyReview,
-    } = useWeeklyReview(user?.id, isBehaviorV1);
+    useWeeklyReview(user?.id, isBehaviorV1);
 
-    const { action: nbaAction, source: nbaSource, loading: nbaLoading, trackTap } = useNextBestAction(user?.id, isBehaviorV1);
+    const { action: nbaAction, source: nbaSource, loading: nbaLoading } = useNextBestAction(user?.id, isBehaviorV1);
 
     // Experiments state
     const [suggestedExperiments, setSuggestedExperiments] = useState<SuggestedExperiment[]>([]);
@@ -741,14 +698,6 @@ export default function InsightsScreen() {
         return computeMetricValue('steps', last7DaysStart, last7DaysEnd);
     }, [computeMetricValue, last7DaysStart, last7DaysEnd]);
 
-    const avgTIR7d = useMemo(() => {
-        return computeMetricValue('time_in_range', last7DaysStart, last7DaysEnd);
-    }, [computeMetricValue, last7DaysStart, last7DaysEnd]);
-
-    const sleepScore = calculateComponentScore('sleep', avgSleep7d);
-    const activityScore = calculateComponentScore('activity', avgSteps7d);
-    const glucoseScore = calculateComponentScore('glucose', avgTIR7d);
-
     const detectActionCompletion = useCallback((action: UserAction): boolean => {
         const windowStart = new Date(action.window_start);
         const windowEnd = new Date(action.window_end);
@@ -968,7 +917,7 @@ export default function InsightsScreen() {
         });
 
         if (updated) setCarePathway(updated);
-    }, [carePathway, computeMetricValue, updateCarePathway]);
+    }, [carePathway, computeMetricValue]);
 
     useFocusEffect(
         useCallback(() => {
@@ -1015,6 +964,7 @@ export default function InsightsScreen() {
             completed_at: new Date().toISOString(),
             completion_source: 'manual',
         });
+        if (user) recordStreakActivity(user.id).catch(() => {});
         await fetchActions();
     };
 
@@ -1136,20 +1086,6 @@ export default function InsightsScreen() {
     const activeActions = useMemo(() => actions.filter(action => action.status === 'active'), [actions]);
     const recentActions = useMemo(() => actions.filter(action => action.status !== 'active').slice(0, 3), [actions]);
     const legacyActionCandidates = useMemo(() => actionCandidates.slice(0, 4), [actionCandidates]);
-    const focusedActionCandidates = useMemo(
-        () => actionCandidates
-            .filter(insight => mapInsightCategoryToFocus(insight.category) === activeFocusTab)
-            .slice(0, 4),
-        [actionCandidates, activeFocusTab]
-    );
-    const focusedActiveActions = useMemo(
-        () => activeActions.filter(action => mapActionTypeToFocus(action.action_type) === activeFocusTab),
-        [activeActions, activeFocusTab]
-    );
-    const focusedRecentActions = useMemo(
-        () => recentActions.filter(action => mapActionTypeToFocus(action.action_type) === activeFocusTab),
-        [recentActions, activeFocusTab]
-    );
 
     const glucoseStats = useMemo(() => computeGlucoseStats(glucoseLogs, targetMin, targetMax), [glucoseLogs, targetMin, targetMax]);
 
@@ -1574,42 +1510,6 @@ export default function InsightsScreen() {
             {renderCarePathway()}
         </Animated.ScrollView>
     );
-
-    const renderWeeklyReviewCard = () => {
-        if (!weeklyReview || weeklyReviewLoading) return null;
-
-        const directionIcon = weeklyReview.metric_direction === 'up' ? 'trending-up' :
-            weeklyReview.metric_direction === 'down' ? 'trending-down' : 'remove-outline';
-        const directionColor = weeklyReview.metric_direction === 'up' ? Colors.success :
-            weeklyReview.metric_direction === 'down' ? Colors.warning : Colors.textSecondary;
-
-        return (
-            <View style={styles.weeklyReviewCard}>
-                <View style={styles.weeklyReviewHeader}>
-                    <View style={styles.weeklyReviewBadge}>
-                        <Ionicons name="sparkles-outline" size={14} color={Colors.primary} />
-                        <Text style={styles.weeklyReviewBadgeText}>Weekly Pattern</Text>
-                    </View>
-                    <TouchableOpacity onPress={dismissWeeklyReview} hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}>
-                        <Ionicons name="close" size={18} color={Colors.textTertiary} />
-                    </TouchableOpacity>
-                </View>
-                <Text style={styles.weeklyReviewText}>{weeklyReview.text}</Text>
-                {weeklyReview.experiment_suggestion && (
-                    <View style={styles.weeklyReviewExperiment}>
-                        <Ionicons name="flask-outline" size={14} color={Colors.primary} />
-                        <Text style={styles.weeklyReviewExperimentText}>{weeklyReview.experiment_suggestion}</Text>
-                    </View>
-                )}
-                <View style={styles.weeklyReviewMetric}>
-                    <Ionicons name={directionIcon as any} size={14} color={directionColor} />
-                    <Text style={[styles.weeklyReviewMetricText, { color: directionColor }]}>
-                        {weeklyReview.key_metric.replace(/_/g, ' ')}
-                    </Text>
-                </View>
-            </View>
-        );
-    };
 
     const activeExperimentForCard = useMemo(() => {
         return activeExperiments.find(e => e.status === 'active' && e.experiment_templates);

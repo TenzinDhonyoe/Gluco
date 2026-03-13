@@ -6,14 +6,16 @@
  */
 
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { fonts } from '@/hooks/useFonts';
-import { PersonalInsight } from '@/lib/insights';
+import { InsightReadiness, PersonalInsight } from '@/lib/insights';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Image,
@@ -37,6 +39,7 @@ interface PersonalInsightsCarouselProps {
     isLoading?: boolean;
     onMealPress?: () => void;
     onExercisePress?: () => void;
+    insightReadiness?: InsightReadiness;
 }
 
 // ============================================
@@ -105,8 +108,6 @@ function SecondaryInsightCard({ insight, onPress }: {
     insight: PersonalInsight;
     onPress: () => void;
 }) {
-    const cta = insight.action?.cta ?? insight.cta;
-
     return (
         <AnimatedPressable style={styles.secondaryCard} onPress={onPress}>
             <View style={[styles.secondaryIconContainer, { backgroundColor: insight.gradient[0] + '40' }]}>
@@ -120,6 +121,40 @@ function SecondaryInsightCard({ insight, onPress }: {
             </View>
             <Ionicons name="chevron-forward" size={18} color="rgba(60, 60, 67, 0.4)" />
         </AnimatedPressable>
+    );
+}
+
+// ============================================
+// NEW-USER PROGRESS INDICATOR
+// ============================================
+
+function InsightProgressCard({ readiness }: { readiness: InsightReadiness }) {
+    const remaining = readiness.daysNeeded - readiness.daysWithData;
+    return (
+        <View style={styles.progressCard}>
+            <View style={styles.progressIconContainer}>
+                <Ionicons name="sparkles" size={22} color="#3949AB" />
+            </View>
+            <Text style={styles.progressTitle}>
+                {remaining > 0
+                    ? `${remaining} more day${remaining === 1 ? '' : 's'} until your first insight`
+                    : 'Your first insight is ready!'}
+            </Text>
+            <View style={styles.progressBar}>
+                {readiness.progressSegments.map((filled, i) => (
+                    <View
+                        key={i}
+                        style={[
+                            styles.progressSegment,
+                            filled && styles.progressSegmentFilled,
+                        ]}
+                    />
+                ))}
+            </View>
+            <Text style={styles.progressSubtext}>
+                Keep logging to unlock personalized patterns
+            </Text>
+        </View>
     );
 }
 
@@ -151,14 +186,43 @@ export function PersonalInsightsCarousel({
     onDismiss,
     isLoading,
     onMealPress,
-    onExercisePress
+    onExercisePress,
+    insightReadiness,
 }: PersonalInsightsCarouselProps) {
     const [showMoreOptions, setShowMoreOptions] = useState(false);
+    const [showRewardAnimation, setShowRewardAnimation] = useState(false);
+    const rewardCheckedRef = useRef(false);
+
+    // First-insight reward animation (one-time)
+    useEffect(() => {
+        if (rewardCheckedRef.current || !primaryInsight || isLoading) return;
+        rewardCheckedRef.current = true;
+
+        (async () => {
+            const seen = await AsyncStorage.getItem('first_insight_seen');
+            if (!seen) {
+                await AsyncStorage.setItem('first_insight_seen', '1');
+                setShowRewardAnimation(true);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                setTimeout(() => setShowRewardAnimation(false), 2000);
+            }
+        })();
+    }, [primaryInsight, isLoading]);
 
     if (isLoading) {
         return (
             <View style={[styles.container, { minHeight: 180, justifyContent: 'center' }]}>
                 <ActivityIndicator size="small" color="#1C1C1E" />
+            </View>
+        );
+    }
+
+    // New-user progress indicator
+    if (insightReadiness && !insightReadiness.ready && !primaryInsight) {
+        return (
+            <View style={styles.container}>
+                <Text style={styles.sectionTitle}>BEST NEXT STEP</Text>
+                <InsightProgressCard readiness={insightReadiness} />
             </View>
         );
     }
@@ -219,10 +283,19 @@ export function PersonalInsightsCarousel({
             </View>
 
             {/* Primary Action Card */}
-            <BestNextStepCard
-                insight={primaryInsight}
-                onDismiss={() => onDismiss(primaryInsight.id)}
-            />
+            {showRewardAnimation ? (
+                <Animated.View entering={FadeInDown.duration(500).springify().damping(12)}>
+                    <BestNextStepCard
+                        insight={primaryInsight}
+                        onDismiss={() => onDismiss(primaryInsight.id)}
+                    />
+                </Animated.View>
+            ) : (
+                <BestNextStepCard
+                    insight={primaryInsight}
+                    onDismiss={() => onDismiss(primaryInsight.id)}
+                />
+            )}
 
             {/* Secondary Insights (Collapsed by default) - Animated */}
             {showMoreOptions && (
@@ -431,6 +504,52 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#8E8E93',
         marginTop: 4,
+        textAlign: 'center',
+    },
+    // Progress Card (new users)
+    progressCard: {
+        backgroundColor: 'rgba(255, 255, 255, 0.70)',
+        borderRadius: 20,
+        padding: 20,
+        alignItems: 'center',
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.5)',
+    },
+    progressIconContainer: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: 'rgba(57, 73, 171, 0.1)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 12,
+    },
+    progressTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
+        color: Colors.textPrimary,
+        textAlign: 'center',
+        marginBottom: 16,
+    },
+    progressBar: {
+        flexDirection: 'row',
+        gap: 8,
+        marginBottom: 12,
+        width: '60%',
+    },
+    progressSegment: {
+        flex: 1,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    },
+    progressSegmentFilled: {
+        backgroundColor: '#3949AB',
+    },
+    progressSubtext: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textSecondary,
         textAlign: 'center',
     },
     // Disclaimer

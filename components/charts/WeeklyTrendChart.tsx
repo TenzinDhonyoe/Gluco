@@ -4,8 +4,10 @@ import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 
+const WEEKLY_PADDING = { top: 8, left: 12, right: 12 };
+
 interface WeeklyTrendChartProps {
-    scores: Array<{ week: string; score: number | null }>;
+    scores: { week: string; score: number | null }[];
     height?: number;
     scoreColor?: string;
     showLabels?: boolean;
@@ -17,8 +19,8 @@ export function WeeklyTrendChart({
     scoreColor = Colors.success,
     showLabels = false,
 }: WeeklyTrendChartProps) {
-    const padding = { top: 8, bottom: showLabels ? 24 : 8, left: 12, right: 12 };
-    const chartHeight = height - padding.top - padding.bottom;
+    const paddingBottom = showLabels ? 24 : 8;
+    const chartHeight = height - WEEKLY_PADDING.top - paddingBottom;
 
     const { pathData, areaData, points, validScores } = useMemo(() => {
         // Filter out null scores and reverse to show oldest first
@@ -35,12 +37,12 @@ export function WeeklyTrendChart({
         const maxScore = Math.max(...filtered.map(s => s.score));
         const range = Math.max(maxScore - minScore, 10); // Minimum range of 10 to avoid flat lines
 
-        const chartWidth = 100 - padding.left - padding.right;
+        const chartWidth = 100 - WEEKLY_PADDING.left - WEEKLY_PADDING.right;
         const xStep = chartWidth / Math.max(filtered.length - 1, 1);
 
         const pts = filtered.map((s, i) => ({
-            x: padding.left + i * xStep,
-            y: padding.top + chartHeight - ((s.score - minScore) / range) * chartHeight,
+            x: WEEKLY_PADDING.left + i * xStep,
+            y: WEEKLY_PADDING.top + chartHeight - ((s.score - minScore) / range) * chartHeight,
             score: s.score,
             week: s.week,
         }));
@@ -56,7 +58,7 @@ export function WeeklyTrendChart({
         }
 
         // Create area path (same as line but closed at bottom)
-        const areaBottom = padding.top + chartHeight;
+        const areaBottom = WEEKLY_PADDING.top + chartHeight;
         let area = `M ${pts[0].x} ${areaBottom} L ${pts[0].x} ${pts[0].y}`;
         for (let i = 1; i < pts.length; i++) {
             const prev = pts[i - 1];
@@ -68,7 +70,7 @@ export function WeeklyTrendChart({
         area += ` L ${pts[pts.length - 1].x} ${areaBottom} Z`;
 
         return { pathData: path, areaData: area, points: pts, validScores: filtered };
-    }, [scores, chartHeight, padding]);
+    }, [scores, chartHeight]);
 
     if (validScores.length < 2) {
         return (

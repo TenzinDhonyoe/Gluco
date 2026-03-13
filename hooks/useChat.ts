@@ -311,7 +311,7 @@ export function useChat(
                 );
                 // Update status in DB
                 if (savedUserMsgId) {
-                    updateChatMessageStatus(savedUserMsgId, 'error');
+                    updateChatMessageStatus(savedUserMsgId, 'error', userId);
                 }
             } finally {
                 setIsTyping(false);
@@ -337,14 +337,14 @@ export function useChat(
     const clearChat = useCallback(async () => {
         // Archive current session
         const currentSession = sessionRef.current;
-        if (currentSession) {
-            await archiveChatSession(currentSession.id);
+        if (currentSession && userId) {
+            await archiveChatSession(currentSession.id, userId);
         }
         setSession(null);
         setMessages([makeWelcomeMessage(firstName, aiEnabled)]);
         setError(null);
         setIsTyping(false);
-    }, [aiEnabled, firstName]);
+    }, [userId, aiEnabled, firstName]);
 
     // Only show suggested prompts when conversation has just the welcome message
     const showSuggestions = messages.length === 1 && messages[0].id === 'welcome' && aiEnabled;

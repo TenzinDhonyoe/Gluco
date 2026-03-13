@@ -12,7 +12,7 @@ import { GlucoseLog, MealWithCheckin, supabase } from './supabase';
 // TYPES
 // ============================================
 
-export type InsightCategory = 'meals' | 'activity' | 'sleep' | 'glucose' | 'weight';
+export type InsightCategory = 'meals' | 'activity' | 'sleep' | 'glucose' | 'weight' | 'engagement';
 export type ConfidenceLevel = 'high' | 'moderate' | 'low';
 
 export interface InsightAction {
@@ -86,6 +86,11 @@ export interface InsightData {
     userTargetMax?: number;
     // Weight behavior (for cadence actions)
     weightLogsCount?: number;
+    // Engagement / retention (for early + engagement insights)
+    daysWithData?: number;
+    totalDaysTracking?: number;
+    consecutiveLoggingDays?: number;
+    earlyMealTimings?: { date: string; firstMealHour: number; avgEnergy: number }[];
 }
 
 export interface InsightGenerationOptions {
@@ -170,6 +175,7 @@ const GRADIENTS: Record<InsightCategory, [string, string]> = {
     sleep: ['#1565C0', '#0D47A1'],      // Blue
     glucose: ['#7B1FA2', '#4A148C'],    // Purple
     weight: ['#37474F', '#263238'],     // Slate
+    engagement: ['#3949AB', '#1A237E'], // Indigo
 };
 
 // ============================================
@@ -193,6 +199,8 @@ const TIME_CONTEXTS: Record<string, string> = {
     'log_glucose': 'Before your next meal',
     'meal_pairing': 'At your next meal',
     'log_weight': 'In the next 24 hours',
+    'daily_checkin': 'Right now',
+    'keep_logging': 'At your next meal',
 };
 
 /**
@@ -212,6 +220,8 @@ const OUTCOME_TEXTS: Record<string, string> = {
     'log_glucose': 'Builds your personal zone data',
     'meal_pairing': 'Helps moderate glucose response',
     'log_weight': 'Builds your weekly momentum trend',
+    'daily_checkin': 'Helps track your daily patterns',
+    'keep_logging': 'Builds your pattern history',
 };
 
 const ACTION_TYPE_PRIORITY: Record<string, number> = {
@@ -227,6 +237,8 @@ const ACTION_TYPE_PRIORITY: Record<string, number> = {
     log_weight: 79,
     meal_pairing: 74,
     log_glucose: 60,
+    daily_checkin: 70,
+    keep_logging: 65,
 };
 
 const CATEGORY_PRIORITY: Record<InsightCategory, number> = {
@@ -234,6 +246,7 @@ const CATEGORY_PRIORITY: Record<InsightCategory, number> = {
     sleep: 6,
     meals: 5,
     weight: 4,
+    engagement: 3,
     glucose: -10,
 };
 
@@ -878,6 +891,156 @@ function applyBehaviorOverloadLimits(
 }
 
 // ============================================
+// INSIGHT READINESS (new-user progress)
+// ============================================
+
+export interface InsightReadiness {
+    ready: boolean;
+    daysWithData: number;
+    daysNeeded: number;
+    progressSegments: boolean[]; // [day1, day2, day3]
+}
+
+export function getInsightReadiness(data: InsightData): InsightReadiness {
+    const daysWithData = data.daysWithData ?? 0;
+    const daysNeeded = 3;
+    return {
+        ready: daysWithData >= daysNeeded,
+        daysWithData,
+        daysNeeded,
+        progressSegments: [daysWithData >= 1, daysWithData >= 2, daysWithData >= 3],
+    };
+}
+
+// ============================================
+// EARLY CORRELATION INSIGHTS (fires with >= 2 check-ins + >= 3 meals)
+// ============================================
+
+function generateEarlyCorrelationInsights(data: InsightData): PersonalInsight[] {
+    const insights: PersonalInsight[] = [];
+    const timings = data.earlyMealTimings;
+
+    if (!timings || timings.length < 3) return insights;
+    if ((data.checkinsThisWeek ?? 0) < 2) return insights;
+
+    // Check if energy is higher when first meal is before 1 PM (13:00)
+    const earlyMeals = timings.filter(t => t.firstMealHour < 13);
+    const lateMeals = timings.filter(t => t.firstMealHour >= 13);
+
+    if (earlyMeals.length >= 1 && lateMeals.length >= 1) {
+        const earlyAvgEnergy = earlyMeals.reduce((s, t) => s + t.avgEnergy, 0) / earlyMeals.length;
+        const lateAvgEnergy = lateMeals.reduce((s, t) => s + t.avgEnergy, 0) / lateMeals.length;
+
+        if (earlyAvgEnergy > lateAvgEnergy + 0.3) {
+            insights.push({
+                id: 'engagement-early-lunch-energy',
+                category: 'engagement',
+                title: 'Timing Pattern',
+                recommendation: 'You noticed steadier energy when lunch was before 1 PM.',
+                because: `Your check-ins showed higher energy on days with earlier meals.`,
+                microStep: 'Try having lunch before 1 PM tomorrow.',
+                confidence: 'moderate',
+                icon: 'time-outline',
+                gradient: GRADIENTS.engagement,
+                action: buildAction({
+                    id: 'action-early-lunch',
+                    title: 'Try an earlier lunch',
+                    description: 'Have lunch before 1 PM tomorrow.',
+                    actionType: 'keep_logging',
+                    metricKey: 'meal_timing',
+                    windowHours: 24,
+                    cta: CTA_ROUTES.engagement,
+                }),
+                cta: CTA_ROUTES.meals,
+                timeContext: TIME_CONTEXTS['keep_logging'],
+                outcomeText: OUTCOME_TEXTS['keep_logging'],
+            });
+        }
+    }
+
+    return insights;
+}
+
+// ============================================
+// ENGAGEMENT TEMPLATE INSIGHTS (motivational, milestone-based)
+// ============================================
+
+const ENGAGEMENT_TEMPLATES: {
+    id: string;
+    minDays: number;
+    maxDays: number;
+    title: string;
+    recommendation: string;
+    because: string;
+    microStep: string;
+}[] = [
+    {
+        id: 'engagement-3day',
+        minDays: 3, maxDays: 6,
+        title: 'Building a Pattern',
+        recommendation: '3 days in a row — people who do this tend to build lasting patterns.',
+        because: 'You\'ve logged data for 3 consecutive days.',
+        microStep: 'Keep it going — log one thing tomorrow.',
+    },
+    {
+        id: 'engagement-7day',
+        minDays: 7, maxDays: 13,
+        title: 'One Week Strong',
+        recommendation: 'A full week of tracking. Your data is starting to tell a story.',
+        because: 'You\'ve consistently tracked for 7+ days.',
+        microStep: 'Check your insights — patterns are emerging.',
+    },
+    {
+        id: 'engagement-14day',
+        minDays: 14, maxDays: 999,
+        title: 'Habit Formed',
+        recommendation: 'Two weeks of data gives you real insight into your patterns.',
+        because: 'Research suggests habits solidify around the 2-week mark.',
+        microStep: 'Take a moment to review what you\'ve learned.',
+    },
+];
+
+function generateEngagementTemplateInsights(data: InsightData): PersonalInsight[] {
+    const insights: PersonalInsight[] = [];
+    const days = data.consecutiveLoggingDays ?? 0;
+    const totalDays = data.totalDaysTracking ?? 0;
+
+    // Auto-filter when user has 14+ days (they don't need motivational nudges)
+    if (totalDays >= 14 && days < 3) return insights;
+
+    for (const template of ENGAGEMENT_TEMPLATES) {
+        if (days >= template.minDays && days <= template.maxDays) {
+            insights.push({
+                id: template.id,
+                category: 'engagement',
+                title: template.title,
+                recommendation: template.recommendation,
+                because: template.because,
+                microStep: template.microStep,
+                confidence: 'high',
+                icon: 'sparkles-outline',
+                gradient: GRADIENTS.engagement,
+                action: buildAction({
+                    id: `action-${template.id}`,
+                    title: 'Keep logging',
+                    description: 'Continue your daily tracking.',
+                    actionType: 'keep_logging',
+                    metricKey: 'logging_streak',
+                    windowHours: 24,
+                    cta: CTA_ROUTES.engagement,
+                }),
+                cta: CTA_ROUTES.engagement,
+                timeContext: TIME_CONTEXTS['keep_logging'],
+                outcomeText: OUTCOME_TEXTS['keep_logging'],
+            });
+            break; // Only one engagement template at a time
+        }
+    }
+
+    return insights;
+}
+
+// ============================================
 // MAIN GENERATOR
 // ============================================
 
@@ -902,6 +1065,10 @@ export function generateInsights(
     if (shouldIncludeGlucoseRecommendations(data, trackingMode, options)) {
         insights.push(...generateGlucoseRecommendations(data));
     }
+
+    // Engagement & early correlation insights
+    insights.push(...generateEarlyCorrelationInsights(data));
+    insights.push(...generateEngagementTemplateInsights(data));
 
     // Filter out any insights that might contain banned terms
     const safeInsights = insights.filter(insight => {
@@ -940,6 +1107,7 @@ const ICONS: Record<InsightCategory, string> = {
     sleep: 'moon-outline',
     glucose: 'analytics-outline',
     weight: 'scale-outline',
+    engagement: 'sparkles-outline',
 };
 
 const CTA_ROUTES: Record<InsightCategory, { label: string; route: string }> = {
@@ -948,6 +1116,7 @@ const CTA_ROUTES: Record<InsightCategory, { label: string; route: string }> = {
     sleep: { label: 'View patterns', route: '/insights' },
     glucose: { label: 'Log glucose', route: '/log-glucose' },
     weight: { label: 'Log weight', route: '/log-weight' },
+    engagement: { label: 'Check in', route: '/daily-checkin' },
 };
 
 function getDefaultAction(category: InsightCategory): InsightAction {
@@ -998,6 +1167,16 @@ function getDefaultAction(category: InsightCategory): InsightAction {
                 metricKey: 'weight_logs_count',
                 windowHours: 24,
                 cta: CTA_ROUTES.weight,
+            });
+        case 'engagement':
+            return buildAction({
+                id: 'action-default-engagement',
+                title: 'Daily check-in',
+                description: 'Complete your daily check-in.',
+                actionType: 'daily_checkin',
+                metricKey: 'checkin_count',
+                windowHours: 24,
+                cta: CTA_ROUTES.engagement,
             });
         default:
             return buildAction({

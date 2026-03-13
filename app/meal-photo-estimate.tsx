@@ -38,7 +38,7 @@ export default function MealPhotoEstimateScreen() {
     const params = useLocalSearchParams();
     const [result, setResult] = React.useState<MealPhotoAnalysisResult | null>(null);
     const [items, setItems] = React.useState<SelectedFood[]>([]);
-    const [isLoading, setIsLoading] = React.useState(true);
+    const [, setIsLoading] = React.useState(true);
 
     React.useEffect(() => {
         if (params.result && typeof params.result === 'string') {

@@ -129,7 +129,7 @@ export default function SignInScreen() {
                             } else {
                                 Alert.alert('Success', 'Password reset link sent! Check your email.');
                             }
-                        } catch (err) {
+                        } catch {
                             Alert.alert('Error', 'Failed to send reset link. Please try again.');
                         }
                     },

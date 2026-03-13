@@ -1,13 +1,4 @@
-import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import Constants from 'expo-constants';
-import { Stack, useRootNavigationState } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
-import { Appearance, Image, LogBox, Platform, View } from 'react-native';
 import 'react-native-reanimated';
-
-// Force Light Mode globally
-Appearance.setColorScheme('light');
 
 import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { AddMenuFAB } from '@/components/overlays/AddMenuFAB';
@@ -21,6 +12,7 @@ import {
   configureAndroidChannel,
   handleInitialNotification,
   initNotifications,
+  scheduleDailyCheckinReminder,
   scheduleMiddayActiveActionReminder,
   scheduleWeeklySummaryReminder,
   setNotificationNavigationReady,
@@ -28,6 +20,19 @@ import {
 } from '@/lib/notifications';
 import { initializeRevenueCat } from '@/lib/revenuecat';
 import { upsertUserAppSessionForToday } from '@/lib/supabase';
+import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import Constants from 'expo-constants';
+import { Stack, useRootNavigationState } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
+import { Appearance, LogBox, Platform, View } from 'react-native';
+
+// Prevent native splash from auto-hiding — we hide it manually once the app is ready
+SplashScreen.preventAutoHideAsync();
+
+// Force Light Mode globally
+Appearance.setColorScheme('light');
 
 // Silence known harmless warnings
 LogBox.ignoreLogs([
@@ -36,8 +41,6 @@ LogBox.ignoreLogs([
   'Image not found in storage', // Old cached images
   'shadow set but cannot calculate shadow efficiently', // Alternative shadow warning format
 ]);
-
-const SPLASH_LOGO = require('../assets/images/mascots/gluco_app_mascott/gluco_splash.png');
 
 const GlucoLightTheme = {
   ...DefaultTheme,
@@ -77,7 +80,11 @@ function SessionTracker() {
     scheduleWeeklySummaryReminder(user.id).catch((error) => {
       console.warn('Failed to schedule weekly summary reminder:', error);
     });
-  }, [user?.id, profile?.experience_variant, profile?.primary_habit]);
+
+    scheduleDailyCheckinReminder(profile?.prompt_window ?? undefined, user.id).catch((error) => {
+      console.warn('Failed to schedule daily checkin reminder:', error);
+    });
+  }, [user?.id, profile?.experience_variant, profile?.primary_habit, profile?.prompt_window]);
 
   return null;
 }
@@ -115,14 +122,9 @@ export default function RootLayout() {
     return () => setNotificationNavigationReady(false);
   }, [fontsReady, navigationReady]);
 
-  // Show loading screen while fonts load, but don't block forever
-  // If there's a font error, continue anyway
+  // Wait for fonts before rendering — native splash screen covers this
   if (!fontsLoaded && !fontError) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F2F2F7' }}>
-        <Image source={SPLASH_LOGO} style={{ width: 200, height: 200, resizeMode: 'contain' }} />
-      </View>
-    );
+    return <View style={{ flex: 1, backgroundColor: '#F2F2F7' }} />;
   }
 
   return (
@@ -162,6 +164,7 @@ export default function RootLayout() {
                 <Stack.Screen name="onboarding-tracking" options={{ headerShown: false }} />
                 <Stack.Screen name="onboarding-coaching" options={{ headerShown: false }} />
                 <Stack.Screen name="onboarding-ai" options={{ headerShown: false }} />
+                <Stack.Screen name="onboarding-personalize" options={{ headerShown: false, animation: 'fade' }} />
                 <Stack.Screen name="framework-reset" options={{ headerShown: false }} />
                 <Stack.Screen name="paywall" options={{ headerShown: false }} />
                 <Stack.Screen name="pre-meal-check" options={{ headerShown: false }} />
@@ -179,15 +182,18 @@ export default function RootLayout() {
                 <Stack.Screen name="log-activity" options={{ title: 'Log Activity', animation: 'ios_from_right' }} />
                 <Stack.Screen name="log-weight" options={{ title: 'Log Weight', animation: 'ios_from_right' }} />
                 <Stack.Screen name="log-detail" options={{ headerShown: false, animation: 'ios_from_right' }} />
+                <Stack.Screen name="meal-score-detail" options={{ headerShown: false, animation: 'ios_from_right' }} />
                 <Stack.Screen name="settings" options={{ title: 'Settings' }} />
                 <Stack.Screen name="customization" options={{ title: 'Customization' }} />
                 <Stack.Screen name="data-sources" options={{ title: 'Data Sources' }} />
                 <Stack.Screen name="account-privacy" options={{ title: 'Account & Privacy' }} />
                 <Stack.Screen name="meal-checkin" options={{ headerShown: false }} />
+                <Stack.Screen name="daily-checkin" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
                 <Stack.Screen name="notifications-list" options={{ title: 'Notifications' }} />
                 <Stack.Screen name="experiments-list" options={{ title: 'My Experiments' }} />
                 <Stack.Screen name="experiment-detail" options={{ title: 'Experiment' }} />
                 <Stack.Screen name="check-exercise-impact" options={{ headerShown: false }} />
+                <Stack.Screen name="experiment-results" options={{ headerShown: false }} />
               </Stack>
             </ThemeProvider>
             <StatusBar style="dark" />

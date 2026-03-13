@@ -115,8 +115,8 @@ Despite what some docs may say, the actual versions are:
 - **React Native:** 0.81.5
 - **React:** 19.1
 - **TypeScript:** ~5.9.2
-- **react-native-reanimated:** v4.1.x (v3 is incompatible with RN 0.81 due to Folly header changes)
-- **New Architecture:** Enabled (`newArchEnabled: true` in app.json) — required by reanimated v4
+- **react-native-reanimated:** v3.19.x
+- **New Architecture:** Disabled (`newArchEnabled: false` in app.json)
 
 ### React 19 `useRef` Change
 
@@ -147,7 +147,7 @@ Edge functions run in **Deno**, not Node.js. Key differences:
 
 ## New Architecture Enabled
 
-`app.json` has `"newArchEnabled": true`. The app uses the New Architecture (JSI/Fabric). This is required by reanimated v4. When adding new native dependencies, verify they support the New Architecture.
+`app.json` has `"newArchEnabled": false`. The app uses the Old Architecture (Bridge). reanimated v3.19.x works with both architectures. When adding new native dependencies, no New Architecture compatibility is required.
 
 ## RevenueCat Lazy Loading
 

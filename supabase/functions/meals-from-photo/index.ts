@@ -7,10 +7,10 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
-import { detectFoodItems, FoodDetectionResult, validatePhotoUrl } from '../_shared/gemini-structured.ts';
+import { detectFoodItemsFromBase64, FoodDetectionResult, TwoStepDebug, validatePhotoUrl } from '../_shared/gemini-structured.ts';
 import {
     cacheImageAnalysis,
-    computeHashFromUrl,
+    fetchAndHashImage,
     getCachedImageAnalysis,
     getInMemoryCache,
     setInMemoryCache,
@@ -76,6 +76,16 @@ interface AnalyzedItem {
     nutrition_source: 'fatsecret' | 'usda_fdc' | 'fallback_estimate';
     nutrition_confidence: number;
 
+    // Weight estimation from two-step process
+    weight_estimate?: {
+        min_grams: number;
+        best_grams: number;
+        max_grams: number;
+        volume_ml: number;
+        density_used: number;
+        reasoning: string;
+    };
+
     // Extra metadata
     matched_food_name?: string;
     matched_food_brand?: string;
@@ -92,6 +102,7 @@ interface AnalysisResponse {
     };
     followups?: FollowupQuestion[];
     cache_hit: boolean;
+    detection_debug?: TwoStepDebug;
 }
 
 // ============================================
@@ -186,11 +197,14 @@ function applyFollowupResponses(
 
             if (typeof portionAnswer === 'string' && multipliers[portionAnswer]) {
                 const multiplier = multipliers[portionAnswer];
+                const clampedValue = item.portion.value
+                    ? Math.max(1, Math.min(5000, item.portion.value * multiplier))
+                    : null;
                 return {
                     ...item,
                     portion: {
                         ...item.portion,
-                        value: item.portion.value ? item.portion.value * multiplier : null,
+                        value: clampedValue,
                         confidence: 0.9, // User confirmed
                     },
                     nutrition: item.nutrition ? {
@@ -204,13 +218,13 @@ function applyFollowupResponses(
                     } : null,
                 };
             } else if (typeof portionAnswer === 'number') {
-                // User entered specific grams
+                // User entered specific grams — clamp to sane bounds
                 return {
                     ...item,
                     portion: {
                         ...item.portion,
                         estimate_type: 'weight_g' as const,
-                        value: portionAnswer,
+                        value: Math.max(1, Math.min(5000, portionAnswer)),
                         unit: 'g' as const,
                         confidence: 0.95,
                     },
@@ -244,6 +258,11 @@ function detectionToLookupItem(
         portion.confidence = Math.min(portion.confidence, 0.5);
     }
 
+    // Clamp portion value to sane bounds (1g–5000g)
+    if (portion.value !== null) {
+        portion.value = Math.max(1, Math.min(5000, portion.value));
+    }
+
     return {
         name: item.name,
         synonyms: item.synonyms,
@@ -254,7 +273,15 @@ function detectionToLookupItem(
 }
 
 function nutritionResultToAnalyzedItem(
-    result: NutritionLookupResult
+    result: NutritionLookupResult,
+    weightEstimate?: {
+        min_grams: number;
+        best_grams: number;
+        max_grams: number;
+        volume_ml: number;
+        density_used: number;
+        reasoning: string;
+    }
 ): AnalyzedItem {
     return {
         id: result.item_id,
@@ -266,6 +293,7 @@ function nutritionResultToAnalyzedItem(
         nutrition: result.nutrition,
         nutrition_source: result.nutrition_source,
         nutrition_confidence: result.nutrition_confidence,
+        weight_estimate: weightEstimate,
         matched_food_name: result.matched_food_name,
         matched_food_brand: result.matched_food_brand,
         serving_description: result.serving_description,
@@ -287,8 +315,8 @@ async function analyzePhoto(
     let nutritionLookupTimeMs = 0;
 
     try {
-        // Step 1: Check image cache
-        const imageHash = await computeHashFromUrl(photoUrl);
+        // Step 1: Fetch image once (used for both hashing and detection)
+        const { hash: imageHash, base64, mimeType } = await fetchAndHashImage(photoUrl);
 
         // Try in-memory cache first (fastest)
         let detection = getInMemoryCache(imageHash);
@@ -305,10 +333,10 @@ async function analyzePhoto(
             cacheHit = true;
         }
 
-        // Step 2: Run detection if not cached
+        // Step 2: Run detection if not cached (reuse already-fetched image bytes)
         if (!detection) {
             const detectionStart = Date.now();
-            detection = await detectFoodItems(photoUrl, mealType);
+            detection = await detectFoodItemsFromBase64(base64, mimeType, mealType);
             detectionTimeMs = Date.now() - detectionStart;
 
             // Cache the result
@@ -350,8 +378,29 @@ async function analyzePhoto(
             nutritionLookupTimeMs,
         });
 
-        // Step 4: Convert to analyzed items
-        let analyzedItems = nutritionResults.map(nutritionResultToAnalyzedItem);
+        // Step 4: Convert to analyzed items, attaching weight estimates from two-step debug
+        const medianEstimates = detection.two_step_debug?.step2_median;
+        let analyzedItems = nutritionResults.map((result, index) => {
+            // Match weight estimate by index (detection items → nutrition results are 1:1)
+            let weightEstimate: AnalyzedItem['weight_estimate'] | undefined;
+            if (medianEstimates && index < detection.items.length) {
+                const detectedName = detection.items[index].name.toLowerCase().trim();
+                const match = medianEstimates.find(
+                    m => m.food_name.toLowerCase().trim() === detectedName
+                );
+                if (match) {
+                    weightEstimate = {
+                        min_grams: match.min_grams,
+                        best_grams: match.best_grams,
+                        max_grams: match.max_grams,
+                        volume_ml: match.volume_ml,
+                        density_used: match.density_used,
+                        reasoning: match.reasoning,
+                    };
+                }
+            }
+            return nutritionResultToAnalyzedItem(result, weightEstimate);
+        });
 
         // Step 5: Apply any followup responses
         if (followupResponses && followupResponses.length > 0) {
@@ -380,6 +429,7 @@ async function analyzePhoto(
             },
             followups: followups.length > 0 ? followups : undefined,
             cache_hit: cacheHit,
+            detection_debug: detection.two_step_debug,
         };
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';

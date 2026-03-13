@@ -167,6 +167,9 @@ export interface NotificationPreferences {
     active_action_midday?: boolean;
     post_meal_action?: boolean;
     weekly_summary?: boolean;
+    streak_reminder?: boolean;
+    daily_checkin?: boolean;
+    meal_score?: boolean;
 }
 
 // Tracking modes: new wellness-first modes + legacy modes for backward compatibility
@@ -407,32 +410,25 @@ export async function invokeMealPhotoAnalyze(
         }
         if (__DEV__) console.log('[meal-photo-analyze] Got signed URL, invoking edge function...');
 
-        const { data, error } = await supabase.functions.invoke('meal-photo-analyze', {
-            body: {
-                user_id: userId,
-                meal_id: mealId ?? undefined,
-                photo_url: photoUrl,
-                meal_time: mealTime,
-                meal_type: mealType,
-                meal_name: mealName,
-                meal_notes: mealNotes,
-            }
+        const data = await invokeWithRetry<MealPhotoAnalysisResult>('meal-photo-analyze', {
+            user_id: userId,
+            meal_id: mealId ?? undefined,
+            photo_url: photoUrl,
+            meal_time: mealTime,
+            meal_type: mealType,
+            meal_name: mealName,
+            meal_notes: mealNotes,
         });
-
-        if (error) {
-            console.error('[meal-photo-analyze] Edge function error:', error);
-            throw error;
-        }
 
         if (__DEV__) console.log('[meal-photo-analyze] Response:', JSON.stringify(data, null, 2));
 
         // Check if response indicates an error from the edge function
-        if (data?.error) {
-            console.error('[meal-photo-analyze] Server returned error:', data.error);
+        if ((data as any)?.error) {
+            console.error('[meal-photo-analyze] Server returned error:', (data as any).error);
             return null;
         }
 
-        return data as MealPhotoAnalysisResult;
+        return data;
     } catch (e) {
         console.error('[meal-photo-analyze] Exception:', e);
         return null; // Let UI handle failure
@@ -457,7 +453,7 @@ export async function createUserProfile(
 }
 
 // Types for glucose logs
-export type GlucoseContext = 'pre_meal' | 'post_meal' | 'random' | 'fasting' | 'bedtime';
+export type GlucoseContext = 'pre_meal' | 'post_meal' | 'random' | 'fasting' | 'bedtime' | 'healthkit_sync';
 
 export interface GlucoseLog {
     id: string;
@@ -1284,21 +1280,8 @@ export async function getFibreIntakeSummary(
 // ==========================================
 
 export async function searchFoods(query: string, pageSize: number = 25): Promise<NormalizedFood[]> {
-    try {
-        const { data, error } = await supabase.functions.invoke('food-search', {
-            body: { query, pageSize },
-        });
-
-        if (error) {
-            console.error('Food search error:', error);
-            return [];
-        }
-
-        return data?.results || [];
-    } catch (err) {
-        console.error('Food search failed:', err);
-        return [];
-    }
+    const data = await invokeWithRetry<{ results: NormalizedFood[] }>('food-search', { query, pageSize });
+    return data?.results || [];
 }
 
 /**
@@ -1314,64 +1297,25 @@ export async function searchFoodsWithVariants(
     variants: string[] = [],
     pageSize: number = 25
 ): Promise<NormalizedFood[]> {
-    try {
-        const { data, error } = await supabase.functions.invoke('food-search', {
-            body: {
-                query,
-                pageSize,
-                variants: variants.slice(0, 3), // Limit to 3 variants
-            },
-        });
-
-        if (error) {
-            console.error('Food search with variants error:', error);
-            return [];
-        }
-
-        return data?.results || [];
-    } catch (err) {
-        console.error('Food search with variants failed:', err);
-        return [];
-    }
+    const data = await invokeWithRetry<{ results: NormalizedFood[] }>('food-search', {
+        query,
+        pageSize,
+        variants: variants.slice(0, 3), // Limit to 3 variants
+    });
+    return data?.results || [];
 }
 
 export async function getFoodDetails(
     provider: 'fdc' | 'off',
     externalId: string
 ): Promise<NormalizedFood | null> {
-    try {
-        const { data, error } = await supabase.functions.invoke('food-details', {
-            body: { provider, externalId },
-        });
-
-        if (error) {
-            console.error('Food details error:', error);
-            return null;
-        }
-
-        return data?.food || null;
-    } catch (err) {
-        console.error('Food details failed:', err);
-        return null;
-    }
+    const data = await invokeWithRetry<{ food: NormalizedFood }>('food-details', { provider, externalId });
+    return data?.food || null;
 }
 
 export async function getFoodByBarcode(barcode: string): Promise<NormalizedFood | null> {
-    try {
-        const { data, error } = await supabase.functions.invoke('food-barcode', {
-            body: { barcode },
-        });
-
-        if (error) {
-            console.error('Barcode lookup error:', error);
-            return null;
-        }
-
-        return data?.food || null;
-    } catch (err) {
-        console.error('Barcode lookup failed:', err);
-        return null;
-    }
+    const data = await invokeWithRetry<{ food: NormalizedFood }>('food-barcode', { barcode });
+    return data?.food || null;
 }
 
 // ============ FAVORITE FOODS ============
@@ -1648,19 +1592,10 @@ export async function invokePremealAnalyze(
     mealDraft: PremealMealDraft
 ): Promise<PremealResult | null> {
     try {
-        const { data, error } = await supabase.functions.invoke('premeal-analyze', {
-            body: {
-                user_id: userId,
-                meal_draft: mealDraft,
-            },
+        return await invokeWithRetry<PremealResult>('premeal-analyze', {
+            user_id: userId,
+            meal_draft: mealDraft,
         });
-
-        if (error) {
-            console.error('Error invoking premeal-analyze:', error);
-            return null;
-        }
-
-        return data as PremealResult;
     } catch (error) {
         console.error('Pre Meal Check error:', error);
         return null;
@@ -2265,24 +2200,10 @@ export async function invokeExerciseAnalyze(
     userId: string,
     exerciseText: string
 ): Promise<ExerciseAnalysisResult | null> {
-    try {
-        const { data, error } = await supabase.functions.invoke('exercise-analyze', {
-            body: {
-                user_id: userId,
-                exercise_text: exerciseText,
-            },
-        });
-
-        if (error) {
-            console.error('Error invoking exercise-analyze:', error);
-            return null;
-        }
-
-        return data as ExerciseAnalysisResult;
-    } catch (error) {
-        console.error('Exercise Analysis error:', error);
-        return null;
-    }
+    return invokeWithRetry<ExerciseAnalysisResult>('exercise-analyze', {
+        user_id: userId,
+        exercise_text: exerciseText,
+    });
 }
 
 // ==========================================
@@ -2308,21 +2229,7 @@ export interface PersonalizedTipsResult {
 }
 
 export async function getPersonalizedTips(userId: string): Promise<PersonalizedTipsResult | null> {
-    try {
-        const { data, error } = await supabase.functions.invoke('personalized-tips', {
-            body: { user_id: userId },
-        });
-
-        if (error) {
-            console.error('Error fetching personalized tips:', error);
-            return null;
-        }
-
-        return data as PersonalizedTipsResult;
-    } catch (error) {
-        console.error('Personalized tips error:', error);
-        return null;
-    }
+    return invokeWithRetry<PersonalizedTipsResult>('personalized-tips', { user_id: userId });
 }
 
 // ==========================================
@@ -2666,21 +2573,10 @@ export async function getSuggestedExperiments(
     suggestions: SuggestedExperiment[];
     patterns: Record<string, any>;
 } | null> {
-    try {
-        const { data, error } = await supabase.functions.invoke('experiments-suggest', {
-            body: { user_id: userId, limit },
-        });
-
-        if (error) {
-            console.error('Error fetching suggested experiments:', error);
-            return null;
-        }
-
-        return data;
-    } catch (err) {
-        console.error('Suggested experiments error:', err);
-        return null;
-    }
+    return invokeWithRetry<{
+        suggestions: SuggestedExperiment[];
+        patterns: Record<string, any>;
+    }>('experiments-suggest', { user_id: userId, limit });
 }
 
 /**
@@ -2897,25 +2793,27 @@ export async function getExperimentAnalysis(
         completion_pct: number;
     };
 } | null> {
-    try {
-        const { data, error } = await supabase.functions.invoke('experiments-evaluate', {
-            body: {
-                user_id: userId,
-                user_experiment_id: userExperimentId,
-                save_snapshot: saveSnapshot,
-            },
-        });
-
-        if (error) {
-            console.error('Error fetching experiment analysis:', error);
-            return null;
-        }
-
-        return data;
-    } catch (err) {
-        console.error('Experiment analysis error:', err);
-        return null;
-    }
+    return invokeWithRetry<{
+        analysis: {
+            metrics: Record<string, VariantMetrics>;
+            comparison: ExperimentComparison;
+            summary: string | null;
+            suggestions: string[];
+            is_final: boolean;
+        };
+        experiment: {
+            id: string;
+            status: string;
+            template_title: string;
+            total_exposures: number;
+            required_exposures: number;
+            completion_pct: number;
+        };
+    }>('experiments-evaluate', {
+        user_id: userId,
+        user_experiment_id: userExperimentId,
+        save_snapshot: saveSnapshot,
+    });
 }
 
 /**
@@ -3627,11 +3525,12 @@ export async function getWeeklyReview(userId: string): Promise<WeeklyReview | nu
 /**
  * Dismiss a weekly review by setting dismissed_at
  */
-export async function dismissWeeklyReview(reviewId: string): Promise<boolean> {
+export async function dismissWeeklyReview(reviewId: string, userId: string): Promise<boolean> {
     const { error } = await supabase
         .from('weekly_reviews')
         .update({ dismissed_at: new Date().toISOString() })
-        .eq('id', reviewId);
+        .eq('id', reviewId)
+        .eq('user_id', userId);
 
     if (error) {
         console.error('Error dismissing weekly review:', error);
@@ -3908,13 +3807,15 @@ export async function saveChatMessage(
  */
 export async function updateChatMessageStatus(
     messageId: string,
-    status: 'sent' | 'error'
+    status: 'sent' | 'error',
+    userId: string
 ): Promise<void> {
     try {
         await supabase
             .from('chat_messages')
             .update({ status })
-            .eq('id', messageId);
+            .eq('id', messageId)
+            .eq('user_id', userId);
     } catch {
         // Non-critical — best effort
     }
@@ -3924,14 +3825,581 @@ export async function updateChatMessageStatus(
  * Archive (deactivate) the current session. Used by "New chat".
  */
 export async function archiveChatSession(
-    sessionId: string
+    sessionId: string,
+    userId: string
 ): Promise<void> {
     try {
         await supabase
             .from('chat_sessions')
             .update({ is_active: false })
-            .eq('id', sessionId);
+            .eq('id', sessionId)
+            .eq('user_id', userId);
     } catch {
         // Non-critical — best effort
     }
+}
+
+// ============================================
+// ONBOARDING PLAN
+// ============================================
+
+export interface OnboardingPlanResult {
+    plan_title: string;
+    plan_sentences: string[];
+    source: 'ai' | 'fallback';
+}
+
+export async function invokeOnboardingPlan(userId: string): Promise<OnboardingPlanResult | null> {
+    return invokeWithRetry<OnboardingPlanResult>('generate-onboarding-plan', { user_id: userId });
+}
+
+// ============================================
+// USER STREAKS (retention)
+// ============================================
+
+export interface UserStreak {
+    user_id: string;
+    current_streak: number;
+    longest_streak: number;
+    last_active_date: string | null;
+    shields_available: number;
+    shields_used_this_week: number;
+    shield_week_start: string | null;
+    last_milestone_celebrated: number | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export async function getUserStreak(userId: string): Promise<UserStreak | null> {
+    const { data, error } = await supabase
+        .from('user_streaks')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (error) {
+        if (isMissingTableError(error, 'user_streaks')) {
+            warnSchemaFallbackOnce(
+                'missing_user_streaks_table',
+                'Streak tracking is unavailable until the latest migration is applied.',
+                error
+            );
+            return null;
+        }
+        console.error('Error fetching user streak:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function upsertUserStreak(
+    userId: string,
+    updates: Partial<Omit<UserStreak, 'user_id' | 'created_at' | 'updated_at'>>
+): Promise<UserStreak | null> {
+    const { data, error } = await supabase
+        .from('user_streaks')
+        .upsert(
+            {
+                user_id: userId,
+                ...updates,
+                updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id' }
+        )
+        .select()
+        .single();
+
+    if (error) {
+        if (isMissingTableError(error, 'user_streaks')) {
+            warnSchemaFallbackOnce(
+                'missing_user_streaks_table',
+                'Streak tracking is unavailable until the latest migration is applied.',
+                error
+            );
+            return null;
+        }
+        console.error('Error upserting user streak:', error);
+        return null;
+    }
+
+    return data;
+}
+
+// ============================================
+// DAILY CHECK-INS (retention)
+// ============================================
+
+export type DailyCheckinMoodTag = 'great' | 'good' | 'okay' | 'low';
+
+export interface DailyCheckinMealsLogged {
+    breakfast: boolean;
+    lunch: boolean;
+    dinner: boolean;
+    snacks: boolean;
+}
+
+export interface DailyCheckin {
+    id: string;
+    user_id: string;
+    date: string;
+    energy_level: number | null;
+    meals_logged: DailyCheckinMealsLogged | null;
+    mood_tag: DailyCheckinMoodTag | null;
+    glucose_reading: number | null;
+    completed_at: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface DailyCheckinInput {
+    energy_level?: number | null;
+    meals_logged?: DailyCheckinMealsLogged | null;
+    mood_tag?: DailyCheckinMoodTag | null;
+    glucose_reading?: number | null;
+}
+
+export async function saveDailyCheckin(
+    userId: string,
+    date: string,
+    input: DailyCheckinInput
+): Promise<DailyCheckin | null> {
+    const { data, error } = await supabase
+        .from('daily_checkins')
+        .upsert(
+            {
+                user_id: userId,
+                date,
+                energy_level: input.energy_level ?? null,
+                meals_logged: input.meals_logged ?? null,
+                mood_tag: input.mood_tag ?? null,
+                glucose_reading: input.glucose_reading ?? null,
+                completed_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id,date' }
+        )
+        .select()
+        .single();
+
+    if (error) {
+        if (isMissingTableError(error, 'daily_checkins')) {
+            warnSchemaFallbackOnce(
+                'missing_daily_checkins_table',
+                'Daily check-ins are unavailable until the latest migration is applied.',
+                error
+            );
+            return null;
+        }
+        console.error('Error saving daily checkin:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function getTodayCheckin(userId: string): Promise<DailyCheckin | null> {
+    const today = new Date().toISOString().split('T')[0];
+
+    const { data, error } = await supabase
+        .from('daily_checkins')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', today)
+        .maybeSingle();
+
+    if (error) {
+        if (isMissingTableError(error, 'daily_checkins')) {
+            warnSchemaFallbackOnce(
+                'missing_daily_checkins_table',
+                'Daily check-ins are unavailable until the latest migration is applied.',
+                error
+            );
+            return null;
+        }
+        console.error('Error fetching today checkin:', error);
+        return null;
+    }
+
+    return data;
+}
+
+export async function getDailyCheckins(
+    userId: string,
+    startDate: string,
+    endDate: string
+): Promise<DailyCheckin[]> {
+    const { data, error } = await supabase
+        .from('daily_checkins')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: false });
+
+    if (error) {
+        if (isMissingTableError(error, 'daily_checkins')) {
+            warnSchemaFallbackOnce(
+                'missing_daily_checkins_table',
+                'Daily check-ins are unavailable until the latest migration is applied.',
+                error
+            );
+            return [];
+        }
+        console.error('Error fetching daily checkins:', error);
+        return [];
+    }
+
+    return data ?? [];
+}
+
+// ==========================================
+// MEAL SCORES
+// ==========================================
+
+export interface MealScore {
+    id: string;
+    user_id: string;
+    meal_id: string;
+    score: number;
+    score_label: string;
+    peak_spike_score: number;
+    return_to_baseline_score: number;
+    variability_score: number;
+    time_in_range_score: number;
+    baseline_mg_dl: number | null;
+    peak_mg_dl: number | null;
+    peak_delta_mg_dl: number | null;
+    return_to_baseline_min: number | null;
+    variability_sd: number | null;
+    time_in_range_pct: number | null;
+    glucose_reading_count: number;
+    window_start: string;
+    window_end: string;
+    meal_tokens: string[] | null;
+    insight_text: string | null;
+    insight_type: string | null;
+    experiment_suggestion: ExperimentSuggestion | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface ExperimentSuggestion {
+    template_slug: string | null;
+    suggestion: string;
+    weak_component: string;
+    tried: boolean;
+    result_meal_id: string | null;
+    result_score_delta: number | null;
+}
+
+/**
+ * Fetch glucose readings in the scoring window for a meal:
+ * from 15 min before meal to 3 hours after.
+ */
+export async function getMealGlucoseWindow(
+    userId: string,
+    mealLoggedAt: string,
+): Promise<GlucoseLog[]> {
+    const mealTime = new Date(mealLoggedAt);
+    const windowStart = new Date(mealTime.getTime() - 15 * 60 * 1000);
+    const windowEnd = new Date(mealTime.getTime() + 3 * 60 * 60 * 1000);
+    return getGlucoseLogsByDateRange(userId, windowStart, windowEnd);
+}
+
+/**
+ * Upsert a meal score (one score per meal).
+ */
+export async function saveMealScore(
+    userId: string,
+    mealId: string,
+    score: number,
+    scoreLabel: string,
+    components: {
+        peakSpikeScore: number;
+        returnToBaselineScore: number;
+        variabilityScore: number;
+        timeInRangeScore: number;
+    },
+    raw: {
+        baselineMgDl: number | null;
+        peakMgDl: number | null;
+        peakDeltaMgDl: number | null;
+        returnToBaselineMin: number | null;
+        variabilitySd: number | null;
+        timeInRangePct: number | null;
+    },
+    readingCount: number,
+    windowStart: string,
+    windowEnd: string,
+    mealTokens: string[],
+    insightText?: string | null,
+    insightType?: string | null,
+    experimentSuggestion?: ExperimentSuggestion | null,
+): Promise<MealScore | null> {
+    const { data, error } = await supabase
+        .from('meal_scores')
+        .upsert(
+            {
+                user_id: userId,
+                meal_id: mealId,
+                score,
+                score_label: scoreLabel,
+                peak_spike_score: components.peakSpikeScore,
+                return_to_baseline_score: components.returnToBaselineScore,
+                variability_score: components.variabilityScore,
+                time_in_range_score: components.timeInRangeScore,
+                baseline_mg_dl: raw.baselineMgDl,
+                peak_mg_dl: raw.peakMgDl,
+                peak_delta_mg_dl: raw.peakDeltaMgDl,
+                return_to_baseline_min: raw.returnToBaselineMin,
+                variability_sd: raw.variabilitySd,
+                time_in_range_pct: raw.timeInRangePct,
+                glucose_reading_count: readingCount,
+                window_start: windowStart,
+                window_end: windowEnd,
+                meal_tokens: mealTokens,
+                insight_text: insightText ?? null,
+                insight_type: insightType ?? null,
+                experiment_suggestion: experimentSuggestion ?? null,
+                updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'meal_id' }
+        )
+        .select()
+        .single();
+
+    if (error) {
+        if (isMissingTableError(error, 'meal_scores')) {
+            warnSchemaFallbackOnce(
+                'missing_meal_scores_table',
+                'Meal scoring is unavailable until the latest migration is applied.',
+                error
+            );
+            return null;
+        }
+        console.error('Error saving meal score:', error);
+        return null;
+    }
+
+    return data;
+}
+
+/**
+ * Mark an experiment suggestion as "tried" on the original meal score.
+ * Called when a follow-up meal is scored and matches a previous experiment suggestion.
+ */
+export async function markExperimentTried(
+    originalMealId: string,
+    resultMealId: string,
+    scoreDelta: number,
+): Promise<void> {
+    try {
+        // Fetch current suggestion
+        const { data, error } = await supabase
+            .from('meal_scores')
+            .select('experiment_suggestion')
+            .eq('meal_id', originalMealId)
+            .single();
+
+        if (error || !data?.experiment_suggestion) return;
+
+        const updated = {
+            ...data.experiment_suggestion,
+            tried: true,
+            result_meal_id: resultMealId,
+            result_score_delta: scoreDelta,
+        };
+
+        await supabase
+            .from('meal_scores')
+            .update({ experiment_suggestion: updated })
+            .eq('meal_id', originalMealId);
+    } catch {
+        // Non-critical — silently skip
+    }
+}
+
+/**
+ * Fetch the score for a single meal.
+ */
+export async function getMealScore(mealId: string): Promise<MealScore | null> {
+    const { data, error } = await supabase
+        .from('meal_scores')
+        .select('*')
+        .eq('meal_id', mealId)
+        .single();
+
+    if (error) {
+        if (isMissingTableError(error, 'meal_scores')) {
+            warnSchemaFallbackOnce(
+                'missing_meal_scores_table',
+                'Meal scoring is unavailable until the latest migration is applied.',
+                error
+            );
+            return null;
+        }
+        // PGRST116 = no rows found — expected when meal has no score yet
+        if (error.code === 'PGRST116') return null;
+        console.error('Error fetching meal score:', error);
+        return null;
+    }
+
+    return data;
+}
+
+/**
+ * Fetch recent meal scores with meal name for display.
+ */
+export async function getRecentMealScores(
+    userId: string,
+    limit: number = 10,
+): Promise<(MealScore & { meal_name: string; meal_type: string | null })[]> {
+    const { data, error } = await supabase
+        .from('meal_scores')
+        .select('*, meals!inner(name, meal_type)')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+    if (error) {
+        if (isMissingTableError(error, 'meal_scores')) {
+            warnSchemaFallbackOnce(
+                'missing_meal_scores_table',
+                'Meal scoring is unavailable until the latest migration is applied.',
+                error
+            );
+            return [];
+        }
+        console.error('Error fetching recent meal scores:', error);
+        return [];
+    }
+
+    // Flatten the join result
+    return (data || []).map((row: Record<string, unknown>) => {
+        const meals = row.meals as { name: string; meal_type: string | null } | null;
+        return {
+            ...row,
+            meal_name: meals?.name ?? 'Meal',
+            meal_type: meals?.meal_type ?? null,
+        } as MealScore & { meal_name: string; meal_type: string | null };
+    });
+}
+
+/**
+ * Fetch scores for meals with overlapping tokens (for similarity comparison).
+ */
+export async function getSimilarMealScores(
+    userId: string,
+    mealTokens: string[],
+    excludeMealId: string,
+    limit: number = 10,
+): Promise<(MealScore & { meal_name: string })[]> {
+    if (mealTokens.length === 0) return [];
+
+    // Use GIN index overlap operator via RPC or filter client-side
+    const { data, error } = await supabase
+        .from('meal_scores')
+        .select('*, meals!inner(name)')
+        .eq('user_id', userId)
+        .neq('meal_id', excludeMealId)
+        .overlaps('meal_tokens', mealTokens)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+    if (error) {
+        if (isMissingTableError(error, 'meal_scores')) {
+            warnSchemaFallbackOnce(
+                'missing_meal_scores_table',
+                'Meal scoring is unavailable until the latest migration is applied.',
+                error
+            );
+            return [];
+        }
+        console.error('Error fetching similar meal scores:', error);
+        return [];
+    }
+
+    return (data || []).map((row: Record<string, unknown>) => {
+        const meals = row.meals as { name: string } | null;
+        return {
+            ...row,
+            meal_name: meals?.name ?? 'Meal',
+        } as MealScore & { meal_name: string };
+    });
+}
+
+/**
+ * Fetch meal scores for a date range (for pattern detection).
+ */
+export async function getMealScoresForDateRange(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+): Promise<MealScore[]> {
+    const { data, error } = await supabase
+        .from('meal_scores')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        if (isMissingTableError(error, 'meal_scores')) {
+            warnSchemaFallbackOnce(
+                'missing_meal_scores_table',
+                'Meal scoring is unavailable until the latest migration is applied.',
+                error
+            );
+            return [];
+        }
+        console.error('Error fetching meal scores for range:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+/**
+ * Fetch recent unscored meals (for trigger to check pending).
+ */
+export async function getRecentUnscoredMeals(
+    userId: string,
+    hoursBack: number = 4,
+): Promise<Meal[]> {
+    const since = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
+
+    // Get meals from the time window
+    const { data: meals, error: mealsError } = await supabase
+        .from('meals')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('logged_at', since.toISOString())
+        .order('logged_at', { ascending: false });
+
+    if (mealsError || !meals || meals.length === 0) return [];
+
+    // Get existing scores for these meals
+    const mealIds = meals.map(m => m.id);
+    const { data: scores, error: scoresError } = await supabase
+        .from('meal_scores')
+        .select('meal_id')
+        .in('meal_id', mealIds);
+
+    if (scoresError) {
+        if (isMissingTableError(scoresError, 'meal_scores')) {
+            warnSchemaFallbackOnce(
+                'missing_meal_scores_table',
+                'Meal scoring is unavailable until the latest migration is applied.',
+                scoresError
+            );
+            return [];
+        }
+        console.error('Error fetching existing meal scores:', scoresError);
+        return [];
+    }
+
+    const scoredIds = new Set((scores || []).map((s: { meal_id: string }) => s.meal_id));
+    return meals.filter(m => !scoredIds.has(m.id));
 }

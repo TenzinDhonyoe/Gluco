@@ -202,6 +202,7 @@ export const SiriProvider: React.FC<IAppleIntelligenceProvider> &
     );
   },
 );
+SiriProvider.displayName = 'SiriProvider';
 
 export default memo<
   React.FC<IAppleIntelligenceProvider> &

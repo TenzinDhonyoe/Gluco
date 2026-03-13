@@ -170,7 +170,7 @@ async function isAiEnabled(supabase: ReturnType<typeof createClient>, userId: st
         .select('ai_enabled')
         .eq('id', userId)
         .single();
-    return data?.ai_enabled !== false;
+    return data?.ai_enabled === true;
 }
 
 // ============================================
@@ -379,7 +379,7 @@ Frame as curiosity, not judgment. Include one experiment suggestion.`;
         log('ERROR', 'weekly-review failed', { requestId, error: errorMessage });
 
         return new Response(
-            JSON.stringify({ error: 'Internal server error', message: errorMessage, requestId }),
+            JSON.stringify({ error: 'Internal server error' }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
     }

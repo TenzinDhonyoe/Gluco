@@ -9,7 +9,7 @@ import { fonts } from '@/hooks/useFonts';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
     Alert,
     KeyboardAvoidingView,
@@ -34,6 +34,16 @@ export default function SignUpScreen() {
     const [isAppleLoading, setIsAppleLoading] = useState(false);
     const { signUp, signInWithApple } = useAuth();
 
+    const passwordRequirements = useMemo(() => [
+        { label: 'At least 8 characters', met: password.length >= 8 },
+        { label: 'One uppercase letter', met: /[A-Z]/.test(password) },
+        { label: 'One lowercase letter', met: /[a-z]/.test(password) },
+        { label: 'One number', met: /[0-9]/.test(password) },
+        { label: 'One special character (!@#$...)', met: /[^A-Za-z0-9]/.test(password) },
+    ], [password]);
+
+    const allRequirementsMet = passwordRequirements.every(r => r.met);
+
     const handleContinue = async () => {
         if (!agreeToTerms) return;
         if (!email.trim() || !password.trim()) {
@@ -41,8 +51,8 @@ export default function SignUpScreen() {
             return;
         }
 
-        if (password.trim().length < 6) {
-            Alert.alert('Error', 'Password must be at least 6 characters');
+        if (!allRequirementsMet) {
+            Alert.alert('Error', 'Password does not meet all requirements');
             return;
         }
 
@@ -124,7 +134,7 @@ export default function SignUpScreen() {
         router.push('/signin');
     };
 
-    const isFormValid = agreeToTerms && email.trim().length > 0 && password.trim().length >= 6 && password === confirmPassword;
+    const isFormValid = agreeToTerms && email.trim().length > 0 && allRequirementsMet && password === confirmPassword;
 
     return (
         <View style={styles.container}>
@@ -192,6 +202,27 @@ export default function SignUpScreen() {
                                         )}
                                     />
                                 </View>
+
+                                {/* Password Requirements */}
+                                {password.length > 0 && (
+                                    <View style={styles.requirementsContainer}>
+                                        {passwordRequirements.map((req) => (
+                                            <View key={req.label} style={styles.requirementRow}>
+                                                <Ionicons
+                                                    name={req.met ? 'checkmark-circle' : 'ellipse-outline'}
+                                                    size={16}
+                                                    color={req.met ? Colors.primary : Colors.textTertiary}
+                                                />
+                                                <Text style={[
+                                                    styles.requirementText,
+                                                    req.met && styles.requirementMet,
+                                                ]}>
+                                                    {req.label}
+                                                </Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
 
                                 {/* Confirm Password Input */}
                                 <View style={styles.inputGroup}>
@@ -354,6 +385,24 @@ const styles = StyleSheet.create({
         padding: 0,
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    requirementsContainer: {
+        marginTop: -16,
+        marginBottom: 24,
+        gap: 6,
+    },
+    requirementRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    requirementText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textTertiary,
+    },
+    requirementMet: {
+        color: Colors.primary,
     },
     agreementSection: {
         // Gap handled by individual component margins

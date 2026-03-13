@@ -89,7 +89,7 @@ export function useWeeklyReview(userId: string | undefined, enabled = true): Use
             key_metric: review.key_metric,
         });
 
-        const success = await dismissWeeklyReview(review.id);
+        const success = await dismissWeeklyReview(review.id, userId);
         if (success) {
             setReview(null);
         }

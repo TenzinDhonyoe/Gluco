@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { rankResults } from '@/lib/foodSearch';
 import { parseLabelFromImage } from '@/lib/labelScan';
+import { recordStreakActivity } from '@/lib/streaks';
 import { schedulePostMealActionReminder, schedulePostMealReviewNotification } from '@/lib/notifications';
 import {
     analyzeMealPhotoWithRetry,
@@ -32,6 +33,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, FlashMode, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -161,7 +163,6 @@ const SCAN_OPTIONS: { mode: ScanMode; icon: keyof typeof Ionicons.glyphMap; labe
 
 // Constants for liquid glass option bar
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const OPTION_BAR_PADDING = 6;
 const INDICATOR_SIZE = 56; // Circular indicator
 
 // Animated Option Icon with bounce effect
@@ -372,8 +373,7 @@ export default function MealScannerScreen() {
         photoQuality?: MealsFromPhotoResponse['photo_quality'];
     } | null>(null);
     const [pendingFollowups, setPendingFollowups] = useState<FollowupQuestion[]>([]);
-    const [followupResponses, setFollowupResponses] = useState<FollowupResponse[]>([]);
-    const [labelSubMode, setLabelSubMode] = useState<'barcode' | 'label'>('label');
+    const [, setFollowupResponses] = useState<FollowupResponse[]>([]);
     const [isCartModalOpen, setIsCartModalOpen] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
@@ -421,7 +421,14 @@ export default function MealScannerScreen() {
         let photoPath: string | null = null;
 
         try {
-            photoPath = await uploadMealPhoto(user.id, imageUri);
+            // Resize image to 1024px wide before upload (reduces upload time + AI processing)
+            const resized = await ImageManipulator.manipulateAsync(
+                imageUri,
+                [{ resize: { width: 1024 } }],
+                { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+            );
+
+            photoPath = await uploadMealPhoto(user.id, resized.uri);
             if (!photoPath) {
                 throw new Error('Photo upload failed. Please check your connection and try again.');
             }
@@ -600,7 +607,7 @@ export default function MealScannerScreen() {
             // User cancelled, revert to previous mode
             setScanMode(previousModeRef.current);
         }
-    }, [analyzeImage, user]);
+    }, [analyzeImage]);
 
     const handleModeSelect = useCallback((mode: ScanMode) => {
         // Trigger generic layout animation for smooth button resizing
@@ -854,6 +861,9 @@ export default function MealScannerScreen() {
             await schedulePostMealActionReminder(meal.id, meal.name, user.id).catch(() => {
                 // Non-critical - don't fail the save if notification scheduling fails
             });
+
+            // Record streak activity
+            recordStreakActivity(user.id).catch(() => {});
 
             // Clear state and navigate back
             setAnalysisResult(null);

@@ -152,7 +152,7 @@ export default function AccountPrivacyScreen() {
                                 message: jsonString,
                                 title: 'Gluco Data Export',
                             });
-                        } catch (error) {
+                        } catch {
                             Alert.alert('Error', 'Failed to export data. Please try again.');
                         }
                     },
@@ -229,7 +229,7 @@ export default function AccountPrivacyScreen() {
                                             router.replace('/');
 
                                             Alert.alert('Account Deleted', 'Your account and all data have been deleted.');
-                                        } catch (error) {
+                                        } catch {
                                             Alert.alert('Error', 'Failed to delete account. Please try again.');
                                         }
                                     },

@@ -65,6 +65,7 @@ export const FadeText: React.FC<FadeTextProps> = memo<FadeTextProps>(
     );
   },
 );
+FadeText.displayName = 'FadeText';
 
 const AnimatedWord: React.FC<AnimatedWordProps> = memo<AnimatedWordProps>(
   ({
@@ -92,7 +93,7 @@ const AnimatedWord: React.FC<AnimatedWordProps> = memo<AnimatedWordProps>(
           easing: Easing.out(Easing.cubic),
         }),
       );
-    }, [delay, duration]);
+    }, [delay, duration, animationValue]);
 
     const animatedStyle = useAnimatedStyle<
       Pick<ViewStyle, "opacity" | "transform">
@@ -166,6 +167,7 @@ const AnimatedWord: React.FC<AnimatedWordProps> = memo<AnimatedWordProps>(
     );
   },
 );
+AnimatedWord.displayName = 'AnimatedWord';
 
 const styles = StyleSheet.create({
   container: {

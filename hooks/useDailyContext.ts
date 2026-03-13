@@ -10,8 +10,10 @@ import {
     getSleepData,
     getSteps,
     initHealthKit,
-    isHealthKitAvailable
+    isHealthKitAvailable,
+    syncHealthKitGlucoseToLogs,
 } from '@/lib/healthkit';
+import { checkAndScorePendingMeals } from '@/lib/mealScoreTrigger';
 import {
     DailyContext,
     getDailyContextByRange,
@@ -81,78 +83,6 @@ export function useDailyContext(
     const startDateStr = formatDate(startDate);
     const endDateStr = formatDate(endDate);
 
-    // Sync HealthKit data to database
-    const syncHealthKitData = useCallback(async () => {
-        if (!userId || Platform.OS !== 'ios' || syncInProgress.current) {
-            return;
-        }
-
-        // Prevent duplicate syncs for the same date range
-        const syncKey = `${userId}-${startDateStr}-${endDateStr}`;
-        if (lastSyncRef.current === syncKey) {
-            return;
-        }
-
-        syncInProgress.current = true;
-        setStats(prev => ({ ...prev, isSyncing: true }));
-
-        try {
-            // Initialize HealthKit and request permissions
-            const isInitialized = await initHealthKit();
-            if (!isInitialized) {
-                setStats(prev => ({ ...prev, isAuthorized: false, isSyncing: false }));
-                syncInProgress.current = false;
-                return;
-            }
-
-            setStats(prev => ({ ...prev, isAuthorized: true }));
-
-            // Fetch data from HealthKit (Apple Watch syncs via Apple Health)
-            const [stepsData, sleepData, activeData, hrData, hrvData] = await Promise.all([
-                getSteps(startDate, endDate),
-                getSleepData(startDate, endDate),
-                getActiveMinutes(startDate, endDate),
-                getRestingHeartRate(startDate, endDate),  // Apple Watch resting HR
-                getHRV(startDate, endDate),                // Apple Watch HRV
-            ]);
-
-            // Calculate daily averages and upsert to database
-            // We'll create a single record for the date range with averages
-            const today = formatDate(new Date());
-
-            await upsertDailyContext(userId, {
-                date: today,
-                steps: stepsData?.avgStepsPerDay ?? null,
-                active_minutes: activeData?.avgMinutesPerDay ?? null,
-                sleep_hours: sleepData?.avgMinutesPerNight ? sleepData.avgMinutesPerNight / 60 : null,
-                resting_hr: hrData?.avgRestingHR ?? null,
-                hrv_ms: hrvData?.avgHRV ?? null,
-                source: 'apple_health',
-            });
-
-            // Update state with fetched data
-            setStats(prev => ({
-                ...prev,
-                avgSteps: stepsData?.avgStepsPerDay ?? null,
-                avgActiveMinutes: activeData?.avgMinutesPerDay ?? null,
-                avgSleepHours: sleepData?.avgMinutesPerNight ? Math.round((sleepData.avgMinutesPerNight / 60) * 10) / 10 : null,
-                avgRestingHR: hrData?.avgRestingHR ?? null,
-                avgHRV: hrvData?.avgHRV ?? null,
-                isSyncing: false,
-                lastSyncedAt: new Date(),
-                dataSource: 'apple_health',
-                daysWithData: stepsData?.days ?? 0,
-            }));
-
-            lastSyncRef.current = syncKey;
-        } catch (error) {
-            console.warn('Error syncing HealthKit data:', error);
-            setStats(prev => ({ ...prev, isSyncing: false }));
-        } finally {
-            syncInProgress.current = false;
-        }
-    }, [userId, startDateStr, endDateStr]); // Dep on strings, not Date objects
-
     // Load from database (fast, non-blocking)
     const loadFromDatabase = useCallback(async () => {
         if (!userId) return;
@@ -199,7 +129,111 @@ export function useDailyContext(
             console.warn('Error loading daily context from database:', error);
             setStats(prev => ({ ...prev, isLoading: false }));
         }
-    }, [userId, startDateStr, endDateStr]); // Dep on strings, not Date objects
+    }, [userId, startDateStr, endDateStr]);
+
+    // Sync HealthKit data to database
+    // force=true bypasses the dedup guard (used for pull-to-refresh)
+    const syncHealthKitData = useCallback(async (force = false) => {
+        if (!userId || Platform.OS !== 'ios' || syncInProgress.current) {
+            return;
+        }
+
+        // Prevent duplicate syncs for the same date range on auto-sync (focus events)
+        // Manual refreshes (force=true) always re-query HealthKit
+        const syncKey = `${userId}-${startDateStr}-${endDateStr}`;
+        if (!force && lastSyncRef.current === syncKey) {
+            return;
+        }
+
+        syncInProgress.current = true;
+        setStats(prev => ({ ...prev, isSyncing: true }));
+
+        try {
+            // Initialize HealthKit and request permissions
+            const isInitialized = await initHealthKit();
+            if (!isInitialized) {
+                setStats(prev => ({ ...prev, isAuthorized: false, isSyncing: false }));
+                syncInProgress.current = false;
+                return;
+            }
+
+            setStats(prev => ({ ...prev, isAuthorized: true }));
+
+            // Fetch data from HealthKit (Apple Watch syncs via Apple Health)
+            const [stepsData, sleepData, activeData, hrData, hrvData] = await Promise.all([
+                getSteps(startDate, endDate),
+                getSleepData(startDate, endDate),
+                getActiveMinutes(startDate, endDate),
+                getRestingHeartRate(startDate, endDate),  // Apple Watch resting HR
+                getHRV(startDate, endDate),                // Apple Watch HRV
+            ]);
+
+            // Upsert per-day records from HealthKit daily breakdowns
+            // Build a map of date -> metrics from all breakdowns
+            const dayMetrics = new Map<string, {
+                steps: number | null;
+                active_minutes: number | null;
+                sleep_hours: number | null;
+                resting_hr: number | null;
+                hrv_ms: number | null;
+            }>();
+
+            const ensureDay = (date: string) => {
+                if (!dayMetrics.has(date)) {
+                    dayMetrics.set(date, { steps: null, active_minutes: null, sleep_hours: null, resting_hr: null, hrv_ms: null });
+                }
+                return dayMetrics.get(date)!;
+            };
+
+            stepsData?.dailyBreakdown.forEach(({ date, value }) => { ensureDay(date).steps = value; });
+            activeData?.dailyBreakdown.forEach(({ date, value }) => { ensureDay(date).active_minutes = value; });
+            sleepData?.dailyBreakdown.forEach(({ date, value }) => { ensureDay(date).sleep_hours = value; });
+            hrData?.dailyBreakdown.forEach(({ date, value }) => { ensureDay(date).resting_hr = value; });
+            hrvData?.dailyBreakdown.forEach(({ date, value }) => { ensureDay(date).hrv_ms = value; });
+
+            // Upsert all days (bounded concurrency)
+            const upsertPromises = Array.from(dayMetrics.entries()).map(([date, metrics]) =>
+                upsertDailyContext(userId, {
+                    date,
+                    steps: metrics.steps,
+                    active_minutes: metrics.active_minutes,
+                    sleep_hours: metrics.sleep_hours,
+                    resting_hr: metrics.resting_hr,
+                    hrv_ms: metrics.hrv_ms,
+                    source: 'apple_health',
+                })
+            );
+            await Promise.all(upsertPromises);
+
+            // Sync HealthKit glucose readings to glucose_logs, then check for pending meal scores
+            if (userId) {
+                syncHealthKitGlucoseToLogs(userId, startDate, endDate)
+                    .then((count) => {
+                        if (count > 0) {
+                            checkAndScorePendingMeals(userId).catch(() => {});
+                        }
+                    })
+                    .catch(() => {});
+            }
+
+            // Reload from database to get correct aggregated stats
+            await loadFromDatabase();
+
+            setStats(prev => ({
+                ...prev,
+                isSyncing: false,
+                lastSyncedAt: new Date(),
+                dataSource: 'apple_health',
+            }));
+
+            lastSyncRef.current = syncKey;
+        } catch (error) {
+            console.warn('Error syncing HealthKit data:', error);
+            setStats(prev => ({ ...prev, isSyncing: false }));
+        } finally {
+            syncInProgress.current = false;
+        }
+    }, [userId, startDateStr, endDateStr, loadFromDatabase]);
 
     // Check availability on mount
     useEffect(() => {
@@ -228,6 +262,6 @@ export function useDailyContext(
 
     return {
         ...stats,
-        sync: syncHealthKitData,
+        sync: () => syncHealthKitData(true),
     };
 }

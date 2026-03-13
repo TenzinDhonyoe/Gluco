@@ -259,7 +259,7 @@ async function isAiEnabled(supabase: ReturnType<typeof createClient>, userId: st
         .select('ai_enabled')
         .eq('id', userId)
         .single();
-    return data?.ai_enabled !== false;
+    return data?.ai_enabled === true;
 }
 
 // ============================================
@@ -455,7 +455,7 @@ serve(async (req) => {
         // Even on error, return a usable fallback
         const fallback = getTimeAwareFallback(new Date().getHours());
         return new Response(
-            JSON.stringify({ action: fallback, source: 'fallback', error: errorMessage }),
+            JSON.stringify({ action: fallback, source: 'fallback' }),
             { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
     }

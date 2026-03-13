@@ -29,13 +29,12 @@ import Animated, {
     useSharedValue,
     withRepeat,
     withSequence,
-    withSpring,
     withTiming,
     withDelay,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const GLUCO_AVATAR = require('@/assets/images/mascots/gluco_app_mascott/gluco_splash.png');
+const GLUCO_AVATAR = require('@/assets/images/branding/gluco_logo.png');
 
 // ============================================
 // Typing Indicator

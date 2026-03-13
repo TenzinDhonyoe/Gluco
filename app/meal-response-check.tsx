@@ -359,6 +359,7 @@ export default function MealResponseCheckScreen() {
                 triggerAnalysis(initialText);
             }, 100);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialText, hasAutoAnalyzed, user?.id]);
 
     const handleClose = () => {

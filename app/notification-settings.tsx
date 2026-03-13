@@ -21,6 +21,7 @@ import {
 const DEFAULT_PREFERENCES: NotificationPreferences = {
     meal_reminders: true,
     post_meal_reviews: true,
+    meal_score: true,
     daily_insights: true,
     experiment_updates: true,
     active_action_midday: true,
@@ -66,7 +67,7 @@ export default function NotificationSettingsScreen() {
     const [preferences, setPreferences] = useState<NotificationPreferences>(DEFAULT_PREFERENCES);
     const [preferencesPersistSupported, setPreferencesPersistSupported] = useState(true);
     const [isLoading, setIsLoading] = useState(true);
-    const [isSaving, setIsSaving] = useState(false);
+    const [, setIsSaving] = useState(false);
     const masterEnabled = profile?.notifications_enabled ?? false;
 
     const loadPreferences = useCallback(async () => {
@@ -224,6 +225,14 @@ export default function NotificationSettingsScreen() {
                         description="Nudges to log breakfast, lunch, and dinner"
                         value={preferences.meal_reminders ?? true}
                         onToggle={() => togglePreference('meal_reminders')}
+                        disabled={!masterEnabled}
+                    />
+                    <View style={styles.divider} />
+                    <SettingRow
+                        label="Meal Scores"
+                        description="See how your body responded to each meal"
+                        value={preferences.meal_score ?? true}
+                        onToggle={() => togglePreference('meal_score')}
                         disabled={!masterEnabled}
                     />
                     <View style={styles.divider} />

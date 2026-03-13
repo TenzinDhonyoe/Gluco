@@ -3,6 +3,7 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { checkAndScorePendingMeals } from '@/lib/mealScoreTrigger';
 import { createGlucoseLog, type GlucoseContext, updatePostMealReviewWithManualGlucose } from '@/lib/supabase';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { parseGlucoseInput, getGlucoseInputPlaceholder, formatGlucoseWithUnit } from '@/lib/utils/glucoseUnits';
@@ -68,7 +69,7 @@ function ChevronDown() {
 export default function LogGlucoseScreen() {
   const { user } = useAuth();
   const glucoseUnit = useGlucoseUnit();
-  const { reviewId, context: paramContext, returnTo } = useLocalSearchParams<{
+  const { reviewId, context: paramContext } = useLocalSearchParams<{
     reviewId?: string;
     context?: string;
     returnTo?: string;
@@ -161,6 +162,9 @@ export default function LogGlucoseScreen() {
       });
 
       if (result) {
+        // Fire-and-forget: check if any pending meals can now be scored
+        checkAndScorePendingMeals(user.id).catch(() => {});
+
         // If coming from post-meal review, update the review with this glucose value
         if (reviewId) {
           const updateSuccess = await updatePostMealReviewWithManualGlucose(reviewId, levelMmol);

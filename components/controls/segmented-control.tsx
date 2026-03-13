@@ -1,4 +1,3 @@
-import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
