@@ -9,6 +9,10 @@ interface WellnessScoreRingProps {
     score: number | null;
     trend?: 'up' | 'down' | 'steady';
     label?: string;
+    /** Number of days with data logged — used for progress countdown when score is null */
+    daysLogged?: number;
+    /** Target days needed for first score (default 3) */
+    daysTarget?: number;
 }
 
 export function WellnessScoreRing({
@@ -16,13 +20,19 @@ export function WellnessScoreRing({
     score,
     trend = 'steady',
     label = 'Wellness',
+    daysLogged,
+    daysTarget = 3,
 }: WellnessScoreRingProps) {
     const clampedScore = score !== null ? Math.max(0, Math.min(100, score)) : null;
     const center = size / 2;
     const strokeWidth = Math.max(6, size * 0.1);
     const radius = (size - strokeWidth - 2) / 2;
     const circumference = 2 * Math.PI * radius;
-    const progress = clampedScore !== null ? clampedScore / 100 : 0;
+    const progress = clampedScore !== null
+        ? clampedScore / 100
+        : daysLogged !== undefined
+            ? Math.min(daysLogged / daysTarget, 0.95)
+            : 0;
     const dashOffset = circumference - circumference * progress;
 
     const gradientId = useMemo(
@@ -70,6 +80,10 @@ export function WellnessScoreRing({
                     {clampedScore !== null ? (
                         <Text style={[styles.scoreText, { fontSize: size * 0.28 }]}>
                             {Math.round(clampedScore)}
+                        </Text>
+                    ) : daysLogged !== undefined ? (
+                        <Text style={[styles.scoreText, { fontSize: Math.max(12, size * 0.18), color: Colors.textSecondary }]}>
+                            {`Day ${Math.min(daysLogged, daysTarget)}/${daysTarget}`}
                         </Text>
                     ) : (
                         <Text style={[styles.scoreText, { fontSize: size * 0.22, color: Colors.textSecondary }]}>

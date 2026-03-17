@@ -13,6 +13,8 @@ export const MetabolicScoreRing = ({
     visualPreset = 'default',
     showInnerValue = true,
     gradientColors,
+    daysLogged,
+    daysTarget = 7,
 }: {
     size?: number;
     score?: number | null;
@@ -20,6 +22,10 @@ export const MetabolicScoreRing = ({
     visualPreset?: 'default' | 'hero_vivid';
     showInnerValue?: boolean;
     gradientColors?: [string, string];
+    /** Number of days with data logged — used for progress countdown when score is null */
+    daysLogged?: number;
+    /** Target days needed for first score (default 7) */
+    daysTarget?: number;
 }) => {
     const clampedScore = score !== null ? Math.max(0, Math.min(100, score)) : null;
     const center = size / 2;
@@ -67,7 +73,11 @@ export const MetabolicScoreRing = ({
         const strokeWidth = Math.max(8, size * 0.14);
         const radius = (size - strokeWidth - 2) / 2;
         const circumference = 2 * Math.PI * radius;
-        const progress = clampedScore !== null ? clampedScore / 100 : 0;
+        const progress = clampedScore !== null
+            ? clampedScore / 100
+            : daysLogged !== undefined
+                ? Math.min(daysLogged / daysTarget, 0.95)
+                : 0;
         const progressLength = circumference * progress;
         const dashOffset = circumference - progressLength;
 
@@ -114,6 +124,10 @@ export const MetabolicScoreRing = ({
                                 {Math.round(clampedScore)}
                             </Text>
                         ) : null
+                    ) : daysLogged !== undefined ? (
+                        <Text style={{ fontFamily: fonts.semiBold, fontSize: Math.max(12, size * 0.16), color: Colors.textSecondary, textAlign: 'center' }}>
+                            {`Day ${Math.min(daysLogged, daysTarget)}/${daysTarget}`}
+                        </Text>
                     ) : (
                         <Ionicons name="lock-closed" size={size * 0.35} color="rgba(0,0,0,0.25)" />
                     )}
@@ -135,6 +149,10 @@ export const MetabolicScoreRing = ({
                             {Math.round(clampedScore)}
                         </Text>
                     ) : null
+                ) : daysLogged !== undefined ? (
+                    <Text style={{ fontFamily: fonts.semiBold, fontSize: Math.max(12, size * 0.22), color: Colors.textSecondary, textAlign: 'center' }}>
+                        {`Day ${Math.min(daysLogged, daysTarget)}/${daysTarget}`}
+                    </Text>
                 ) : (
                     <Ionicons name="lock-closed" size={size * 0.35} color="rgba(0,0,0,0.25)" />
                 )}

@@ -305,7 +305,7 @@ const ActivityStatCard = React.memo(({
 
     // Status logic (Low < 20m, Moderate 20-40m, High > 40m)
     let statusColor = Colors.textTertiary;
-    let statusLabel = 'No data';
+    let statusLabel = 'Log activity or connect Health';
 
     if (hasData) {
         if (avgMinutes > 40) {
@@ -423,7 +423,7 @@ const FibreStatCard = React.memo(({ range, fibreSummary }: {
 
     const status = getFibreStatus(avgPerDay);
     const statusColor = hasData ? getFibreStatusColor(status) : Colors.textTertiary;
-    const statusLabel = hasData ? (status.charAt(0).toUpperCase() + status.slice(1)) : 'No data';
+    const statusLabel = hasData ? (status.charAt(0).toUpperCase() + status.slice(1)) : 'Log a meal to track';
 
     return (
         <View style={styles.statCard}>
@@ -474,7 +474,7 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
 
     const status = getSleepStatus(avgHours);
     const statusColor = hasData ? getSleepStatusColor(status) : Colors.textTertiary;
-    const statusLabel = hasData ? (status.charAt(0).toUpperCase() + status.slice(1)) : 'No data';
+    const statusLabel = hasData ? (status.charAt(0).toUpperCase() + status.slice(1)) : (isAuthorized ? 'Waiting for data' : 'Connect Apple Health');
 
     // Format hours - show whole number like "5" or decimal like "7.5"
     const displayValue = hasData
@@ -528,7 +528,7 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
 
     // Dynamic thresholds for steps (Sedentary < 5k, Low Active 5k-10k, Active > 10k)
     let statusColor = Colors.textTertiary;
-    let statusLabel = 'No data';
+    let statusLabel = isAuthorized ? 'Waiting for data' : 'Connect Apple Health';
 
     if (hasData && avgSteps !== null) {
         if (avgSteps >= 10000) {
@@ -577,10 +577,11 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
 StepsStatCard.displayName = 'StepsStatCard';
 
 // Metabolic Score Card - matches stat card styling, compact until data exists
-const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }: {
+const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading, daysLogged = 0 }: {
     weeklyScores: MetabolicWeeklyScore[];
     currentScore: number | null;
     isLoading: boolean;
+    daysLogged?: number;
 }) => {
     // Get latest score and compute velocity
     const { latestScore } = useMemo(() => {
@@ -600,16 +601,34 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
 
 
 
-    // Empty/setup state - compact and instructional
+    // Empty/setup state - progress countdown
     if (!hasScore) {
+        const daysRemaining = Math.max(0, 7 - daysLogged);
         return (
             <View style={[styles.metabolicScoreCardEmpty, { backgroundColor: 'transparent', overflow: 'hidden' }]}>
                 <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
                 <View style={styles.metabolicScoreEmptyLeft}>
-                    <MetabolicScoreRing size={56} />
+                    <MetabolicScoreRing size={56} daysLogged={daysLogged} daysTarget={7} />
                     <View style={styles.metabolicScoreEmptyContent}>
                         <Text style={styles.metabolicScoreEmptyTitle}>Metabolic Score</Text>
-                        <Text style={styles.metabolicScoreEmptySubtitle}>Log sleep, activity, and meals to unlock</Text>
+                        <Text style={styles.metabolicScoreEmptySubtitle}>
+                            {daysRemaining > 0
+                                ? `Unlocks in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'} — keep logging!`
+                                : 'Almost ready — keep logging!'}
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 3, marginTop: 6 }}>
+                            {Array.from({ length: 7 }).map((_, i) => (
+                                <View
+                                    key={i}
+                                    style={{
+                                        flex: 1,
+                                        height: 3,
+                                        borderRadius: 1.5,
+                                        backgroundColor: i < daysLogged ? Colors.primary : 'rgba(0,0,0,0.08)',
+                                    }}
+                                />
+                            ))}
+                        </View>
                     </View>
                 </View>
             </View>
@@ -1019,14 +1038,18 @@ function BehaviorMetabolicHeroCard({
                             </>
                         ) : (
                             <>
-                                <Text style={styles.behaviorScoreUnlockTitle}>Score Locked</Text>
+                                <Text style={styles.behaviorScoreUnlockTitle}>
+                                    {unlockDaysTarget - unlockedDays > 0
+                                        ? `Unlocks in ${unlockDaysTarget - unlockedDays} day${unlockDaysTarget - unlockedDays === 1 ? '' : 's'}`
+                                        : 'Almost ready!'}
+                                </Text>
                                 <View style={styles.behaviorUnlockProgressPill}>
                                     <Text style={styles.behaviorUnlockProgressText}>
                                         {unlockedDays} of {unlockDaysTarget} days complete
                                     </Text>
                                 </View>
                                 <Text style={styles.behaviorScoreMeta}>
-                                    Log for 7 days to see your personalized score
+                                    Keep logging to unlock your personalized score
                                 </Text>
                             </>
                         )}
@@ -1039,6 +1062,8 @@ function BehaviorMetabolicHeroCard({
                             visualPreset="hero_vivid"
                             showInnerValue={false}
                             gradientColors={scoreTone.gradient}
+                            daysLogged={!scoreUnlocked ? unlockedDays : undefined}
+                            daysTarget={unlockDaysTarget}
                         />
                     </View>
                 </AnimatedPressable>
@@ -1415,7 +1440,40 @@ function getScoreAwareTip(
     }
 }
 
-export default function TodayScreen() {
+class TodayScreenErrorBoundary extends React.Component<
+    { children: React.ReactNode },
+    { hasError: boolean; error: Error | null }
+> {
+    state = { hasError: false, error: null as Error | null };
+    static getDerivedStateFromError(error: Error) {
+        return { hasError: true, error };
+    }
+    componentDidCatch(error: Error, info: React.ErrorInfo) {
+        console.error('[TodayScreen] Render crash:', error, info.componentStack);
+    }
+    render() {
+        if (this.state.hasError) {
+            return (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, backgroundColor: '#F2F2F7' }}>
+                    <Text style={{ fontSize: 18, fontWeight: '700', color: '#1C1C1E', marginBottom: 12 }}>
+                        Something went wrong
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#8E8E93', textAlign: 'center' }}>
+                        {this.state.error?.message}
+                    </Text>
+                    {__DEV__ && (
+                        <Text style={{ fontSize: 11, color: '#AEAEB2', textAlign: 'center', marginTop: 8 }}>
+                            {this.state.error?.stack?.split('\n').slice(0, 5).join('\n')}
+                        </Text>
+                    )}
+                </View>
+            );
+        }
+        return this.props.children;
+    }
+}
+
+function TodayScreenInner() {
     const { profile, user } = useAuth();
     const glucoseUnit = useGlucoseUnit();
     const isBehaviorV1 = isBehaviorV1Experience(profile?.experience_variant);
@@ -2448,7 +2506,7 @@ export default function TodayScreen() {
                         </View>
 
                         {/* Metabolic Score Card - Full width prominent card */}
-                        <MetabolicScoreCard weeklyScores={weeklyScores} currentScore={currentScore} isLoading={scoresLoading} />
+                        <MetabolicScoreCard weeklyScores={weeklyScores} currentScore={currentScore} isLoading={scoresLoading} daysLogged={dailyContext.daysWithData} />
 
                         {/* Latest Meal Score */}
                         {latestMealScore && (
@@ -2657,6 +2715,14 @@ export default function TodayScreen() {
                 />
             )}
         </View>
+    );
+}
+
+export default function TodayScreen() {
+    return (
+        <TodayScreenErrorBoundary>
+            <TodayScreenInner />
+        </TodayScreenErrorBoundary>
     );
 }
 
