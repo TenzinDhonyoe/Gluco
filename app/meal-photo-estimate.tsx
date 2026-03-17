@@ -1,6 +1,7 @@
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { AnalyzedItem, MealPhotoAnalysisResult } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -37,7 +38,7 @@ export default function MealPhotoEstimateScreen() {
     const params = useLocalSearchParams();
     const [result, setResult] = React.useState<MealPhotoAnalysisResult | null>(null);
     const [items, setItems] = React.useState<SelectedFood[]>([]);
-    const [isLoading, setIsLoading] = React.useState(true);
+    const [, setIsLoading] = React.useState(true);
 
     React.useEffect(() => {
         if (params.result && typeof params.result === 'string') {
@@ -133,7 +134,7 @@ export default function MealPhotoEstimateScreen() {
                 {/* Header */}
                 <View style={styles.header}>
                     <LiquidGlassIconButton size={44} onPress={() => router.back()}>
-                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                        <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
                     </LiquidGlassIconButton>
                     <Text style={styles.title}>Edit Estimate</Text>
                     <View style={{ width: 44 }} />
@@ -148,19 +149,19 @@ export default function MealPhotoEstimateScreen() {
                         <View key={item.external_id} style={styles.card}>
                             <View style={styles.cardHeader}>
                                 <Text style={styles.itemName}>{item.display_name}</Text>
-                                <Pressable onPress={() => removeItem(index)} hitSlop={10}>
-                                    <Ionicons name="close-circle-outline" size={20} color="#666" />
+                                <Pressable onPress={() => { triggerHaptic(); removeItem(index); }} hitSlop={10}>
+                                    <Ionicons name="close-circle-outline" size={20} color={Colors.textTertiary} />
                                 </Pressable>
                             </View>
 
                             <View style={styles.cardRow}>
                                 <View style={styles.qtyControl}>
-                                    <Pressable onPress={() => updateQuantity(index, -0.25)} style={styles.qtyBtn}>
-                                        <Ionicons name="remove" size={16} color="#FFF" />
+                                    <Pressable onPress={() => { triggerHaptic(); updateQuantity(index, -0.25); }} style={styles.qtyBtn}>
+                                        <Ionicons name="remove" size={16} color={Colors.textPrimary} />
                                     </Pressable>
                                     <Text style={styles.qtyText}>{item.quantity} {item.serving_unit || 'svg'}</Text>
-                                    <Pressable onPress={() => updateQuantity(index, 0.25)} style={styles.qtyBtn}>
-                                        <Ionicons name="add" size={16} color="#FFF" />
+                                    <Pressable onPress={() => { triggerHaptic(); updateQuantity(index, 0.25); }} style={styles.qtyBtn}>
+                                        <Ionicons name="add" size={16} color={Colors.textPrimary} />
                                     </Pressable>
                                 </View>
 
@@ -177,11 +178,11 @@ export default function MealPhotoEstimateScreen() {
                     ))}
 
                     <Pressable
-                        onPress={handleConfirm}
+                        onPress={() => { triggerHaptic('medium'); handleConfirm(); }}
                         style={styles.confirmBtn}
                     >
                         <Text style={styles.confirmText}>Add to Meal</Text>
-                        <Ionicons name="checkmark" size={20} color="#FFF" />
+                        <Ionicons name="checkmark" size={20} color={Colors.buttonActionText} />
                     </Pressable>
 
                     <View style={{ height: 40 }} />
@@ -194,7 +195,7 @@ export default function MealPhotoEstimateScreen() {
 const styles = StyleSheet.create({
     safe: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: 'transparent',
     },
     root: {
         flex: 1,
@@ -226,18 +227,18 @@ const styles = StyleSheet.create({
     disclaimer: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 20,
         textAlign: 'center',
         fontStyle: 'italic',
     },
     card: {
-        backgroundColor: '#1b1b1c',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 16,
         padding: 16,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
     },
     cardHeader: {
         flexDirection: 'row',
@@ -248,7 +249,7 @@ const styles = StyleSheet.create({
     itemName: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: '#FFF',
+        color: Colors.textPrimary,
         flex: 1,
         marginRight: 10,
     },
@@ -260,7 +261,7 @@ const styles = StyleSheet.create({
     qtyControl: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#2C2C2E',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 8,
         padding: 4,
     },
@@ -269,13 +270,13 @@ const styles = StyleSheet.create({
         height: 28,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#3F4243',
+        backgroundColor: Colors.borderCard,
         borderRadius: 6,
     },
     qtyText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFF',
+        color: Colors.textPrimary,
         marginHorizontal: 12,
     },
     macros: {
@@ -284,19 +285,19 @@ const styles = StyleSheet.create({
     macroText: {
         fontFamily: fonts.bold,
         fontSize: 14,
-        color: '#4CAF50',
+        color: Colors.success,
         marginBottom: 2,
     },
     macroSub: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     confirmBtn: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#4CAF50',
+        backgroundColor: Colors.buttonAction,
         paddingVertical: 16,
         borderRadius: 30,
         marginTop: 20,
@@ -305,6 +306,6 @@ const styles = StyleSheet.create({
     confirmText: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.buttonActionText,
     },
 });

@@ -1,3 +1,4 @@
+import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import React from 'react';
 import { StyleSheet, Text, TextInput, TextInputProps, View, ViewStyle } from 'react-native';
@@ -15,7 +16,7 @@ export function Input({ label, containerStyle, right, style, ...props }: Props) 
       <View style={styles.shell}>
         <TextInput
           {...props}
-          placeholderTextColor={props.placeholderTextColor ?? '#878787'}
+          placeholderTextColor={props.placeholderTextColor ?? Colors.textPlaceholder}
           style={[styles.input, style]}
         />
         {right ? <View style={styles.right}>{right}</View> : null}
@@ -28,14 +29,14 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: fonts.medium,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     marginBottom: 14,
   },
   shell: {
-    backgroundColor: '#1b1b1c',
+    backgroundColor: Colors.inputBackgroundSolid,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#313135',
+    borderColor: Colors.inputBorderSolid,
     paddingHorizontal: 16,
     paddingVertical: 14,
     flexDirection: 'row',
@@ -46,7 +47,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     padding: 0,
   },
   right: {

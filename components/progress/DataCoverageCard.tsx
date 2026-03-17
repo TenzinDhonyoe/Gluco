@@ -64,7 +64,7 @@ const styles = StyleSheet.create({
         gap: 6,
         paddingVertical: 12,
         paddingHorizontal: 16,
-        backgroundColor: 'rgba(255,255,255,0.03)',
+        backgroundColor: 'rgba(0, 0, 0, 0.03)',
         borderRadius: 12,
     },
     label: {

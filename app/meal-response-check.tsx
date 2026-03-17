@@ -4,6 +4,8 @@
  */
 
 import { Disclaimer } from '@/components/ui/Disclaimer';
+import { triggerHaptic } from '@/lib/utils/haptics';
+import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -108,10 +110,6 @@ function AILoadingScreen({ message }: { message: string }) {
 
     return (
         <View style={loadingStyles.container}>
-            <LinearGradient
-                colors={['#111111', '#1A1B1C', '#111111']}
-                style={loadingStyles.gradient}
-            />
             <Image
                 source={Images.mascots.cook}
                 style={loadingStyles.mascot}
@@ -121,19 +119,19 @@ function AILoadingScreen({ message }: { message: string }) {
             <View style={loadingStyles.dotsContainer}>
                 <Animated.View style={[loadingStyles.dot, getDotStyle(dot1Anim)]}>
                     <LinearGradient
-                        colors={['#4CAF50', '#8BC34A']}
+                        colors={[Colors.success, '#86EFAC']}
                         style={loadingStyles.dotGradient}
                     />
                 </Animated.View>
                 <Animated.View style={[loadingStyles.dot, getDotStyle(dot2Anim)]}>
                     <LinearGradient
-                        colors={['#3494D9', '#64B5F6']}
+                        colors={[Colors.primary, '#99F6E4']}
                         style={loadingStyles.dotGradient}
                     />
                 </Animated.View>
                 <Animated.View style={[loadingStyles.dot, getDotStyle(dot3Anim)]}>
                     <LinearGradient
-                        colors={['#FF9800', '#FFB74D']}
+                        colors={[Colors.warning, '#FFD6B3']}
                         style={loadingStyles.dotGradient}
                     />
                 </Animated.View>
@@ -146,16 +144,9 @@ function AILoadingScreen({ message }: { message: string }) {
 const loadingStyles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    gradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
     },
     mascot: {
         width: 180,
@@ -165,7 +156,7 @@ const loadingStyles = StyleSheet.create({
     thinkingText: {
         fontFamily: fonts.semiBold,
         fontSize: 20,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 24,
     },
     dotsContainer: {
@@ -188,7 +179,7 @@ const loadingStyles = StyleSheet.create({
     subText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 8,
     },
 });
@@ -217,7 +208,7 @@ function FoodDisambiguationModal({
                             <TouchableOpacity
                                 key={`${food.provider}-${food.external_id}-${index}`}
                                 style={modalStyles.option}
-                                onPress={() => onSelect(food)}
+                                onPress={() => { triggerHaptic(); onSelect(food); }}
                             >
                                 <View style={modalStyles.optionInfo}>
                                     <Text style={modalStyles.optionName} numberOfLines={2}>
@@ -230,11 +221,11 @@ function FoodDisambiguationModal({
                                         {food.carbs_g?.toFixed(0) || 0}g carbs • {food.protein_g?.toFixed(0) || 0}g protein
                                     </Text>
                                 </View>
-                                <Ionicons name="chevron-forward" size={20} color="#878787" />
+                                <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
                             </TouchableOpacity>
                         ))}
                     </ScrollView>
-                    <TouchableOpacity style={modalStyles.cancelButton} onPress={onCancel}>
+                    <TouchableOpacity style={modalStyles.cancelButton} onPress={() => { triggerHaptic(); onCancel(); }}>
                         <Text style={modalStyles.cancelText}>Cancel</Text>
                     </TouchableOpacity>
                 </View>
@@ -250,7 +241,7 @@ const modalStyles = StyleSheet.create({
         justifyContent: 'flex-end',
     },
     container: {
-        backgroundColor: '#1A1B1C',
+        backgroundColor: 'rgba(240, 248, 249, 0.97)',
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         padding: 24,
@@ -259,7 +250,7 @@ const modalStyles = StyleSheet.create({
     title: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
         marginBottom: 16,
     },
     optionsList: {
@@ -270,7 +261,7 @@ const modalStyles = StyleSheet.create({
         alignItems: 'center',
         paddingVertical: 16,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255,255,255,0.08)',
+        borderBottomColor: 'rgba(60, 60, 67, 0.08)',
     },
     optionInfo: {
         flex: 1,
@@ -278,18 +269,18 @@ const modalStyles = StyleSheet.create({
     optionName: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
     },
     optionBrand: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
     optionMacros: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#3494D9',
+        color: Colors.primary,
         marginTop: 4,
     },
     cancelButton: {
@@ -300,7 +291,7 @@ const modalStyles = StyleSheet.create({
     cancelText: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
 });
 
@@ -368,6 +359,7 @@ export default function MealResponseCheckScreen() {
                 triggerAnalysis(initialText);
             }, 100);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialText, hasAutoAnalyzed, user?.id]);
 
     const handleClose = () => {
@@ -525,17 +517,11 @@ export default function MealResponseCheckScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Background gradient that matches other screens */}
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.backgroundGradient}
-            />
             <SafeAreaView style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <TouchableOpacity onPress={handleClose} style={styles.closeButton} activeOpacity={0.7}>
-                        <Ionicons name="close" size={20} color="#E7E8E9" />
+                    <TouchableOpacity onPress={() => { triggerHaptic(); handleClose(); }} style={styles.closeButton} activeOpacity={0.7}>
+                        <Ionicons name="close" size={20} color={Colors.textSecondary} />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>MEAL RESPONSE CHECK</Text>
                     <View style={styles.headerSpacer} />
@@ -560,12 +546,12 @@ export default function MealResponseCheckScreen() {
                                 {/* Balance Summary */}
                                 <View style={{ marginBottom: 20 }}>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                        <Text style={{ fontFamily: fonts.semiBold, fontSize: 18, color: '#E7E8E9' }}>Meal Balance</Text>
+                                        <Text style={{ fontFamily: fonts.semiBold, fontSize: 18, color: Colors.textPrimary }}>Meal Balance</Text>
                                         <View style={{ backgroundColor: '#E8F5E9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
                                             <Text style={{ fontFamily: fonts.medium, fontSize: 12, color: '#2E7D32' }}>ANALYZED</Text>
                                         </View>
                                     </View>
-                                    <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: '#B0BEC5', lineHeight: 20 }}>
+                                    <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: Colors.textSecondary, lineHeight: 20 }}>
                                         Here is how this meal aligns with your metabolic wellness.
                                     </Text>
                                 </View>
@@ -600,7 +586,7 @@ export default function MealResponseCheckScreen() {
                                             <Ionicons
                                                 name="ellipse"
                                                 size={8}
-                                                color="#878787"
+                                                color={Colors.textSecondary}
                                             />
                                             <Text style={styles.driverText}>{driver.text}</Text>
                                         </View>
@@ -639,6 +625,7 @@ export default function MealResponseCheckScreen() {
                             <TouchableOpacity
                                 style={styles.tryAgainButton}
                                 onPress={() => {
+                                    triggerHaptic();
                                     setAnalysisResult(null);
                                     setResolvedFoods([]);
                                     setInputText('');
@@ -653,7 +640,7 @@ export default function MealResponseCheckScreen() {
                             <TextInput
                                 style={styles.textInput}
                                 placeholder="e.g., butter chicken with naan and rice"
-                                placeholderTextColor="#878787"
+                                placeholderTextColor={Colors.textPlaceholder}
                                 value={inputText}
                                 onChangeText={setInputText}
                                 multiline
@@ -673,7 +660,7 @@ export default function MealResponseCheckScreen() {
                                     styles.analyzeButton,
                                     !inputText.trim() && styles.analyzeButtonDisabled,
                                 ]}
-                                onPress={handleAnalyze}
+                                onPress={() => { triggerHaptic('medium'); handleAnalyze(); }}
                                 disabled={!inputText.trim()}
                             >
                                 <Text style={styles.analyzeButtonText}>Analyze</Text>
@@ -698,14 +685,7 @@ export default function MealResponseCheckScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -721,7 +701,7 @@ const styles = StyleSheet.create({
         width: 48,
         height: 48,
         borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.buttonSecondary,
         justifyContent: 'center',
         alignItems: 'center',
         shadowColor: '#000',
@@ -732,8 +712,8 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
+        fontSize: 18,
+        color: Colors.textPrimary,
         letterSpacing: 2,
     },
     headerSpacer: {
@@ -756,18 +736,18 @@ const styles = StyleSheet.create({
     inputLabel: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
         marginBottom: 12,
     },
     textInput: {
-        backgroundColor: '#1A1B1C',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderColor: Colors.inputBorder,
         padding: 16,
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
         minHeight: 100,
     },
     errorContainer: {
@@ -782,37 +762,37 @@ const styles = StyleSheet.create({
     errorText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#F44336',
+        color: Colors.error,
         flex: 1,
     },
     analyzeButton: {
-        backgroundColor: '#3494D9',
-        borderRadius: 12,
+        backgroundColor: Colors.primary,
+        borderRadius: 20,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 24,
     },
     analyzeButtonDisabled: {
-        backgroundColor: '#3F4243',
+        backgroundColor: Colors.buttonDisabled,
     },
     analyzeButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     resultCard: {
-        backgroundColor: '#1A1B1C',
-        borderRadius: 16,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         padding: 20,
         marginBottom: 16,
     },
     scoreCard: {
-        backgroundColor: '#1E1E1E',
+        backgroundColor: Colors.backgroundCard,
         borderRadius: 16,
         padding: 20,
         marginBottom: 24,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderColor: Colors.borderCard,
     },
     scoreHeader: {
         flexDirection: 'row',
@@ -823,7 +803,7 @@ const styles = StyleSheet.create({
     scoreTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
     },
     scoreBadge: {
         paddingHorizontal: 12,
@@ -837,7 +817,7 @@ const styles = StyleSheet.create({
     scoreDescription: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#B0BEC5',
+        color: Colors.textSecondary,
         lineHeight: 20,
         marginBottom: 10,
     },
@@ -850,22 +830,22 @@ const styles = StyleSheet.create({
         gap: 12,
         paddingVertical: 8,
         paddingHorizontal: 12,
-        backgroundColor: 'rgba(255,255,255,0.03)',
+        backgroundColor: 'rgba(0,0,0,0.04)',
         borderRadius: 8,
     },
     driverText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
         flex: 1,
     },
     tipCard: {
-        backgroundColor: '#1A1B1C',
-        borderRadius: 16,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         padding: 16,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderColor: Colors.borderCard,
     },
     tipHeader: {
         flexDirection: 'row',
@@ -876,7 +856,7 @@ const styles = StyleSheet.create({
     tipTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 15,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
         flex: 1,
         marginRight: 8,
     },
@@ -893,12 +873,12 @@ const styles = StyleSheet.create({
     tipDescription: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#909090',
+        color: Colors.textSecondary,
         lineHeight: 18,
     },
     logButton: {
-        backgroundColor: '#3494D9',
-        borderRadius: 12,
+        backgroundColor: Colors.primary,
+        borderRadius: 20,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 12,
@@ -906,14 +886,14 @@ const styles = StyleSheet.create({
     logButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     macrosRow: {
         flexDirection: 'row',
         justifyContent: 'space-around',
         paddingTop: 16,
         borderTopWidth: 1,
-        borderTopColor: 'rgba(255,255,255,0.08)',
+        borderTopColor: Colors.border,
     },
     macroItem: {
         alignItems: 'center',
@@ -921,12 +901,12 @@ const styles = StyleSheet.create({
     macroValue: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
     },
     macroLabel: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
     section: {
@@ -935,13 +915,13 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
         marginBottom: 12,
     },
     tryAgainButton: {
         borderWidth: 1,
-        borderColor: '#3494D9',
-        borderRadius: 12,
+        borderColor: Colors.primary,
+        borderRadius: 20,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 16,
@@ -949,6 +929,6 @@ const styles = StyleSheet.create({
     tryAgainText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#3494D9',
+        color: Colors.primary,
     },
 });

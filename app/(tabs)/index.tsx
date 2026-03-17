@@ -1,35 +1,48 @@
-import { AnimatedFAB, type AnimatedFABRef } from '@/components/animations/animated-fab';
 import { AnimatedInteger } from '@/components/animations/animated-number';
-import { AnimatedScreen } from '@/components/animations/animated-screen';
-import { MealCheckinCard } from '@/components/cards/MealCheckinCard';
+import { DailyCheckinBanner } from '@/components/cards/DailyCheckinBanner';
+import { MealScoreCard } from '@/components/cards/MealScoreCard';
+import { StreakCard } from '@/components/cards/StreakCard';
+import { TodayMealCheckinsList } from '@/components/cards/TodayMealCheckinsList';
 import { PersonalInsightsCarousel } from '@/components/carousels/PersonalInsightsCarousel';
+import { MilestoneCelebration } from '@/components/celebrations/MilestoneCelebration';
 import { GlucoseTrendIndicator, type TrendStatus } from '@/components/charts/GlucoseTrendIndicator';
 import { MetabolicScoreRing } from '@/components/charts/MetabolicScoreRing';
 import { SegmentedControl } from '@/components/controls/segmented-control';
 import { ActiveExperimentWidget } from '@/components/experiments/ActiveExperimentWidget';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { SyncBanner } from '@/components/ui/SyncBanner';
+import { behaviorV1Theme } from '@/constants/behaviorV1Theme';
 import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
+import { useBehaviorHomeData } from '@/hooks/useBehaviorHomeData';
 import { useDailyContext } from '@/hooks/useDailyContext';
 import { fonts } from '@/hooks/useFonts';
-import { usePersonalInsights } from '@/hooks/usePersonalInsights';
 import { SleepData, useSleepData } from '@/hooks/useSleepData';
 import { useGlucoseTargetRange, useTodayScreenData } from '@/hooks/useTodayScreenData';
+import { useWeightTrends } from '@/hooks/useWeightTrends';
+import { useDailyCheckin } from '@/hooks/useDailyCheckin';
+import { useStreak } from '@/hooks/useStreak';
+import { useMealScores } from '@/hooks/useMealScores';
+import { isBehaviorV1Experience } from '@/lib/experience';
 import { InsightData, TrackingMode } from '@/lib/insights';
-import { getMetabolicWeeklyScores, GlucoseLog, invokeMetabolicScore, MealWithCheckin, MetabolicWeeklyScore } from '@/lib/supabase';
+import { type ScoreLabel } from '@/lib/mealScore';
+import { getMetabolicWeeklyScores, GlucoseLog, invokeMetabolicScore, invokeScoreExplanation, MealWithCheckin, MetabolicScoreComponentsV2, MetabolicWeeklyScore, ScoreExplanation } from '@/lib/supabase';
 import { getDateRange, getRangeDays, RangeKey } from '@/lib/utils/dateRanges';
 import { GlucoseUnit } from '@/lib/utils/glucoseUnits';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useCallback, useMemo, useRef, useState, useTransition } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
     Animated,
     Dimensions,
+    Easing,
     Image,
     KeyboardAvoidingView,
     Modal,
@@ -49,10 +62,76 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const TARGET_MIN_MMOL = 3.9;
 const TARGET_MAX_MMOL = 10.0;
-
+const WEEKLY_LOG_GOAL = 5;
+const CARD_SPACING = 10;
+const HERO_STACK_BOTTOM_GAP = 0;
 
 
 const getRangeLabel = (range: RangeKey) => `Avg over ${getRangeDays(range)} days`;
+
+function getMetabolicScoreColor(score: number): string {
+    if (score >= 80) return Colors.success; // Mint
+    if (score >= 50) return Colors.blue;    // Blue
+    return Colors.warning;                  // Amber
+}
+
+function getMetabolicScoreLabel(score: number): string {
+    if (score >= 80) return 'Optimal';
+    if (score >= 50) return 'Good';
+    return 'Needs focus';
+}
+
+type HomeMetabolicTone = {
+    label: string;
+    color: string;
+    gradient?: [string, string];
+};
+
+type BehaviorMomentumChipTone = 'neutral' | 'success';
+
+type BehaviorMomentumChip = {
+    label: string;
+    tone: BehaviorMomentumChipTone;
+    icon?: keyof typeof Ionicons.glyphMap;
+    iconColor?: string;
+};
+
+function getHomeMetabolicTone(score: number | null, isEarlyJourney: boolean): HomeMetabolicTone {
+    if (score === null) {
+        return {
+            label: 'Build baseline',
+            color: behaviorV1Theme.blueSoft,
+            gradient: [behaviorV1Theme.blueSoft, behaviorV1Theme.blueBright],
+        };
+    }
+
+    if (score >= 80) { // Optimal
+        return {
+            label: 'Optimal rhythm',
+            color: behaviorV1Theme.mintSoft,
+            gradient: [behaviorV1Theme.mintSoft, behaviorV1Theme.mintBright],
+        };
+    }
+
+    if (score >= 50) { // Building Momentum
+        return {
+            label: 'Building momentum',
+            color: behaviorV1Theme.blueSoft,
+            gradient: [behaviorV1Theme.blueSoft, behaviorV1Theme.blueBright],
+        };
+    }
+
+    // Room to grow (< 50)
+    return {
+        label: isEarlyJourney ? 'Momentum starts today' : 'Room to grow',
+        color: behaviorV1Theme.amberSoft,
+        gradient: [behaviorV1Theme.amberSoft, behaviorV1Theme.amberBright],
+    };
+}
+
+function clampScore(value: number): number {
+    return Math.min(100, Math.max(0, value));
+}
 
 // Determine trend status based on average glucose
 function getTrendStatus(avg: number, hasData: boolean, min: number = TARGET_MIN_MMOL, max: number = TARGET_MAX_MMOL): TrendStatus {
@@ -94,16 +173,12 @@ const GlucoseTrendsCard = React.memo(({ range, allLogs, isLoading, glucoseUnit }
     );
 
     return (
-        <LinearGradient
-            colors={['#2A2C2C', '#212222']} // Lighter top to target darker #212222 bottom
-            style={styles.trendsCard}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-        >
+        <View style={styles.trendsCard}>
             <GlucoseTrendIndicator status={trendStatus} size={220} />
-        </LinearGradient>
+        </View>
     );
 }, (prev, next) => prev.range === next.range && prev.isLoading === next.isLoading && prev.allLogs.length === next.allLogs.length && prev.glucoseUnit === next.glucoseUnit);
+GlucoseTrendsCard.displayName = 'GlucoseTrendsCard';
 
 
 // Stat Card Component
@@ -131,7 +206,6 @@ function StatCard({ icon, iconColor, title, value, unit, description }: {
 }
 
 // Elevated reading threshold - readings above this are considered elevated (mmol/L)
-const ELEVATED_THRESHOLD = 10.0;
 // Memoized In Target Band Stat Card - calculates % of READINGS (not days) in target range
 const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
     range: RangeKey;
@@ -191,6 +265,7 @@ const DaysInRangeCard = React.memo(({ range, glucoseLogs }: {
         </View>
     );
 }, (prev, next) => prev.range === next.range && prev.glucoseLogs === next.glucoseLogs);
+DaysInRangeCard.displayName = 'DaysInRangeCard';
 
 // Memoized Activity Stat Card - Unified (HealthKit + Manual)
 const ActivityStatCard = React.memo(({
@@ -230,7 +305,7 @@ const ActivityStatCard = React.memo(({
 
     // Status logic (Low < 20m, Moderate 20-40m, High > 40m)
     let statusColor = Colors.textTertiary;
-    let statusLabel = 'No data';
+    let statusLabel = 'Log activity or connect Health';
 
     if (hasData) {
         if (avgMinutes > 40) {
@@ -282,6 +357,7 @@ const ActivityStatCard = React.memo(({
     prev.healthKitMinutes === next.healthKitMinutes &&
     prev.isHealthKitAuthorized === next.isHealthKitAuthorized
 );
+ActivityStatCard.displayName = 'ActivityStatCard';
 
 // Fibre thresholds based on Canada DV (25g/day target) and average intake (~15g)
 const FIBRE_TARGET = 25;
@@ -347,7 +423,7 @@ const FibreStatCard = React.memo(({ range, fibreSummary }: {
 
     const status = getFibreStatus(avgPerDay);
     const statusColor = hasData ? getFibreStatusColor(status) : Colors.textTertiary;
-    const statusLabel = hasData ? (status.charAt(0).toUpperCase() + status.slice(1)) : 'No data';
+    const statusLabel = hasData ? (status.charAt(0).toUpperCase() + status.slice(1)) : 'Log a meal to track';
 
     return (
         <View style={styles.statCard}>
@@ -363,6 +439,7 @@ const FibreStatCard = React.memo(({ range, fibreSummary }: {
         </View>
     );
 }, (prev, next) => prev.range === next.range && prev.fibreSummary === next.fibreSummary);
+FibreStatCard.displayName = 'FibreStatCard';
 
 // Sleep thresholds based on CDC recommendations (7+ hours for adults)
 // <6: Poor, 6-7: Fair, >7: Good
@@ -397,7 +474,7 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
 
     const status = getSleepStatus(avgHours);
     const statusColor = hasData ? getSleepStatusColor(status) : Colors.textTertiary;
-    const statusLabel = hasData ? (status.charAt(0).toUpperCase() + status.slice(1)) : 'No data';
+    const statusLabel = hasData ? (status.charAt(0).toUpperCase() + status.slice(1)) : (isAuthorized ? 'Waiting for data' : 'Connect Apple Health');
 
     // Format hours - show whole number like "5" or decimal like "7.5"
     const displayValue = hasData
@@ -433,6 +510,7 @@ const SleepStatCard = React.memo(({ range, sleepData }: {
         </AnimatedPressable>
     );
 }, (prev, next) => prev.range === next.range && prev.sleepData === next.sleepData);
+SleepStatCard.displayName = 'SleepStatCard';
 
 // Steps Stat Card - for wearables_only mode (Apple Health)
 const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }: {
@@ -450,7 +528,7 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
 
     // Dynamic thresholds for steps (Sedentary < 5k, Low Active 5k-10k, Active > 10k)
     let statusColor = Colors.textTertiary;
-    let statusLabel = 'No data';
+    let statusLabel = isAuthorized ? 'Waiting for data' : 'Connect Apple Health';
 
     if (hasData && avgSteps !== null) {
         if (avgSteps >= 10000) {
@@ -496,12 +574,14 @@ const StepsStatCard = React.memo(({ avgSteps, isAuthorized, isAvailable, range }
         </AnimatedPressable>
     );
 });
+StepsStatCard.displayName = 'StepsStatCard';
 
 // Metabolic Score Card - matches stat card styling, compact until data exists
-const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }: {
+const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading, daysLogged = 0 }: {
     weeklyScores: MetabolicWeeklyScore[];
     currentScore: number | null;
     isLoading: boolean;
+    daysLogged?: number;
 }) => {
     // Get latest score and compute velocity
     const { latestScore } = useMemo(() => {
@@ -519,29 +599,36 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
 
     const hasScore = latestScore !== null && !isLoading;
 
-    const getScoreColor = (score: number) => {
-        if (score >= 70) return Colors.success;
-        if (score >= 50) return Colors.warning;
-        return Colors.error;
-    };
-
-    const getScoreLabel = (score: number) => {
-        if (score >= 70) return 'Excellent';
-        if (score >= 50) return 'Good';
-        return 'Needs focus';
-    };
 
 
-
-    // Empty/setup state - compact and instructional
+    // Empty/setup state - progress countdown
     if (!hasScore) {
+        const daysRemaining = Math.max(0, 7 - daysLogged);
         return (
-            <View style={styles.metabolicScoreCardEmpty}>
+            <View style={[styles.metabolicScoreCardEmpty, { backgroundColor: 'transparent', overflow: 'hidden' }]}>
+                <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
                 <View style={styles.metabolicScoreEmptyLeft}>
-                    <MetabolicScoreRing size={56} />
+                    <MetabolicScoreRing size={56} daysLogged={daysLogged} daysTarget={7} />
                     <View style={styles.metabolicScoreEmptyContent}>
                         <Text style={styles.metabolicScoreEmptyTitle}>Metabolic Score</Text>
-                        <Text style={styles.metabolicScoreEmptySubtitle}>Log sleep, activity, and meals to unlock</Text>
+                        <Text style={styles.metabolicScoreEmptySubtitle}>
+                            {daysRemaining > 0
+                                ? `Unlocks in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'} — keep logging!`
+                                : 'Almost ready — keep logging!'}
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 3, marginTop: 6 }}>
+                            {Array.from({ length: 7 }).map((_, i) => (
+                                <View
+                                    key={i}
+                                    style={{
+                                        flex: 1,
+                                        height: 3,
+                                        borderRadius: 1.5,
+                                        backgroundColor: i < daysLogged ? Colors.primary : 'rgba(0,0,0,0.08)',
+                                    }}
+                                />
+                            ))}
+                        </View>
                     </View>
                 </View>
             </View>
@@ -549,16 +636,15 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
     }
 
     // Data exists - show score with appropriate prominence
-    const scoreColor = getScoreColor(latestScore);
-    const scoreLabel = getScoreLabel(latestScore);
-
-    const progressPercent = Math.min(100, Math.max(0, latestScore));
+    const scoreColor = getMetabolicScoreColor(latestScore);
+    const scoreLabel = getMetabolicScoreLabel(latestScore);
 
     return (
         <AnimatedPressable
-            style={styles.metabolicScoreCardEmpty}
+            style={[styles.metabolicScoreCardEmpty, { backgroundColor: 'transparent', overflow: 'hidden' }]}
             onPress={() => router.push({ pathname: '/(tabs)/insights', params: { tab: 'progress' } })}
         >
+            <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
             <View style={styles.metabolicScoreEmptyLeft}>
                 <MetabolicScoreRing size={56} score={latestScore} scoreColor={scoreColor} />
                 <View style={styles.metabolicScoreEmptyContent}>
@@ -579,6 +665,7 @@ const MetabolicScoreCard = React.memo(({ weeklyScores, currentScore, isLoading }
         </AnimatedPressable>
     );
 });
+MetabolicScoreCard.displayName = 'MetabolicScoreCard';
 
 
 
@@ -637,6 +724,7 @@ function MealReflectionSheet({
 
     const handleAnalyze = () => {
         if (inputText.trim()) {
+            triggerHaptic('medium');
             onAnalyze(inputText.trim());
             setInputText('');
         }
@@ -748,14 +836,14 @@ const spikeSheetStyles = StyleSheet.create({
         marginBottom: 16,
     },
     input: {
-        backgroundColor: '#232527',
+        backgroundColor: Colors.inputBackground,
         borderRadius: 12,
         borderWidth: 1,
         borderColor: Colors.borderLight,
         padding: 16,
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
         minHeight: 80,
     },
     analyzeButton: {
@@ -803,6 +891,7 @@ function ExerciseInputSheet({
 
     const handleAnalyze = () => {
         if (inputText.trim()) {
+            triggerHaptic('medium');
             onAnalyze(inputText.trim());
             setInputText('');
         }
@@ -879,26 +968,534 @@ function ExerciseInputSheet({
 // const MINI_CHART_WIDTH = 280;
 const MINI_CHART_HEIGHT = 130;
 
+function BehaviorMetabolicHeroCard({
+    score,
+    scoreLoading,
+    scoreUnlocked,
+    unlockDaysCompleted,
+    unlockDaysTarget,
+    scoreTone,
+    encouragementText,
+    momentumChips,
+    onPressScore,
+}: {
+    score: number | null;
+    scoreLoading: boolean;
+    scoreUnlocked: boolean;
+    unlockDaysCompleted: number;
+    unlockDaysTarget: number;
+    scoreTone: HomeMetabolicTone;
+    encouragementText: string;
+    momentumChips: BehaviorMomentumChip[];
+    onPressScore: () => void;
+}) {
+    const resolvedScore = score !== null ? clampScore(score) : null;
+    const hasScore = scoreUnlocked && resolvedScore !== null;
+    const showLoadingState = scoreUnlocked && scoreLoading && resolvedScore === null;
+    const scoreColor = scoreTone.color;
+    const unlockedDays = Math.min(unlockDaysTarget, Math.max(0, unlockDaysCompleted));
 
-export default function TodayScreen() {
+    return (
+        <View style={styles.behaviorHeroGlassWrapper}>
+            <BlurView intensity={50} tint="light" style={styles.behaviorHeroGlassInner}>
+                <LinearGradient
+                    colors={['rgba(255,255,255,0.8)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.5)']}
+                    locations={[0, 0.4, 1]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                />
+                <LinearGradient
+                    colors={['rgba(255,255,255,0.5)', 'rgba(255,255,255,0)']}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 0.4 }}
+                    style={StyleSheet.absoluteFill}
+                />
+                <View style={styles.behaviorHeroGlassHighlight} />
+
+                <View style={styles.behaviorPrimaryTopRow}>
+                    <View style={styles.behaviorHeroLabelRow}>
+                        <Ionicons name="pulse-outline" size={14} color={behaviorV1Theme.textSecondary} />
+                        <Text style={styles.behaviorLabel}>METABOLIC SCORE</Text>
+                    </View>
+                </View>
+
+                <AnimatedPressable style={styles.behaviorScoreRow} onPress={onPressScore}>
+                    <View style={styles.behaviorScoreContent}>
+                        {scoreUnlocked ? (
+                            <>
+                                <View style={styles.behaviorScoreValueRow}>
+                                    <Text style={styles.behaviorScoreValue}>
+                                        {hasScore ? Math.round(resolvedScore).toString() : '--'}
+                                    </Text>
+                                    <Text style={styles.behaviorScoreValueMax}>/100</Text>
+                                </View>
+                                <Text style={styles.behaviorScoreMeta}>
+                                    {showLoadingState
+                                        ? 'Refreshing from sleep, activity, meals, and glucose'
+                                        : encouragementText}
+                                </Text>
+                            </>
+                        ) : (
+                            <>
+                                <Text style={styles.behaviorScoreUnlockTitle}>
+                                    {unlockDaysTarget - unlockedDays > 0
+                                        ? `Unlocks in ${unlockDaysTarget - unlockedDays} day${unlockDaysTarget - unlockedDays === 1 ? '' : 's'}`
+                                        : 'Almost ready!'}
+                                </Text>
+                                <View style={styles.behaviorUnlockProgressPill}>
+                                    <Text style={styles.behaviorUnlockProgressText}>
+                                        {unlockedDays} of {unlockDaysTarget} days complete
+                                    </Text>
+                                </View>
+                                <Text style={styles.behaviorScoreMeta}>
+                                    Keep logging to unlock your personalized score
+                                </Text>
+                            </>
+                        )}
+                    </View>
+                    <View style={styles.behaviorScoreRingWrap}>
+                        <MetabolicScoreRing
+                            size={82}
+                            score={scoreUnlocked ? resolvedScore : null}
+                            scoreColor={scoreColor}
+                            visualPreset="hero_vivid"
+                            showInnerValue={false}
+                            gradientColors={scoreTone.gradient}
+                            daysLogged={!scoreUnlocked ? unlockedDays : undefined}
+                            daysTarget={unlockDaysTarget}
+                        />
+                    </View>
+                </AnimatedPressable>
+
+                {momentumChips.length > 0 && (
+                    <View style={styles.behaviorMomentumChipsRow}>
+                        {momentumChips.map((chip, index) => (
+                            <View
+                                key={`${chip.label}-${index}`}
+                                style={[
+                                    styles.behaviorMomentumChip,
+                                    chip.tone === 'success'
+                                        ? styles.behaviorMomentumChipSuccess
+                                        : styles.behaviorMomentumChipNeutral,
+                                ]}
+                            >
+                                {chip.icon && (
+                                    <Ionicons
+                                        name={chip.icon}
+                                        size={12}
+                                        color={chip.iconColor ?? (chip.tone === 'success' ? Colors.success : behaviorV1Theme.textSecondary)}
+                                    />
+                                )}
+                                <Text
+                                    style={[
+                                        styles.behaviorMomentumChipText,
+                                        chip.tone === 'success'
+                                            ? styles.behaviorMomentumChipTextSuccess
+                                            : styles.behaviorMomentumChipTextNeutral,
+                                    ]}
+                                >
+                                    {chip.label}
+                                </Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
+
+            </BlurView>
+        </View>
+    );
+}
+
+function BehaviorNextActionCard({
+    actionTitle,
+    actionDescription,
+    ctaLabel,
+    onPressAction,
+    onPressMoreSteps,
+}: {
+    actionTitle: string;
+    actionDescription: string;
+    ctaLabel: string;
+    onPressAction: () => void;
+    onPressMoreSteps: () => void;
+}) {
+    return (
+        <View style={styles.darkActionCardWrapper}>
+            <View style={styles.darkActionCard}>
+                <LinearGradient
+                    colors={['#2A2E35', '#1C1F24', '#232730']}
+                    locations={[0, 0.5, 1]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                />
+                <View style={styles.darkActionCardHighlight} />
+                <View style={styles.darkActionTitleRow}>
+                    <Ionicons name="sparkles" size={16} color={Colors.primary} />
+                    <Text style={styles.darkActionLabel}>Personalized Tips</Text>
+                </View>
+                <Text style={styles.darkActionDescription}>{actionDescription}</Text>
+                <AnimatedPressable style={styles.darkActionCta} onPress={onPressAction}>
+                    <Text style={styles.darkActionCtaText}>{ctaLabel}  →</Text>
+                </AnimatedPressable>
+            </View>
+        </View>
+    );
+}
+
+/** Weekly bar chart — rounded capsule bars with M T W T F S S labels.
+ *  Today's bar is highlighted in the accent colour; others are muted. */
+const WEEK_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+const WeeklyBarChart = React.memo(({ data, color, height = 40 }: {
+    data: { label: string; value: number; isToday: boolean }[];
+    color: string;
+    height?: number;
+}) => {
+    if (data.length === 0) return null;
+    const max = Math.max(...data.map(d => d.value), 1);
+    const BAR_WIDTH = 7;
+
+    return (
+        <View style={{ marginTop: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height, gap: 0 }}>
+                {data.map((d, i) => {
+                    const barH = d.value > 0
+                        ? Math.max(8, (d.value / max) * height)
+                        : 8;
+                    return (
+                        <View key={i} style={{ flex: 1, alignItems: 'center' }}>
+                            <View
+                                style={{
+                                    width: BAR_WIDTH,
+                                    height: barH,
+                                    borderRadius: BAR_WIDTH / 2,
+                                    backgroundColor: d.isToday ? color : behaviorV1Theme.textSecondary,
+                                    opacity: d.isToday ? 1 : (d.value > 0 ? 0.45 : 0.15),
+                                }}
+                            />
+                        </View>
+                    );
+                })}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 0, marginTop: 5 }}>
+                {data.map((d, i) => (
+                    <Text key={i} style={{
+                        flex: 1,
+                        textAlign: 'center',
+                        fontFamily: d.isToday ? fonts.semiBold : fonts.regular,
+                        fontSize: 9,
+                        color: d.isToday ? behaviorV1Theme.textPrimary : behaviorV1Theme.textSecondary,
+                        opacity: d.isToday ? 0.8 : 0.45,
+                    }}>
+                        {d.label}
+                    </Text>
+                ))}
+            </View>
+        </View>
+    );
+});
+WeeklyBarChart.displayName = 'WeeklyBarChart';
+
+function BehaviorMomentumCard({
+    label,
+    value,
+    subtitle,
+    icon,
+    accentColor,
+    accentSurface,
+    accentBorder,
+    state = 'data',
+    chart,
+    inviteTitle,
+    inviteDescription,
+    inviteCtaLabel,
+    onPress,
+}: {
+    label: string;
+    value: string;
+    subtitle: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    accentColor: string;
+    accentSurface: string;
+    accentBorder: string;
+    state?: 'data' | 'invite';
+    chart?: React.ReactNode;
+    inviteTitle?: string;
+    inviteDescription?: string;
+    inviteCtaLabel?: string;
+    onPress?: () => void;
+}) {
+    // Invite state — centered layout matching reference
+    if (state === 'invite') {
+        return (
+            <View style={styles.behaviorSmallGlassWrapper}>
+                <AnimatedPressable
+                    style={[
+                        styles.behaviorMomentumCard,
+                        styles.behaviorMomentumCardInvite,
+                        { borderColor: accentBorder, backgroundColor: 'transparent' },
+                    ]}
+                    onPress={onPress}
+                    disabled={!onPress}
+                >
+                    <BlurView intensity={50} tint="light" style={[StyleSheet.absoluteFill, { backgroundColor: accentSurface }]}>
+                        <LinearGradient
+                            colors={['rgba(255,255,255,0.7)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.35)']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={StyleSheet.absoluteFill}
+                        />
+                        <LinearGradient
+                            colors={['rgba(255,255,255,0.6)', 'rgba(255,255,255,0)']}
+                            start={{ x: 0.5, y: 0 }}
+                            end={{ x: 0.5, y: 0.45 }}
+                            style={StyleSheet.absoluteFill}
+                        />
+                        <View style={styles.behaviorSmallGlassHighlight} />
+                    </BlurView>
+                    <View style={styles.momentumInviteCentered}>
+                        <Ionicons name={icon} size={22} color={accentColor} style={{ marginBottom: 8 }} />
+                        <Text style={styles.momentumInviteTitle}>{inviteTitle || label}</Text>
+                        {inviteDescription ? (
+                            <Text style={styles.momentumInviteDesc}>{inviteDescription}</Text>
+                        ) : null}
+                        {inviteCtaLabel ? (
+                            <View style={[styles.momentumInviteCta, { borderColor: accentColor }]}>
+                                <Text style={[styles.momentumInviteCtaText, { color: accentColor }]}>{inviteCtaLabel}</Text>
+                            </View>
+                        ) : null}
+                    </View>
+                </AnimatedPressable>
+            </View>
+        );
+    }
+
+    // Data state — icon+label → value → chart → subtitle
+    return (
+        <View style={styles.behaviorSmallGlassWrapper}>
+            <AnimatedPressable
+                style={[
+                    styles.behaviorMomentumCard,
+                    { borderColor: accentBorder, backgroundColor: 'transparent' },
+                ]}
+                onPress={onPress}
+                disabled={!onPress}
+            >
+                <BlurView intensity={50} tint="light" style={[StyleSheet.absoluteFill, { backgroundColor: accentSurface }]}>
+                    <LinearGradient
+                        colors={['rgba(255,255,255,0.7)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.35)']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={StyleSheet.absoluteFill}
+                    />
+                    <LinearGradient
+                        colors={['rgba(255,255,255,0.6)', 'rgba(255,255,255,0)']}
+                        start={{ x: 0.5, y: 0 }}
+                        end={{ x: 0.5, y: 0.45 }}
+                        style={StyleSheet.absoluteFill}
+                    />
+                    <View style={styles.behaviorSmallGlassHighlight} />
+                </BlurView>
+                <View style={styles.behaviorMomentumLabelRow}>
+                    <Ionicons name={icon} size={13} color={accentColor} />
+                    <Text style={[styles.behaviorMomentumLabel, { color: accentColor }]}>{label}</Text>
+                </View>
+                <Text style={styles.behaviorMomentumValue}>
+                    {value}
+                </Text>
+                {chart}
+                <Text style={styles.behaviorMomentumSubtitle}>
+                    {subtitle}
+                </Text>
+            </AnimatedPressable>
+        </View>
+    );
+}
+
+function BehaviorAdvancedGlucoseCard({
+    expanded,
+    onToggle,
+    avgGlucose,
+    timeInZone,
+}: {
+    expanded: boolean;
+    onToggle: () => void;
+    avgGlucose: string;
+    timeInZone: string;
+}) {
+    return (
+        <BlurView intensity={60} tint="light" style={styles.behaviorAdvancedCard}>
+            <AnimatedPressable style={styles.behaviorAdvancedHeader} onPress={onToggle}>
+                <View style={styles.behaviorAdvancedHeaderLeft}>
+                    <Ionicons name="analytics-outline" size={16} color={Colors.textSecondary} />
+                    <Text style={styles.behaviorAdvancedTitle}>Advanced glucose details</Text>
+                </View>
+                <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textTertiary} />
+            </AnimatedPressable>
+            {expanded && (
+                <View style={styles.behaviorAdvancedBody}>
+                    <View style={styles.behaviorAdvancedMetric}>
+                        <Text style={styles.behaviorAdvancedMetricLabel}>Average</Text>
+                        <Text style={styles.behaviorAdvancedMetricValue}>{avgGlucose}</Text>
+                    </View>
+                    <View style={styles.behaviorAdvancedMetric}>
+                        <Text style={styles.behaviorAdvancedMetricLabel}>In target</Text>
+                        <Text style={styles.behaviorAdvancedMetricValue}>{timeInZone}</Text>
+                    </View>
+                    <AnimatedPressable
+                        style={styles.behaviorAdvancedCta}
+                        onPress={() => router.push('/log-glucose')}
+                    >
+                        <Text style={styles.behaviorAdvancedCtaText}>Log glucose</Text>
+                    </AnimatedPressable>
+                </View>
+            )}
+        </BlurView>
+    );
+}
+
+
+// ============================================
+// Score-aware tip generator
+// ============================================
+
+interface ScoreAwareTip {
+    title: string;
+    description: string;
+    ctaLabel: string;
+    actionType: string;
+    route: string;
+}
+
+function getScoreAwareTip(
+    components: MetabolicScoreComponentsV2 | null,
+    dailyContext: { avgSteps: number | null; avgSleepHours: number | null; avgRestingHR: number | null; avgHRV: number | null },
+    sleepAvgHours: number | null,
+): ScoreAwareTip | null {
+    if (!components) return null;
+
+    const badness: { key: string; value: number }[] = [];
+    if (components.sleepBad !== null) badness.push({ key: 'sleep', value: components.sleepBad });
+    if (components.stepsBad !== null) badness.push({ key: 'steps', value: components.stepsBad });
+    if (components.rhrBad !== null) badness.push({ key: 'rhr', value: components.rhrBad });
+    if (components.hrvBad !== null) badness.push({ key: 'hrv', value: components.hrvBad });
+
+    if (badness.length === 0) return null;
+
+    // Sort descending by badness — worst component first
+    badness.sort((a, b) => b.value - a.value);
+    const worst = badness[0];
+
+    // Don't nag users who are doing well
+    if (worst.value <= 0.3) return null;
+
+    const avgSleep = sleepAvgHours ?? dailyContext.avgSleepHours;
+    const avgSteps = dailyContext.avgSteps;
+    const avgRHR = dailyContext.avgRestingHR;
+
+    switch (worst.key) {
+        case 'sleep': {
+            const sleepStr = avgSleep ? `${avgSleep.toFixed(1)}h` : 'below optimal';
+            return {
+                title: 'Improve your sleep rhythm',
+                description: `Your sleep has averaged ${sleepStr} — a consistent bedtime tonight could help your score.`,
+                ctaLabel: 'View insights',
+                actionType: 'sleep_improvement',
+                route: '/(tabs)/insights',
+            };
+        }
+        case 'steps': {
+            const stepsStr = avgSteps ? avgSteps.toLocaleString() : 'fewer than recommended';
+            return {
+                title: 'Add more movement today',
+                description: `You've averaged ${stepsStr} steps/day — a 10-min walk after your next meal could help.`,
+                ctaLabel: 'Log activity',
+                actionType: 'post_meal_walk',
+                route: '/log-activity',
+            };
+        }
+        case 'rhr': {
+            const rhrStr = avgRHR ? `${Math.round(avgRHR)} bpm` : 'elevated';
+            return {
+                title: 'Support your recovery',
+                description: `Your resting heart rate is ${rhrStr} — gentle movement or a breathing exercise can help.`,
+                ctaLabel: 'Log activity',
+                actionType: 'recovery_activity',
+                route: '/log-activity',
+            };
+        }
+        case 'hrv': {
+            return {
+                title: 'Focus on recovery tonight',
+                description: 'Your recovery patterns have room to grow — consistent sleep and winding down early support this.',
+                ctaLabel: 'View insights',
+                actionType: 'recovery_sleep',
+                route: '/(tabs)/insights',
+            };
+        }
+        default:
+            return null;
+    }
+}
+
+class TodayScreenErrorBoundary extends React.Component<
+    { children: React.ReactNode },
+    { hasError: boolean; error: Error | null }
+> {
+    state = { hasError: false, error: null as Error | null };
+    static getDerivedStateFromError(error: Error) {
+        return { hasError: true, error };
+    }
+    componentDidCatch(error: Error, info: React.ErrorInfo) {
+        console.error('[TodayScreen] Render crash:', error, info.componentStack);
+    }
+    render() {
+        if (this.state.hasError) {
+            return (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, backgroundColor: '#F2F2F7' }}>
+                    <Text style={{ fontSize: 18, fontWeight: '700', color: '#1C1C1E', marginBottom: 12 }}>
+                        Something went wrong
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#8E8E93', textAlign: 'center' }}>
+                        {this.state.error?.message}
+                    </Text>
+                    {__DEV__ && (
+                        <Text style={{ fontSize: 11, color: '#AEAEB2', textAlign: 'center', marginTop: 8 }}>
+                            {this.state.error?.stack?.split('\n').slice(0, 5).join('\n')}
+                        </Text>
+                    )}
+                </View>
+            );
+        }
+        return this.props.children;
+    }
+}
+
+function TodayScreenInner() {
     const { profile, user } = useAuth();
     const glucoseUnit = useGlucoseUnit();
+    const isBehaviorV1 = isBehaviorV1Experience(profile?.experience_variant);
     const insets = useSafeAreaInsets();
-    const [isFabOpen, setIsFabOpen] = useState(false);
     const [range, setRange] = useState<RangeKey>('30d');
     const [spikeSheetVisible, setSpikeSheetVisible] = useState(false);
     const [exerciseSheetVisible, setExerciseSheetVisible] = useState(false);
     const [weeklyScores, setWeeklyScores] = useState<MetabolicWeeklyScore[]>([]);
     const [currentScore, setCurrentScore] = useState<number | null>(null);
+    const [scoreComponentsV2, setScoreComponentsV2] = useState<MetabolicScoreComponentsV2 | null>(null);
     const [scoresLoading, setScoresLoading] = useState(true);
-    const overlayOpacity = React.useRef(new Animated.Value(0)).current;
-    const fabRef = React.useRef<AnimatedFABRef>(null);
+    const [advancedGlucoseExpanded, setAdvancedGlucoseExpanded] = useState(false);
+    const [scoreExplanationVisible, setScoreExplanationVisible] = useState(false);
+    const [scoreExplanation, setScoreExplanation] = useState<ScoreExplanation | null>(null);
+    const [scoreExplanationLoading, setScoreExplanationLoading] = useState(false);
+    const scoreExplanationSlideAnim = useRef(new Animated.Value(400)).current;
     const scrollViewRef = useRef<ScrollView>(null);
 
     useScrollToTop(scrollViewRef);
 
     // Use transition for non-blocking range changes
-    const [isPending, startTransition] = useTransition();
+    const [, startTransition] = useTransition();
 
     // Handler for range changes - uses startTransition to keep UI responsive
     const handleRangeChange = useCallback((newRange: RangeKey) => {
@@ -907,21 +1504,27 @@ export default function TodayScreen() {
         });
     }, []);
 
+    const selectedRange: RangeKey = isBehaviorV1 ? '7d' : range;
+
     // Use unified data fetching hook - batches all queries
-    const { glucoseLogs, activityLogs, fibreSummary, recentMeals, isLoading, refetch: refetchData } = useTodayScreenData(range);
+    const { glucoseLogs, activityLogs, fibreSummary, recentMeals, isLoading, refetch: refetchData } = useTodayScreenData(selectedRange);
     const { targetMin, targetMax } = useGlucoseTargetRange();
     const [isRefreshing, setIsRefreshing] = useState(false);
 
     // Fetch sleep data from HealthKit (always fetches 90d, doesn't refetch on range change)
-    const { data: sleepData, refetch: refetchSleep } = useSleepData(range);
+    const { data: sleepData, refetch: refetchSleep } = useSleepData(selectedRange);
+    const {
+        latestWeightKg,
+        delta7dKg,
+        logs: weightLogs,
+        refetch: refetchWeight,
+        isLoading: weightLoading,
+    } = useWeightTrends(30);
 
     // Fetch daily context (steps, active minutes) from HealthKit
     // Always use 90d range to avoid refetching when user switches timeframes
     const maxDateRange = useMemo(() => getDateRange('90d'), []);
     const dailyContext = useDailyContext(user?.id, maxDateRange.startDate, maxDateRange.endDate);
-
-    // Check if user is in wearables_only mode
-    const isWearablesOnly = profile?.tracking_mode === 'wearables_only';
 
     // Fetch metabolic weekly scores - invoke edge function to compute & store, then fetch
     const fetchWeeklyScores = useCallback(async () => {
@@ -934,6 +1537,11 @@ export default function TodayScreen() {
             // Store the current score directly from edge function for immediate display
             if (result?.score7d !== undefined && result?.score7d !== null) {
                 setCurrentScore(result.score7d);
+            }
+
+            // Store component badness values for score-aware tips
+            if (result?.components_v2) {
+                setScoreComponentsV2(result.components_v2);
             }
 
             // Then fetch all stored weekly scores for trend calculation
@@ -952,6 +1560,19 @@ export default function TodayScreen() {
         }, [fetchWeeklyScores])
     );
 
+    const resolvedHomeScore = useMemo(() => {
+        if (typeof currentScore === 'number') {
+            return clampScore(currentScore);
+        }
+
+        const latestStoredScore = weeklyScores.find((entry) => entry.score7d !== null)?.score7d ?? null;
+        if (typeof latestStoredScore === 'number') {
+            return clampScore(latestStoredScore);
+        }
+
+        return null;
+    }, [currentScore, weeklyScores]);
+
     // Pull-to-refresh handler - syncs all data sources
     const onRefresh = useCallback(async () => {
         setIsRefreshing(true);
@@ -960,6 +1581,7 @@ export default function TodayScreen() {
                 refetchData(),
                 dailyContext.sync(),
                 refetchSleep(),
+                refetchWeight(),
                 fetchWeeklyScores(),
             ]);
         } catch (error) {
@@ -967,20 +1589,18 @@ export default function TodayScreen() {
         } finally {
             setIsRefreshing(false);
         }
-    }, [refetchData, dailyContext, refetchSleep, fetchWeeklyScores]);
+    }, [refetchData, dailyContext, refetchSleep, refetchWeight, fetchWeeklyScores]);
 
     // Determine which tracking mode category the user is in
     const trackingMode = (profile?.tracking_mode || 'meals_wearables') as TrackingMode;
     const showWearableStats = trackingMode === 'meals_wearables' || trackingMode === 'wearables_only';
     // Show glucose UI for all modes since this is a metabolic wellness app
     const showGlucoseUI = true;
-    const showMealsOnlyStats = trackingMode === 'meals_only';
 
     // Stable fallback data for rules-based insights (memoized to prevent re-renders)
     const fallbackData = useMemo((): InsightData => {
         // Calculate Time in Zone %
         let timeInZonePercent = undefined;
-        let lowFibreMealsAboveZone = false; // Simplified placeholder
 
         if (glucoseLogs && glucoseLogs.length > 0) {
             const inZoneCount = glucoseLogs.filter(l => l.glucose_level >= targetMin && l.glucose_level <= targetMax).length;
@@ -1005,38 +1625,489 @@ export default function TodayScreen() {
             checkinsThisWeek: recentMeals?.filter(m =>
                 m.meal_checkins && m.meal_checkins.length > 0
             ).length,
+            weightLogsCount: weightLogs.length,
         };
-    }, [glucoseLogs, recentMeals, sleepData?.avgHoursPerNight, dailyContext.avgSteps, dailyContext.avgActiveMinutes, fibreSummary?.avgPerDay, targetMin, targetMax]);
+    }, [glucoseLogs, recentMeals, sleepData?.avgHoursPerNight, dailyContext.avgSteps, dailyContext.avgActiveMinutes, fibreSummary?.avgPerDay, targetMin, targetMax, weightLogs.length]);
 
-    // LLM-powered personal insights with stable hook (no infinite loops)
     const {
         insights: personalInsights,
-        primaryInsight,
-        secondaryInsights,
+        primaryAction: primaryInsight,
+        secondaryActions: secondaryInsights,
+        activeActions: behaviorActiveActions,
+        nextBestAction,
         dismissInsight,
+        insightReadiness,
         loading: insightsLoading
-    } = usePersonalInsights({
+    } = useBehaviorHomeData({
         userId: user?.id,
         trackingMode,
         rangeKey: '7d',
         enabled: !!user?.id,
         fallbackData,
+        generationOptions: {
+            experienceVariant: isBehaviorV1 ? 'behavior_v1' : 'legacy',
+            readinessLevel: profile?.readiness_level ?? undefined,
+            comBBarrier: profile?.com_b_barrier ?? undefined,
+            showGlucoseAdvanced: profile?.show_glucose_advanced ?? false,
+        },
     });
 
 
-    // Process meal reviews - only show meals once the 1-hour timer has passed.
-    const displayMeals = useMemo(() => {
-        if (!user?.id) return [];
-        const nowMs = Date.now();
-        const oneHourAgoMs = nowMs - 60 * 60 * 1000;
+    // Retention features: streak, daily check-in, wellness score
+    const { streak, longestStreak, shieldAvailable, milestone, shieldUsed, streakBroken, clearMilestone } = useStreak();
+    const { isCompleted: dailyCheckinCompleted } = useDailyCheckin();
+    const { scores: mealScores } = useMealScores(user?.id);
 
-        return (recentMeals || []).filter(meal => {
-            const mealTimeMs = new Date(meal.logged_at).getTime();
-            return Number.isFinite(mealTimeMs) && mealTimeMs <= oneHourAgoMs;
+    // Most recent scored meal for the MealScoreCard (last 24 hours)
+    const latestMealScore = useMemo(() => {
+        if (mealScores.length === 0) return null;
+        const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+        const recent = mealScores.find(s => new Date(s.created_at).getTime() > oneDayAgo);
+        return recent ?? null;
+    }, [mealScores]);
+
+    // Recent meals for the check-in section (newest first, max 5)
+    const checkinMeals = useMemo(() => {
+        if (!recentMeals) return [];
+        return [...recentMeals]
+            .sort((a, b) => new Date(b.logged_at).getTime() - new Date(a.logged_at).getTime())
+            .slice(0, 5);
+    }, [recentMeals]);
+
+    const canShowAdvancedGlucose = useMemo(() => {
+        const glucoseModeEnabled =
+            trackingMode === 'manual_glucose_optional' || trackingMode === 'glucose_tracking';
+        return !!profile?.show_glucose_advanced && (glucoseModeEnabled || glucoseLogs.length > 0);
+    }, [profile?.show_glucose_advanced, trackingMode, glucoseLogs.length]);
+
+    const advancedGlucoseSummary = useMemo(() => {
+        if (!glucoseLogs.length) {
+            return { avg: 'No data', inTarget: 'No data' };
+        }
+
+        const avg = glucoseLogs.reduce((sum, log) => sum + log.glucose_level, 0) / glucoseLogs.length;
+        const inTarget = glucoseLogs.filter(
+            log => log.glucose_level >= targetMin && log.glucose_level <= targetMax
+        ).length;
+
+        return {
+            avg: `${avg.toFixed(1)} mmol/L`,
+            inTarget: `${Math.round((inTarget / glucoseLogs.length) * 100)}%`,
+        };
+    }, [glucoseLogs, targetMin, targetMax]);
+
+    const primaryBehaviorCard = useMemo(() => {
+        // Priority 1: Active user actions (keeps action loop primary)
+        if (behaviorActiveActions.length > 0) {
+            const firstAction = behaviorActiveActions[0];
+            return {
+                title: firstAction.title,
+                description: firstAction.description,
+                ctaLabel: 'Open action loop',
+                actionType: firstAction.action_type?.toLowerCase().trim() || 'log_meal',
+                onPress: () => router.push({ pathname: '/(tabs)/insights', params: { tab: 'actions' } }),
+            };
+        }
+
+        // Priority 2: AI-generated Next Best Action
+        if (nextBestAction) {
+            return {
+                title: nextBestAction.title,
+                description: nextBestAction.description,
+                ctaLabel: nextBestAction.cta?.label || 'Take action',
+                actionType: nextBestAction.action_type || 'log_meal',
+                onPress: () => {
+                    if (nextBestAction.cta?.route) {
+                        router.push(nextBestAction.cta.route as any);
+                    } else {
+                        router.push({ pathname: '/(tabs)/insights', params: { tab: 'actions' } });
+                    }
+                },
+            };
+        }
+
+        // Priority 3: Rules-based primary insight
+        if (primaryInsight) {
+            const cta = primaryInsight.action?.cta ?? primaryInsight.cta;
+            const actionType = primaryInsight.action?.actionType || 'log_meal';
+            return {
+                title: primaryInsight.action?.title || primaryInsight.title,
+                description: primaryInsight.recommendation,
+                ctaLabel: cta?.label || 'Start action',
+                actionType,
+                onPress: () => {
+                    if (cta?.route) {
+                        router.push(cta.route as any);
+                    } else {
+                        router.push({ pathname: '/(tabs)/insights', params: { tab: 'actions' } });
+                    }
+                },
+            };
+        }
+
+        // Priority 4: Score-component-aware tip
+        const scoreTip = getScoreAwareTip(scoreComponentsV2, dailyContext, sleepData?.avgHoursPerNight ?? null);
+        if (scoreTip) {
+            return {
+                title: scoreTip.title,
+                description: scoreTip.description,
+                ctaLabel: scoreTip.ctaLabel,
+                actionType: scoreTip.actionType,
+                onPress: () => router.push(scoreTip.route as any),
+            };
+        }
+
+        // Priority 5: Data-bootstrapping tip
+        if (resolvedHomeScore === null) {
+            if (dailyContext.isAvailable && !dailyContext.isAuthorized) {
+                return {
+                    title: 'Connect health data',
+                    description: 'Link Apple Health to unlock your personalized wellness score.',
+                    ctaLabel: 'Connect',
+                    actionType: 'connect_health',
+                    onPress: () => router.push('/data-sources'),
+                };
+            }
+            return {
+                title: 'Keep logging to build your score',
+                description: 'A few more days of data and your personalized score will be ready.',
+                ctaLabel: 'Log a meal',
+                actionType: 'log_meal',
+                onPress: () => router.push('/meal-scanner'),
+            };
+        }
+
+        // Priority 6: Generic fallback
+        return {
+            title: 'Build your first behavior streak',
+            description: 'Log one meal or one short walk today to start your momentum.',
+            ctaLabel: 'Log a meal',
+            actionType: 'log_meal',
+            onPress: () => router.push('/meal-scanner'),
+        };
+    }, [behaviorActiveActions, nextBestAction, primaryInsight, scoreComponentsV2, dailyContext, sleepData, resolvedHomeScore]);
+
+    const handleScorePress = useCallback(async () => {
+        if (!user?.id || !resolvedHomeScore) return;
+        triggerHaptic();
+
+        setScoreExplanationVisible(true);
+        scoreExplanationSlideAnim.setValue(400);
+        Animated.spring(scoreExplanationSlideAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 65,
+            friction: 11,
+        }).start();
+
+        // Use real component scores if available, otherwise distribute evenly
+        const scoreVal = resolvedHomeScore ?? 50;
+        const components = scoreComponentsV2 ? {
+            rhr: Math.round((1 - (scoreComponentsV2.rhrBad ?? 0.5)) * scoreVal * 0.25 * 4),
+            steps: Math.round((1 - (scoreComponentsV2.stepsBad ?? 0.5)) * scoreVal * 0.25 * 4),
+            sleep: Math.round((1 - (scoreComponentsV2.sleepBad ?? 0.5)) * scoreVal * 0.25 * 4),
+            hrv: Math.round((1 - (scoreComponentsV2.hrvBad ?? 0.5)) * scoreVal * 0.25 * 4),
+        } : {
+            rhr: Math.round(scoreVal * 0.25),
+            steps: Math.round(scoreVal * 0.25),
+            sleep: Math.round(scoreVal * 0.25),
+            hrv: Math.round(scoreVal * 0.25),
+        };
+
+        // Deterministic fallback
+        const sorted = Object.entries(components).sort((a, b) => b[1] - a[1]);
+        const labels: Record<string, string> = { rhr: 'resting heart rate', steps: 'daily steps', sleep: 'sleep consistency', hrv: 'heart rate variability' };
+        const highest = sorted[0];
+        const lowest = sorted[sorted.length - 1];
+
+        const fallbackExplanation: ScoreExplanation = {
+            summary: resolvedHomeScore >= 70 ? 'Your rhythm is strong this week.' : resolvedHomeScore >= 50 ? 'Your rhythm is building steadily.' : 'Your rhythm has room to grow.',
+            top_contributor: `${labels[highest[0]].charAt(0).toUpperCase() + labels[highest[0]].slice(1)} is your strongest factor.`,
+            biggest_opportunity: `A small improvement in ${labels[lowest[0]]} could make a difference.`,
+            one_thing_this_week: 'Keep building on your daily habits this week.',
+        };
+        setScoreExplanation(fallbackExplanation);
+
+        // Fetch AI explanation
+        setScoreExplanationLoading(true);
+        try {
+            const result = await invokeScoreExplanation(user.id, resolvedHomeScore, components);
+            if (result?.explanation) {
+                setScoreExplanation(result.explanation);
+            }
+        } catch (err) {
+            console.error('Error fetching score explanation:', err);
+        } finally {
+            setScoreExplanationLoading(false);
+        }
+    }, [user?.id, resolvedHomeScore, scoreComponentsV2, scoreExplanationSlideAnim]);
+
+    const handleCloseScoreExplanation = useCallback(() => {
+        Animated.timing(scoreExplanationSlideAnim, {
+            toValue: 400,
+            duration: 200,
+            useNativeDriver: true,
+        }).start(() => {
+            setScoreExplanationVisible(false);
+            setScoreExplanation(null);
         });
-    }, [user?.id, recentMeals]);
+    }, [scoreExplanationSlideAnim]);
+
+    const journeyDay = useMemo(() => {
+        const startAt = profile?.framework_reset_completed_at || profile?.created_at;
+        if (!startAt) return 1;
+
+        const startDate = new Date(startAt);
+        if (Number.isNaN(startDate.getTime())) return 1;
+
+        const elapsedMs = Math.max(0, Date.now() - startDate.getTime());
+        return Math.max(1, Math.floor(elapsedMs / (24 * 60 * 60 * 1000)) + 1);
+    }, [profile?.framework_reset_completed_at, profile?.created_at]);
+
+    const isEarlyJourney = journeyDay <= 14;
+    const scoreUnlocked = journeyDay >= 7;
+    const unlockDaysCompleted = Math.min(7, journeyDay);
+
+    const homeScoreTone = useMemo(
+        () => getHomeMetabolicTone(scoreUnlocked ? resolvedHomeScore : null, isEarlyJourney),
+        [scoreUnlocked, resolvedHomeScore, isEarlyJourney]
+    );
+
+    const weeklyBehaviorLogCount = useMemo(() => {
+        const { startDate, endDate } = getDateRange('7d');
+        const isWithin7d = (value: string) => {
+            const ts = new Date(value);
+            return ts >= startDate && ts <= endDate;
+        };
+
+        const mealLogs = recentMeals.filter((meal) => isWithin7d(meal.logged_at)).length;
+        const activityEntries = activityLogs.filter((log) => isWithin7d(log.logged_at)).length;
+        const weightEntries = weightLogs.filter((log) => isWithin7d(log.logged_at)).length;
+
+        return mealLogs + activityEntries + weightEntries;
+    }, [recentMeals, activityLogs, weightLogs]);
+
+    const avgActivityMinutes = useMemo(() => {
+        if (dailyContext.avgActiveMinutes && dailyContext.avgActiveMinutes > 0) {
+            return Math.round(dailyContext.avgActiveMinutes);
+        }
+
+        if (!activityLogs.length) return null;
+        const { startDate, endDate } = getDateRange('7d');
+        const recent = activityLogs.filter(log => {
+            const ts = new Date(log.logged_at);
+            return ts >= startDate && ts <= endDate;
+        });
+        if (!recent.length) return null;
+        const total = recent.reduce((sum, log) => sum + log.duration_minutes, 0);
+        return Math.round(total / 7);
+    }, [dailyContext.avgActiveMinutes, activityLogs]);
+
+    const behaviorStreakDays = useMemo(() => {
+        const daySet = new Set<string>();
+        recentMeals.forEach(meal => daySet.add(new Date(meal.logged_at).toISOString().split('T')[0]));
+        activityLogs.forEach(log => daySet.add(new Date(log.logged_at).toISOString().split('T')[0]));
+
+        if (daySet.size === 0) return 0;
+
+        let streak = 0;
+        const cursor = new Date();
+        cursor.setHours(0, 0, 0, 0);
+
+        while (true) {
+            const key = cursor.toISOString().split('T')[0];
+            if (!daySet.has(key)) break;
+            streak += 1;
+            cursor.setDate(cursor.getDate() - 1);
+        }
+
+        return streak;
+    }, [recentMeals, activityLogs]);
+
+    // TODO(behavior_v1): Add telemetry-gated social proof copy when aggregate analytics are available with cohort thresholds.
+    const homeEncouragementText = useMemo(() => {
+        if (!scoreUnlocked) {
+            return 'Complete 7 days to unlock your Metabolic Score.';
+        }
+
+        if (isEarlyJourney) {
+            if (behaviorStreakDays > 0) {
+                return `Day ${journeyDay}: your consistency is building momentum.`;
+            }
+            return 'Momentum starts with one action today.';
+        }
+
+        if (resolvedHomeScore === null) {
+            return 'Start with one action today to build your baseline.';
+        }
+
+        return 'From sleep, activity, meals, and glucose.';
+    }, [scoreUnlocked, isEarlyJourney, behaviorStreakDays, journeyDay, resolvedHomeScore]);
+
+    const heroMomentumChips = useMemo(() => {
+        const chips: BehaviorMomentumChip[] = [];
+        chips.push({
+            label: `${streak}d streak`,
+            tone: streak > 0 ? 'success' : 'neutral',
+            icon: 'flame',
+            iconColor: '#FF6B35',
+        });
+        chips.push({
+            label: `${weeklyBehaviorLogCount} of ${WEEKLY_LOG_GOAL} logs this week`,
+            tone: weeklyBehaviorLogCount >= WEEKLY_LOG_GOAL ? 'success' : 'neutral',
+        });
+        return chips;
+    }, [streak, weeklyBehaviorLogCount]);
+
+    const sleepMomentumState = useMemo(() => {
+        const isSleepAvailable = sleepData?.isAvailable ?? Platform.OS === 'ios';
+        const isSleepAuthorized = sleepData?.isAuthorized ?? false;
+        const avgSleep = sleepData?.avgHoursPerNight ?? 0;
+
+        if (isSleepAvailable && !isSleepAuthorized) {
+            return {
+                value: 'Connect sleep',
+                subtitle: 'Track automatically with Apple Health',
+                state: 'invite' as const,
+                cueIcon: 'link-outline' as const,
+                cueText: 'Open data sources',
+                onPress: () => router.push('/data-sources'),
+            };
+        }
+
+        if (isSleepAuthorized && avgSleep <= 0) {
+            return {
+                value: 'No sleep data yet',
+                subtitle: 'Sleep with your watch tonight to start tracking',
+                state: 'invite' as const,
+                cueIcon: 'moon-outline' as const,
+                cueText: 'Connect and sync',
+                onPress: () => router.push('/data-sources'),
+            };
+        }
+
+        if (isSleepAuthorized && avgSleep > 0) {
+            return {
+                value: `${avgSleep.toFixed(1)}h`,
+                subtitle: 'Avg hours/night',
+                state: 'data' as const,
+                cueIcon: undefined,
+                cueText: undefined,
+                onPress: undefined,
+            };
+        }
+
+        return {
+            value: 'Sleep unavailable',
+            subtitle: 'Sleep tracking unavailable on this device',
+            state: 'invite' as const,
+            cueIcon: 'information-circle-outline' as const,
+            cueText: undefined,
+            onPress: undefined,
+        };
+    }, [sleepData?.isAvailable, sleepData?.isAuthorized, sleepData?.avgHoursPerNight]);
+
+    const weightMomentumState = useMemo(() => {
+        if (weightLoading) {
+            return {
+                value: '--',
+                subtitle: 'Loading trend...',
+                state: 'data' as const,
+                compactValue: false,
+                cueIcon: undefined,
+                cueText: undefined,
+            };
+        }
+
+        if (latestWeightKg === null) {
+            return {
+                value: 'Log weight',
+                subtitle: 'Add your first weight check-in',
+                state: 'invite' as const,
+                compactValue: true,
+                cueIcon: 'add-circle-outline' as const,
+                cueText: 'Add weight',
+            };
+        }
+
+        return {
+            value: `${latestWeightKg.toFixed(1)} kg`,
+            subtitle:
+                delta7dKg !== null
+                    ? `${delta7dKg > 0 ? '+' : ''}${delta7dKg.toFixed(1)} kg vs 7d`
+                    : 'Keep logging to build a weekly trend',
+            state: 'data' as const,
+            compactValue: false,
+            cueIcon: undefined,
+            cueText: undefined,
+        };
+    }, [weightLoading, latestWeightKg, delta7dKg]);
+
+    const fibreMomentumState = useMemo(() => {
+        const avgPerDay = fibreSummary?.avgPerDay ?? 0;
+        const hasData = fibreSummary !== null && avgPerDay > 0;
+
+        if (hasData) {
+            const status = avgPerDay >= 25 ? 'High' : avgPerDay >= 15 ? 'Moderate' : 'Low';
+            return {
+                value: `${avgPerDay.toFixed(1)}g`,
+                subtitle: `${status} · Avg per day`,
+                state: 'data' as const,
+            };
+        }
+
+        return {
+            value: 'Track fibre',
+            subtitle: 'Log meals to see your fibre intake',
+            state: 'invite' as const,
+        };
+    }, [fibreSummary]);
+
+    // Chart data for momentum cards — all use { label, value, isToday } for WeeklyBarChart
+    const buildWeek = (getValue: (key: string, d: Date) => number) => {
+        const today = new Date().toISOString().split('T')[0];
+        const result: { label: string; value: number; isToday: boolean }[] = [];
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const key = d.toISOString().split('T')[0];
+            result.push({
+                label: WEEK_LABELS[(d.getDay() + 6) % 7],
+                value: getValue(key, d),
+                isToday: key === today,
+            });
+        }
+        return result;
+    };
+
+    const activityBarData = useMemo(() =>
+        buildWeek((key) => dailyContext.dailyRecords.find(r => r.date === key)?.active_minutes ?? 0),
+        [dailyContext.dailyRecords]);
+
+    const sleepBarData = useMemo(() =>
+        buildWeek((key) => dailyContext.dailyRecords.find(r => r.date === key)?.sleep_hours ?? 0),
+        [dailyContext.dailyRecords]);
+
+    const weightBarData = useMemo(() => {
+        const logsByDay: Record<string, number> = {};
+        for (const l of weightLogs) {
+            const day = l.logged_at.split('T')[0];
+            logsByDay[day] = l.weight_kg;
+        }
+        return buildWeek((key) => logsByDay[key] ?? 0);
+    }, [weightLogs]);
+
+    const fibreBarData = useMemo(() => {
+        const dailyFibre: Record<string, number> = {};
+        for (const meal of recentMeals) {
+            const day = meal.logged_at.split('T')[0];
+            dailyFibre[day] = (dailyFibre[day] ?? 0) + (meal.fiber_g ?? 0);
+        }
+        return buildWeek((key) => dailyFibre[key] ?? 0);
+    }, [recentMeals]);
 
     const handleMealPress = (meal: MealWithCheckin) => {
+        triggerHaptic();
         router.push({
             pathname: '/meal-checkin',
             params: {
@@ -1055,20 +2126,59 @@ export default function TodayScreen() {
         return 'AD';
     };
 
-    const handleFabOpenChange = (isOpen: boolean) => {
-        setIsFabOpen(isOpen);
-        Animated.timing(overlayOpacity, {
-            toValue: isOpen ? 1 : 0,
-            duration: 250,
-            useNativeDriver: true,
-        }).start();
-    };
-
     // Animation Values
     const scrollY = useRef(new Animated.Value(0)).current;
+    const behaviorHeroReveal = useRef(new Animated.Value(0)).current;
+    const behaviorMomentumReveal = useRef(new Animated.Value(0)).current;
+    const behaviorMealsReveal = useRef(new Animated.Value(0)).current;
+    const behaviorAdvancedReveal = useRef(new Animated.Value(0)).current;
+    const behaviorQueueReveal = useRef(new Animated.Value(0)).current;
+    const behaviorEntrancePlayedRef = useRef(false);
+
+    useEffect(() => {
+        if (!isBehaviorV1) {
+            behaviorEntrancePlayedRef.current = false;
+            behaviorHeroReveal.setValue(0);
+            behaviorMomentumReveal.setValue(0);
+            behaviorMealsReveal.setValue(0);
+            behaviorAdvancedReveal.setValue(0);
+            behaviorQueueReveal.setValue(0);
+            return;
+        }
+
+        if (behaviorEntrancePlayedRef.current) {
+            return;
+        }
+
+        behaviorEntrancePlayedRef.current = true;
+
+        const stages = [
+            behaviorHeroReveal,
+            behaviorMomentumReveal,
+            behaviorMealsReveal,
+            behaviorAdvancedReveal,
+            behaviorQueueReveal,
+        ].map((value) =>
+            Animated.timing(value, {
+                toValue: 1,
+                duration: 480,
+                easing: Easing.out(Easing.cubic),
+                useNativeDriver: true,
+            })
+        );
+
+        Animated.stagger(90, stages).start();
+    }, [
+        isBehaviorV1,
+        behaviorHeroReveal,
+        behaviorMomentumReveal,
+        behaviorMealsReveal,
+        behaviorAdvancedReveal,
+        behaviorQueueReveal,
+    ]);
 
     // Header Content Height (Profile, Title, etc.) - same as styles.header height
-    const HEADER_CONTENT_HEIGHT = 72;
+    const HEADER_CONTENT_HEIGHT = 56;
 
     // Animate the entire header container up to hide the top row
     const headerTranslateY = scrollY.interpolate({
@@ -1084,46 +2194,76 @@ export default function TodayScreen() {
         extrapolate: 'clamp'
     });
 
+    const behaviorHeroParallax = scrollY.interpolate({
+        inputRange: [0, 220],
+        outputRange: [0, -16],
+        extrapolate: 'clamp',
+    });
+
+    const behaviorMomentumParallax = scrollY.interpolate({
+        inputRange: [0, 300],
+        outputRange: [0, -7],
+        extrapolate: 'clamp',
+    });
+
+    const behaviorHeroScale = scrollY.interpolate({
+        inputRange: [0, 260],
+        outputRange: [1, 0.975],
+        extrapolate: 'clamp',
+    });
+
+    const behaviorHeroTranslateIn = behaviorHeroReveal.interpolate({
+        inputRange: [0, 1],
+        outputRange: [18, 0],
+    });
+
+    const behaviorMomentumTranslateIn = behaviorMomentumReveal.interpolate({
+        inputRange: [0, 1],
+        outputRange: [16, 0],
+    });
+
+    const behaviorMealsTranslateIn = behaviorMealsReveal.interpolate({
+        inputRange: [0, 1],
+        outputRange: [14, 0],
+    });
+
+    const behaviorAdvancedTranslateIn = behaviorAdvancedReveal.interpolate({
+        inputRange: [0, 1],
+        outputRange: [14, 0],
+    });
+
     // Header height calculation:
     // Status Bar Spacer: insets.top
-    // Header Content: 72
-    // Picker: ~32 + 12 margin = 44
-    // Total = insets.top + 72 + 44 = insets.top + 116
-    const HEADER_HEIGHT = insets.top + 116;
+    // Nav Bar: 56
+    // Picker: 44 (legacy only)
+    const HEADER_HEIGHT = insets.top + 56 + (isBehaviorV1 ? 0 : 44);
 
     return (
-        <AnimatedScreen>
-            <View style={styles.container}>
-                {/* Background gradient that blends with status bar */}
-                <LinearGradient
-                    colors={['#1a1f24', '#181c20', '#111111']}
-                    locations={[0, 0.3, 1]}
-                    style={styles.backgroundGradient}
-                />
+        <View style={styles.container}>
+            <ForestGlassBackground />
 
-                {/* Fixed Header - Animated to slide up */}
-                <Animated.View
-                    style={[
-                        styles.headerContainer,
-                        {
-                            paddingTop: insets.top,
-                            transform: [{ translateY: headerTranslateY }]
-                        }
-                    ]}
-                    pointerEvents="box-none"
-                >
-                    {/* Header Content - Fades out */}
-                    <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
-                        <LiquidGlassIconButton size={44} onPress={() => router.push('/settings')}>
-                            <Text style={styles.avatarText}>{getInitials()}</Text>
-                        </LiquidGlassIconButton>
-                        <Text style={styles.headerTitle}>GLUCO</Text>
-                        <LiquidGlassIconButton size={44} onPress={() => router.push('/notifications-list')}>
-                            <Ionicons name="notifications-outline" size={22} color="#E7E8E9" />
-                        </LiquidGlassIconButton>
-                    </Animated.View>
+            {/* Fixed Header — floating glass buttons like Apple Health */}
+            <Animated.View
+                style={[
+                    styles.headerContainer,
+                    {
+                        paddingTop: insets.top,
+                        transform: [{ translateY: headerTranslateY }],
+                    },
+                ]}
+                pointerEvents="box-none"
+            >
+                <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
+                    <LiquidGlassIconButton size={44} onPress={() => router.push('/settings')}>
+                        <Text style={styles.avatarText}>{getInitials()}</Text>
+                    </LiquidGlassIconButton>
+                    <Text style={styles.headerTitle}>GLUCO</Text>
+                    <LiquidGlassIconButton size={44} onPress={() => router.push('/notifications-list')}>
+                        <Ionicons name="notifications-outline" size={22} color={Colors.textPrimary} />
+                    </LiquidGlassIconButton>
+                </Animated.View>
 
-                    {/* Sticky Picker inside fixed header */}
+                {!isBehaviorV1 && (
                     <View style={styles.pickerContainer}>
                         <SegmentedControl<RangeKey>
                             value={range}
@@ -1136,242 +2276,470 @@ export default function TodayScreen() {
                             ]}
                         />
                     </View>
-                </Animated.View>
+                )}
+            </Animated.View>
 
-                {/* ScrollView - content flows normally */}
-                <Animated.ScrollView
-                    ref={scrollViewRef}
-                    style={styles.scrollView}
-                    contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 24 }]}
-                    showsVerticalScrollIndicator={false}
-                    onScroll={Animated.event(
-                        [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-                        { useNativeDriver: true }
-                    )}
-                    scrollEventThrottle={16}
-                    refreshControl={
-                        <RefreshControl
-                            refreshing={isRefreshing}
-                            onRefresh={onRefresh}
-                            tintColor={Colors.textSecondary}
-                        />
-                    }
-                >
-                    {/* Glucose Trends - only show for glucose tracking users */}
-                    {showGlucoseUI && (
-                        <View style={styles.trendsSection}>
-                            <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} glucoseUnit={glucoseUnit} />
-                        </View>
-                    )}
-
-                    {/* Active Experiment Widget */}
-                    <ActiveExperimentWidget />
-
-                    {/* Metabolic Score Card - Full width prominent card */}
-                    <MetabolicScoreCard weeklyScores={weeklyScores} currentScore={currentScore} isLoading={scoresLoading} />
-
-                    {/* Stats Grid */}
-                    <View style={styles.statsGrid}>
-                        <View style={styles.statsRow}>
-                            {showWearableStats ? (
-                                <>
-                                    <StepsStatCard
-                                        avgSteps={dailyContext.avgSteps}
-                                        isAuthorized={dailyContext.isAuthorized}
-                                        isAvailable={dailyContext.isAvailable}
-                                        range={range}
-                                    />
-                                    <ActivityStatCard
-                                        range={range}
-                                        activityLogs={activityLogs}
-                                        healthKitMinutes={dailyContext.avgActiveMinutes}
-                                        isHealthKitAuthorized={dailyContext.isAuthorized}
-                                        isHealthKitAvailable={dailyContext.isAvailable}
-                                    />
-                                </>
-                            ) : showGlucoseUI ? (
-                                <>
-                                    <DaysInRangeCard range={range} glucoseLogs={glucoseLogs} />
-                                    <FibreStatCard range={range} fibreSummary={fibreSummary} />
-                                </>
-                            ) : (
-                                <>
-                                    <FibreStatCard range={range} fibreSummary={fibreSummary} />
-                                    <ActivityStatCard
-                                        range={range}
-                                        activityLogs={activityLogs}
-                                        healthKitMinutes={dailyContext.avgActiveMinutes}
-                                        isHealthKitAuthorized={dailyContext.isAuthorized}
-                                        isHealthKitAvailable={dailyContext.isAvailable}
-                                    />
-                                </>
-                            )}
-                        </View>
-                        <View style={styles.statsRow}>
-                            {showWearableStats ? (
-                                <>
-                                    <SleepStatCard range={range} sleepData={sleepData} />
-                                    <FibreStatCard range={range} fibreSummary={fibreSummary} />
-                                </>
-                            ) : showGlucoseUI ? (
-                                <>
-                                    <ActivityStatCard
-                                        range={range}
-                                        activityLogs={activityLogs}
-                                        healthKitMinutes={dailyContext.avgActiveMinutes}
-                                        isHealthKitAuthorized={dailyContext.isAuthorized}
-                                        isHealthKitAvailable={dailyContext.isAvailable}
-                                    />
-                                    <SleepStatCard range={range} sleepData={sleepData} />
-                                </>
-                            ) : (
-                                <>
-                                    <SleepStatCard range={range} sleepData={sleepData} />
-                                    <StatCard
-                                        icon={<Image source={Images.mascots.cook} style={{ width: 32, height: 32, resizeMode: 'contain' }} />}
-                                        iconColor="#4CAF50"
-                                        title="Meals"
-                                        value="--"
-                                        description="Logged this week"
-                                    />
-                                </>
-                            )}
-                        </View>
-                    </View>
-
-                    {/* Connect Apple Health CTA - show for wearables mode if not authorized */}
-                    {showWearableStats && !dailyContext.isAuthorized && dailyContext.isAvailable && (
-                        <ConnectHealthCTA
-                            onConnected={() => {
-                                dailyContext.sync();
-                                refetchSleep();
-                            }}
-                        />
-                    )}
-
-                    {/* Personal Insights - Best Next Step Card */}
-                    <PersonalInsightsCarousel
-                        insights={personalInsights}
-                        primaryInsight={primaryInsight}
-                        secondaryInsights={secondaryInsights}
-                        onDismiss={dismissInsight}
-                        isLoading={insightsLoading}
-                        onMealPress={() => setSpikeSheetVisible(true)}
-                        onExercisePress={() => setExerciseSheetVisible(true)}
+            {/* ScrollView - content flows normally */}
+            <Animated.ScrollView
+                ref={scrollViewRef}
+                style={styles.scrollView}
+                contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 24 }]}
+                showsVerticalScrollIndicator={false}
+                onScroll={Animated.event(
+                    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                    { useNativeDriver: true }
+                )}
+                scrollEventThrottle={16}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={isRefreshing}
+                        onRefresh={onRefresh}
+                        tintColor={Colors.textSecondary}
                     />
-
-                    {/* Today's Meals Section */}
-                    <View style={styles.mealSection}>
-                        <Text style={styles.mealSectionTitle}>MEAL CHECK-INS</Text>
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={styles.mealCardsContainer}
+                }
+            >
+                {isBehaviorV1 ? (
+                    <>
+                        {/* Metabolic Score Hero Card (with conjoined check-in banner) */}
+                        <Animated.View
+                            style={[
+                                styles.behaviorHeroStack,
+                                {
+                                    opacity: behaviorHeroReveal,
+                                    transform: [
+                                        { translateY: behaviorHeroTranslateIn },
+                                        { translateY: behaviorHeroParallax },
+                                        { scale: behaviorHeroScale },
+                                    ],
+                                },
+                            ]}
                         >
-                            {displayMeals.length > 0 ? (
-                                displayMeals.map((meal) => (
-                                    <MealCheckinCard
-                                        key={meal.id}
-                                        meal={meal}
-                                        onPress={() => handleMealPress(meal)}
-                                    />
-                                ))
-                            ) : (
-                                <View style={styles.noMealsCard}>
-                                    <Image source={Images.mascots.cook} style={{ width: 60, height: 60, resizeMode: 'contain', marginBottom: 8 }} />
-                                    <Text style={styles.noMealsText}>No meal reviews yet</Text>
-                                    <Text style={styles.noMealsSubtext}>Log a meal to see your glucose response</Text>
-                                </View>
+                            {/* Daily Check-in pill — sits flush on top of the hero card */}
+                            {!dailyCheckinCompleted && (
+                                <TouchableOpacity
+                                    style={styles.checkinPillAttached}
+                                    onPress={() => router.push('/daily-checkin' as any)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Ionicons name="sunny-outline" size={16} color="#E8A855" />
+                                    <Text style={styles.checkinPillText}>Today's check-in takes 15 seconds</Text>
+                                    <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />
+                                </TouchableOpacity>
                             )}
-                        </ScrollView>
-                    </View>
-                </Animated.ScrollView>
+
+                            <BehaviorMetabolicHeroCard
+                                score={resolvedHomeScore}
+                                scoreLoading={scoresLoading}
+                                scoreUnlocked={scoreUnlocked}
+                                unlockDaysCompleted={unlockDaysCompleted}
+                                unlockDaysTarget={7}
+                                scoreTone={homeScoreTone}
+                                encouragementText={homeEncouragementText}
+                                momentumChips={heroMomentumChips}
+                                onPressScore={scoreUnlocked && resolvedHomeScore ? handleScorePress : () => router.push({ pathname: '/(tabs)/insights', params: { tab: 'actions' } })}
+                            />
+                        </Animated.View>
+
+                        {/* Check-In Prompt or Next Best Action fallback */}
+                        <Animated.View
+                            style={{
+                                opacity: behaviorMomentumReveal,
+                                transform: [{ translateY: behaviorMomentumTranslateIn }],
+                            }}
+                        >
+                            <BehaviorNextActionCard
+                                actionTitle={primaryBehaviorCard.title}
+                                actionDescription={primaryBehaviorCard.description}
+                                ctaLabel={primaryBehaviorCard.ctaLabel}
+                                onPressAction={primaryBehaviorCard.onPress}
+                                onPressMoreSteps={() => router.push({ pathname: '/(tabs)/insights', params: { tab: 'actions' } })}
+                            />
+                        </Animated.View>
+
+                        {/* 2x2 Momentum Grid — color-coded */}
+                        <Animated.View
+                            style={{
+                                opacity: behaviorMomentumReveal,
+                                transform: [
+                                    { translateY: behaviorMomentumTranslateIn },
+                                    { translateY: behaviorMomentumParallax },
+                                ],
+                            }}
+                        >
+                            <View style={styles.behaviorMomentumGrid}>
+                                <View style={styles.behaviorMomentumRow}>
+                                    <BehaviorMomentumCard
+                                        label="Activity"
+                                        icon="flash-outline"
+                                        accentColor={behaviorV1Theme.activityAccent}
+                                        accentSurface={behaviorV1Theme.activitySurface}
+                                        accentBorder={behaviorV1Theme.activityBorder}
+                                        value={avgActivityMinutes !== null ? `${avgActivityMinutes}/min` : '--'}
+                                        subtitle="Avg active minutes/day"
+                                        chart={<WeeklyBarChart data={activityBarData} color={behaviorV1Theme.activityAccent} />}
+                                        onPress={() => router.push('/log-activity')}
+                                    />
+                                    <BehaviorMomentumCard
+                                        label="Sleep"
+                                        icon="moon-outline"
+                                        accentColor={behaviorV1Theme.sleepAccent}
+                                        accentSurface={behaviorV1Theme.sleepSurface}
+                                        accentBorder={behaviorV1Theme.sleepBorder}
+                                        value={sleepMomentumState.value}
+                                        subtitle={sleepMomentumState.subtitle}
+                                        state={sleepMomentumState.state}
+                                        chart={sleepMomentumState.state === 'data' ? <WeeklyBarChart data={sleepBarData} color={behaviorV1Theme.sleepAccent} /> : undefined}
+                                        inviteTitle={sleepMomentumState.state === 'invite' ? 'No sleep data yet' : undefined}
+                                        inviteDescription={sleepMomentumState.state === 'invite' ? 'Connect your sleep tracker to start.' : undefined}
+                                        inviteCtaLabel={sleepMomentumState.state === 'invite' ? 'Connect' : undefined}
+                                        onPress={sleepMomentumState.onPress}
+                                    />
+                                </View>
+                                <View style={styles.behaviorMomentumRow}>
+                                    <BehaviorMomentumCard
+                                        label="Weight"
+                                        icon="scale-outline"
+                                        accentColor={behaviorV1Theme.weightAccent}
+                                        accentSurface={behaviorV1Theme.weightSurface}
+                                        accentBorder={behaviorV1Theme.weightBorder}
+                                        value={weightMomentumState.value}
+                                        subtitle={weightMomentumState.subtitle}
+                                        state={weightMomentumState.state}
+                                        chart={weightMomentumState.state === 'data' ? <WeeklyBarChart data={weightBarData} color={behaviorV1Theme.weightAccent} /> : undefined}
+                                        inviteTitle={weightMomentumState.state === 'invite' ? 'Log weight' : undefined}
+                                        inviteDescription={weightMomentumState.state === 'invite' ? 'Add your first weight check-in.' : undefined}
+                                        inviteCtaLabel={weightMomentumState.state === 'invite' ? 'Add weight' : undefined}
+                                        onPress={() => router.push('/log-weight' as any)}
+                                    />
+                                    <BehaviorMomentumCard
+                                        label="Fibre Intake"
+                                        icon="leaf-outline"
+                                        accentColor={behaviorV1Theme.fibreAccent}
+                                        accentSurface={behaviorV1Theme.fibreSurface}
+                                        accentBorder={behaviorV1Theme.fibreBorder}
+                                        value={fibreMomentumState.value}
+                                        subtitle={fibreMomentumState.subtitle}
+                                        state={fibreMomentumState.state}
+                                        chart={fibreMomentumState.state === 'data' ? <WeeklyBarChart data={fibreBarData} color={behaviorV1Theme.fibreAccent} /> : undefined}
+                                        inviteTitle={fibreMomentumState.state === 'invite' ? 'Track fibre' : undefined}
+                                        inviteDescription={fibreMomentumState.state === 'invite' ? 'Log meals to see your daily fibre.' : undefined}
+                                        inviteCtaLabel={fibreMomentumState.state === 'invite' ? 'Log a meal' : undefined}
+                                        onPress={() => router.push('/(tabs)/log' as any)}
+                                    />
+                                </View>
+                            </View>
+                        </Animated.View>
+
+                        {/* Today's Meal Check-ins */}
+                        <Animated.View
+                            style={{
+                                opacity: behaviorMealsReveal,
+                                transform: [{ translateY: behaviorMealsTranslateIn }],
+                            }}
+                        >
+                            <TodayMealCheckinsList
+                                meals={checkinMeals}
+                                onMealPress={handleMealPress}
+                                onViewAllPress={() => router.push('/(tabs)/log' as any)}
+                            />
+                        </Animated.View>
+
+                        {/* Latest Meal Score */}
+                        {latestMealScore && (
+                            <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
+                                <MealScoreCard
+                                    mealName={latestMealScore.meal_name}
+                                    mealTime={latestMealScore.window_start}
+                                    score={latestMealScore.score}
+                                    scoreLabel={latestMealScore.score_label as ScoreLabel}
+                                    insightText={latestMealScore.insight_text}
+                                    glucoseReadings={[]}
+
+                                    onPress={() => router.push({ pathname: '/meal-score-detail' as any, params: { mealId: latestMealScore.meal_id } })}
+                                />
+                            </View>
+                        )}
+
+                        {/* Advanced Glucose — unchanged, conditional */}
+                        {canShowAdvancedGlucose && (
+                            <Animated.View
+                                style={{
+                                    opacity: behaviorAdvancedReveal,
+                                    transform: [{ translateY: behaviorAdvancedTranslateIn }],
+                                }}
+                            >
+                                <BehaviorAdvancedGlucoseCard
+                                    expanded={advancedGlucoseExpanded}
+                                    onToggle={() => setAdvancedGlucoseExpanded(prev => !prev)}
+                                    avgGlucose={advancedGlucoseSummary.avg}
+                                    timeInZone={advancedGlucoseSummary.inTarget}
+                                />
+                            </Animated.View>
+                        )}
+                    </>
+                ) : (
+                    <>
+                        {/* Daily Check-in Banner */}
+                        <View style={{ marginBottom: 12 }}>
+                            <DailyCheckinBanner isCompleted={dailyCheckinCompleted} />
+                        </View>
+
+                        {/* Glucose Trends - legacy experience */}
+                        {showGlucoseUI && (
+                            <View style={styles.trendsSection}>
+                                <GlucoseTrendsCard range={range} allLogs={glucoseLogs} isLoading={isLoading} glucoseUnit={glucoseUnit} />
+                            </View>
+                        )}
+
+                        {/* Active Experiment Widget */}
+                        <ActiveExperimentWidget />
+
+                        {/* Streak Card */}
+                        <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
+                            <StreakCard
+                                streak={streak}
+                                longestStreak={longestStreak}
+                                shieldAvailable={shieldAvailable}
+                                shieldUsed={shieldUsed}
+                                streakBroken={streakBroken}
+                            />
+                        </View>
+
+                        {/* Metabolic Score Card - Full width prominent card */}
+                        <MetabolicScoreCard weeklyScores={weeklyScores} currentScore={currentScore} isLoading={scoresLoading} daysLogged={dailyContext.daysWithData} />
+
+                        {/* Latest Meal Score */}
+                        {latestMealScore && (
+                            <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
+                                <MealScoreCard
+                                    mealName={latestMealScore.meal_name}
+                                    mealTime={latestMealScore.window_start}
+                                    score={latestMealScore.score}
+                                    scoreLabel={latestMealScore.score_label as ScoreLabel}
+                                    insightText={latestMealScore.insight_text}
+                                    glucoseReadings={[]}
+
+                                    onPress={() => router.push({ pathname: '/meal-score-detail' as any, params: { mealId: latestMealScore.meal_id } })}
+                                />
+                            </View>
+                        )}
+
+                        {/* Stats Grid */}
+                        <View style={styles.statsGrid}>
+                            <View style={styles.statsRow}>
+                                {showWearableStats ? (
+                                    <>
+                                        <StepsStatCard
+                                            avgSteps={dailyContext.avgSteps}
+                                            isAuthorized={dailyContext.isAuthorized}
+                                            isAvailable={dailyContext.isAvailable}
+                                            range={range}
+                                        />
+                                        <ActivityStatCard
+                                            range={range}
+                                            activityLogs={activityLogs}
+                                            healthKitMinutes={dailyContext.avgActiveMinutes}
+                                            isHealthKitAuthorized={dailyContext.isAuthorized}
+                                            isHealthKitAvailable={dailyContext.isAvailable}
+                                        />
+                                    </>
+                                ) : showGlucoseUI ? (
+                                    <>
+                                        <DaysInRangeCard range={range} glucoseLogs={glucoseLogs} />
+                                        <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                    </>
+                                ) : (
+                                    <>
+                                        <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                        <ActivityStatCard
+                                            range={range}
+                                            activityLogs={activityLogs}
+                                            healthKitMinutes={dailyContext.avgActiveMinutes}
+                                            isHealthKitAuthorized={dailyContext.isAuthorized}
+                                            isHealthKitAvailable={dailyContext.isAvailable}
+                                        />
+                                    </>
+                                )}
+                            </View>
+                            <View style={styles.statsRow}>
+                                {showWearableStats ? (
+                                    <>
+                                        <SleepStatCard range={range} sleepData={sleepData} />
+                                        <FibreStatCard range={range} fibreSummary={fibreSummary} />
+                                    </>
+                                ) : showGlucoseUI ? (
+                                    <>
+                                        <ActivityStatCard
+                                            range={range}
+                                            activityLogs={activityLogs}
+                                            healthKitMinutes={dailyContext.avgActiveMinutes}
+                                            isHealthKitAuthorized={dailyContext.isAuthorized}
+                                            isHealthKitAvailable={dailyContext.isAvailable}
+                                        />
+                                        <SleepStatCard range={range} sleepData={sleepData} />
+                                    </>
+                                ) : (
+                                    <>
+                                        <SleepStatCard range={range} sleepData={sleepData} />
+                                        <StatCard
+                                            icon={<Image source={Images.mascots.cook} style={{ width: 32, height: 32, resizeMode: 'contain' }} />}
+                                            iconColor="#4CAF50"
+                                            title="Meals"
+                                            value="--"
+                                            description="Logged this week"
+                                        />
+                                    </>
+                                )}
+                            </View>
+                        </View>
+
+                        {/* Connect Apple Health CTA - show for wearables mode if not authorized */}
+                        {showWearableStats && !dailyContext.isAuthorized && dailyContext.isAvailable && (
+                            <ConnectHealthCTA
+                                onConnected={() => {
+                                    dailyContext.sync();
+                                    refetchSleep();
+                                }}
+                            />
+                        )}
+
+                        {/* Personal Insights - Best Next Step Card */}
+                        <PersonalInsightsCarousel
+                            insights={personalInsights}
+                            primaryInsight={primaryInsight}
+                            secondaryInsights={secondaryInsights}
+                            onDismiss={dismissInsight}
+                            isLoading={insightsLoading}
+                            onMealPress={() => setSpikeSheetVisible(true)}
+                            onExercisePress={() => setExerciseSheetVisible(true)}
+                            insightReadiness={insightReadiness}
+                        />
+
+                        {/* Today's Meals Section */}
+                        <TodayMealCheckinsList
+                            meals={checkinMeals}
+                            onMealPress={handleMealPress}
+                            onViewAllPress={() => router.push('/(tabs)/log' as any)}
+                        />
+                    </>
+                )}
+            </Animated.ScrollView>
 
 
 
-                {/* Sync Banner - shows below header when syncing */}
-                <SyncBanner
-                    isSyncing={dailyContext.isSyncing || isLoading || isRefreshing}
-                    topOffset={HEADER_HEIGHT}
-                />
+            {/* Sync Banner - shows below header when syncing */}
+            <SyncBanner
+                isSyncing={dailyContext.isSyncing || isLoading || isRefreshing}
+                topOffset={HEADER_HEIGHT}
+            />
 
-                {/* Dark Overlay when FAB is open */}
-                {isFabOpen && (
+            {/* Meal Response Input Sheet */}
+            <MealReflectionSheet
+                visible={spikeSheetVisible}
+                onClose={() => setSpikeSheetVisible(false)}
+                onAnalyze={(text) => {
+                    setSpikeSheetVisible(false);
+                    router.push({ pathname: '/meal-response-check', params: { initialText: text } } as any);
+                }}
+            />
+
+            {/* Exercise Input Sheet */}
+            <ExerciseInputSheet
+                visible={exerciseSheetVisible}
+                onClose={() => setExerciseSheetVisible(false)}
+                onAnalyze={(text) => {
+                    setExerciseSheetVisible(false);
+                    // Navigate to exercise impact analysis screen
+                    router.push({ pathname: '/check-exercise-impact', params: { initialText: text } } as any);
+                }}
+            />
+
+            {/* Score Explanation Bottom Sheet */}
+            <Modal
+                visible={scoreExplanationVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={handleCloseScoreExplanation}
+            >
+                <Pressable style={scoreExpStyles.overlay} onPress={handleCloseScoreExplanation}>
                     <Animated.View
                         style={[
-                            styles.fabOverlay,
-                            { opacity: overlayOpacity }
+                            scoreExpStyles.sheet,
+                            { transform: [{ translateY: scoreExplanationSlideAnim }] }
                         ]}
                     >
-                        <Pressable
-                            style={StyleSheet.absoluteFill}
-                            onPress={() => fabRef.current?.close()}
-                        />
+                        <Pressable onPress={() => { }}>
+                            <View style={scoreExpStyles.handle} />
+                            <View style={scoreExpStyles.header}>
+                                <View style={scoreExpStyles.scoreRingWrap}>
+                                    <MetabolicScoreRing
+                                        score={resolvedHomeScore ?? 0}
+                                        size={72}
+                                        scoreColor={getMetabolicScoreColor(resolvedHomeScore ?? 0)}
+                                    />
+                                </View>
+                                <View style={scoreExpStyles.headerText}>
+                                    <Text style={scoreExpStyles.title}>Your Metabolic Score</Text>
+                                    <Text style={scoreExpStyles.scoreValue}>{resolvedHomeScore ?? '--'}/100</Text>
+                                </View>
+                            </View>
+                            {scoreExplanation && (
+                                <View style={scoreExpStyles.content}>
+                                    <Text style={scoreExpStyles.summary}>{scoreExplanation.summary}</Text>
+                                    <View style={scoreExpStyles.row}>
+                                        <Ionicons name="star" size={16} color={behaviorV1Theme.sageBright} />
+                                        <Text style={scoreExpStyles.rowText}>{scoreExplanation.top_contributor}</Text>
+                                    </View>
+                                    <View style={scoreExpStyles.row}>
+                                        <Ionicons name="arrow-up-circle-outline" size={16} color={Colors.warning} />
+                                        <Text style={scoreExpStyles.rowText}>{scoreExplanation.biggest_opportunity}</Text>
+                                    </View>
+                                    <View style={scoreExpStyles.actionRow}>
+                                        <Ionicons name="bulb-outline" size={16} color={behaviorV1Theme.sageMid} />
+                                        <Text style={scoreExpStyles.actionText}>{scoreExplanation.one_thing_this_week}</Text>
+                                    </View>
+                                    {scoreExplanationLoading && (
+                                        <Text style={scoreExpStyles.loadingHint}>Personalizing...</Text>
+                                    )}
+                                </View>
+                            )}
+                        </Pressable>
                     </Animated.View>
-                )}
-
-                {/* Floating Action Button with Menu */}
-                <View style={styles.fabContainer}>
-                    <AnimatedFAB
-                        ref={fabRef}
-                        size={56}
-                        onPress={handleFabOpenChange}
-                        onLogMeal={() => {
-                            router.push({ pathname: '/meal-scanner' } as any);
-                        }}
-                        onLogActivity={() => {
-                            router.push({ pathname: '/log-activity' } as any);
-                        }}
-                        onLogGlucose={() => {
-                            router.push({ pathname: '/log-glucose' } as any);
-                        }}
-                    />
-                </View>
-
-                {/* Meal Response Input Sheet */}
-                <MealReflectionSheet
-                    visible={spikeSheetVisible}
-                    onClose={() => setSpikeSheetVisible(false)}
-                    onAnalyze={(text) => {
-                        setSpikeSheetVisible(false);
-                        router.push({ pathname: '/meal-response-check', params: { initialText: text } } as any);
-                    }}
+                </Pressable>
+            </Modal>
+            {/* Milestone Celebration Overlay */}
+            {milestone && (
+                <MilestoneCelebration
+                    milestone={milestone}
+                    onDismiss={clearMilestone}
                 />
+            )}
+        </View>
+    );
+}
 
-                {/* Exercise Input Sheet */}
-                <ExerciseInputSheet
-                    visible={exerciseSheetVisible}
-                    onClose={() => setExerciseSheetVisible(false)}
-                    onAnalyze={(text) => {
-                        setExerciseSheetVisible(false);
-                        // Navigate to exercise impact analysis screen
-                        router.push({ pathname: '/check-exercise-impact', params: { initialText: text } } as any);
-                    }}
-                />
-            </View>
-        </AnimatedScreen >
+export default function TodayScreen() {
+    return (
+        <TodayScreenErrorBoundary>
+            <TodayScreenInner />
+        </TodayScreenErrorBoundary>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: 'transparent',
     },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
+    behaviorScreenVeil: {
+        ...StyleSheet.absoluteFillObject,
     },
     safeArea: {
         flex: 1,
     },
     headerContainer: {
-        // backgroundColor removed to allow gradient
         zIndex: 10,
-        position: 'absolute', // Fixed at top
+        position: 'absolute',
         top: 0,
         left: 0,
         right: 0,
@@ -1381,47 +2749,24 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 16,
-        height: 72, // Match notifications header height
+        height: 56,
     },
     pickerContainer: {
         marginHorizontal: 16,
-        marginBottom: 12, // Reduced from 24
-    },
-
-    avatarButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
+        marginBottom: 12,
     },
     avatarText: {
-        fontFamily: fonts.medium,
+        fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: Colors.textPrimary,
+        color: '#2DD4BF',
     },
     headerTitle: {
         fontFamily: fonts.bold,
         fontSize: 18,
         color: Colors.textPrimary,
+        flex: 1,
+        textAlign: 'center',
         letterSpacing: 1,
-    },
-    notificationButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
     },
     scrollView: {
         flex: 1,
@@ -1430,6 +2775,496 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         // Make sure last content can scroll above floating tab bar
         paddingBottom: Platform.OS === 'ios' ? 170 : 150,
+    },
+    behaviorHeroStack: {
+        marginBottom: HERO_STACK_BOTTOM_GAP,
+    },
+    behaviorHeroGlassWrapper: {
+        marginBottom: CARD_SPACING,
+        borderRadius: 28,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.12,
+        shadowRadius: 32,
+        elevation: 8,
+        backgroundColor: 'transparent',
+    },
+    behaviorHeroGlassInner: {
+        borderRadius: 28,
+        padding: 18,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.7)',
+        backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    },
+    behaviorHeroGlassHighlight: {
+        ...StyleSheet.absoluteFillObject,
+        borderTopWidth: 1.5,
+        borderLeftWidth: 1.5,
+        borderColor: 'rgba(255, 255, 255, 0.9)',
+        borderRadius: 28,
+    },
+    checkinPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        marginBottom: 10,
+        borderRadius: 40,
+        backgroundColor: 'rgba(232, 168, 85, 0.12)',
+        borderWidth: 0.5,
+        borderColor: 'rgba(232, 168, 85, 0.25)',
+    },
+    checkinPillAttached: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        marginBottom: 4,
+        borderRadius: 40,
+        backgroundColor: 'rgba(232, 168, 85, 0.12)',
+        borderWidth: 0.5,
+        borderColor: 'rgba(232, 168, 85, 0.25)',
+    },
+    checkinPillText: {
+        flex: 1,
+        fontSize: 13,
+        fontFamily: fonts.medium,
+        color: Colors.textPrimary,
+    },
+    behaviorSecondaryGlassWrapper: {
+        marginBottom: CARD_SPACING,
+        borderRadius: 24,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.10,
+        shadowRadius: 24,
+        elevation: 4,
+        backgroundColor: 'transparent',
+    },
+    behaviorSecondaryGlassInner: {
+        borderRadius: 24,
+        padding: 16,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.7)',
+        backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    },
+    behaviorSecondaryGlassHighlight: {
+        ...StyleSheet.absoluteFillObject,
+        borderTopWidth: 1.5,
+        borderLeftWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.9)',
+        borderRadius: 24,
+    },
+
+
+    behaviorPrimaryTopRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 8,
+    },
+    behaviorHeroLabelRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    behaviorLabel: {
+        fontFamily: fonts.bold,
+        fontSize: 11,
+        letterSpacing: 1,
+        color: behaviorV1Theme.textSecondary,
+    },
+    behaviorScoreRow: {
+        marginTop: 2,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 14,
+        paddingVertical: 4,
+    },
+    behaviorScoreRingWrap: {
+        width: 86,
+        height: 86,
+        borderRadius: 43,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    behaviorScoreContent: {
+        flex: 1,
+        justifyContent: 'center',
+    },
+    behaviorScoreValueRow: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+    },
+    behaviorScoreValue: {
+        fontFamily: fonts.bold,
+        fontSize: 44,
+        color: behaviorV1Theme.textPrimary,
+        lineHeight: 48,
+    },
+    behaviorScoreValueMax: {
+        fontFamily: fonts.regular,
+        fontSize: 16,
+        color: behaviorV1Theme.textSecondary,
+        marginLeft: 4,
+    },
+    behaviorScoreUnlockTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 22,
+        lineHeight: 28,
+        color: behaviorV1Theme.textPrimary,
+    },
+    behaviorUnlockProgressPill: {
+        marginTop: 4,
+        alignSelf: 'flex-start',
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: 'rgba(45, 212, 191, 0.20)',
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+    },
+    behaviorUnlockProgressText: {
+        fontFamily: fonts.medium,
+        fontSize: 11,
+        color: behaviorV1Theme.sageMid,
+    },
+    behaviorScoreMeta: {
+        marginTop: 4,
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: behaviorV1Theme.textSecondary,
+        lineHeight: 18,
+    },
+    behaviorMomentumChipsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginTop: 10,
+    },
+    behaviorMomentumChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        borderRadius: 999,
+        borderWidth: 1,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+    },
+    behaviorMomentumChipNeutral: {
+        borderColor: 'rgba(60, 60, 67, 0.12)',
+        backgroundColor: 'rgba(60, 60, 67, 0.06)',
+    },
+    behaviorMomentumChipSuccess: {
+        borderColor: 'rgba(45, 212, 191, 0.30)',
+        backgroundColor: 'rgba(45, 212, 191, 0.10)',
+    },
+    behaviorMomentumChipText: {
+        fontFamily: fonts.medium,
+        fontSize: 11,
+    },
+    behaviorMomentumChipTextNeutral: {
+        color: behaviorV1Theme.textSecondary,
+    },
+    behaviorMomentumChipTextSuccess: {
+        color: behaviorV1Theme.textPrimary,
+    },
+    // Dark "Personalized Tips" card
+    darkActionCardWrapper: {
+        marginBottom: CARD_SPACING,
+        borderRadius: 22,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.25,
+        shadowRadius: 20,
+        elevation: 8,
+    },
+    darkActionCard: {
+        borderRadius: 22,
+        padding: 18,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+    },
+    darkActionCardHighlight: {
+        ...StyleSheet.absoluteFillObject,
+        borderTopWidth: 1,
+        borderLeftWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.12)',
+        borderRadius: 22,
+    },
+    darkActionTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 7,
+        marginBottom: 10,
+    },
+    darkActionLabel: {
+        fontFamily: fonts.semiBold,
+        fontSize: 15,
+        color: '#FFFFFF',
+    },
+    darkActionDescription: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        lineHeight: 20,
+        color: 'rgba(255, 255, 255, 0.72)',
+        marginBottom: 14,
+    },
+    darkActionCta: {
+        alignSelf: 'flex-start',
+    },
+    darkActionCtaText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: Colors.primary,
+    },
+    // Check-in Prompt Card
+    checkinPromptCard: {
+        borderRadius: 24,
+        paddingHorizontal: 20,
+        paddingTop: 18,
+        paddingBottom: 14,
+        overflow: 'hidden',
+        alignItems: 'center',
+        borderWidth: 1.5,
+        borderColor: '#FFFFFF',
+        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    },
+    checkinPromptEmojiRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 14,
+    },
+    checkinPromptEmojiBubble: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: 'rgba(255, 255, 255, 0.25)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    checkinPromptEmoji: {
+        fontSize: 18,
+    },
+    checkinPromptQuestion: {
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
+        color: '#FFFFFF',
+        textAlign: 'center',
+        marginBottom: 6,
+    },
+    checkinPromptWhy: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        lineHeight: 18,
+        color: 'rgba(255, 255, 255, 0.80)',
+        textAlign: 'center',
+        marginBottom: 16,
+    },
+    checkinPromptCta: {
+        backgroundColor: '#1C1C1E',
+        borderRadius: 22,
+        paddingVertical: 13,
+        alignItems: 'center',
+        alignSelf: 'stretch',
+        marginBottom: 8,
+    },
+    checkinPromptCtaText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 15,
+        color: '#FFFFFF',
+    },
+    checkinPromptDismiss: {
+        alignItems: 'center',
+        paddingVertical: 6,
+    },
+    checkinPromptDismissText: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: 'rgba(255, 255, 255, 0.80)',
+    },
+    // Momentum Grid
+    behaviorMomentumGrid: {
+        gap: 8,
+        marginBottom: 10,
+    },
+    behaviorMomentumRow: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    behaviorSmallGlassWrapper: {
+        flex: 1,
+        borderRadius: 22,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.10,
+        shadowRadius: 24,
+        elevation: 4,
+        backgroundColor: 'transparent',
+    },
+    behaviorMomentumCard: {
+        flex: 1,
+        minHeight: 120,
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.7)',
+        padding: 12,
+        paddingBottom: 10,
+        overflow: 'hidden',
+        backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    },
+    behaviorSmallGlassHighlight: {
+        ...StyleSheet.absoluteFillObject,
+        borderTopWidth: 1.5,
+        borderLeftWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.9)',
+        borderRadius: 22,
+    },
+    behaviorMomentumCardInvite: {
+        borderStyle: 'dashed',
+    },
+    behaviorMomentumLabel: {
+        fontFamily: fonts.medium,
+        fontSize: 11,
+        textTransform: 'uppercase',
+        letterSpacing: 0.6,
+    },
+    behaviorMomentumLabelRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+    },
+    behaviorMomentumValue: {
+        marginTop: 6,
+        fontFamily: fonts.semiBold,
+        fontSize: 22,
+        lineHeight: 26,
+        color: behaviorV1Theme.textPrimary,
+    },
+    behaviorMomentumValueText: {
+        fontSize: 14,
+        lineHeight: 19,
+        color: behaviorV1Theme.textPrimary,
+    },
+    behaviorMomentumSubtitle: {
+        marginTop: 4,
+        fontFamily: fonts.regular,
+        fontSize: 11,
+        color: behaviorV1Theme.textSecondary,
+        lineHeight: 15,
+    },
+    behaviorMomentumInviteRow: {
+        marginTop: 6,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    behaviorMomentumInviteText: {
+        fontFamily: fonts.medium,
+        fontSize: 11,
+    },
+    momentumInviteCentered: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 6,
+    },
+    momentumInviteTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: behaviorV1Theme.textPrimary,
+        textAlign: 'center',
+        marginBottom: 4,
+    },
+    momentumInviteDesc: {
+        fontFamily: fonts.regular,
+        fontSize: 11,
+        color: behaviorV1Theme.textSecondary,
+        textAlign: 'center',
+        lineHeight: 15,
+        marginBottom: 10,
+    },
+    momentumInviteCta: {
+        borderRadius: 14,
+        borderWidth: 1,
+        paddingHorizontal: 14,
+        paddingVertical: 6,
+    },
+    momentumInviteCtaText: {
+        fontFamily: fonts.medium,
+        fontSize: 12,
+    },
+    behaviorAdvancedCard: {
+        borderRadius: 14,
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
+        borderColor: 'rgba(60, 60, 67, 0.10)',
+        marginBottom: 14,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+        elevation: 1,
+    },
+    behaviorAdvancedHeader: {
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    behaviorAdvancedHeaderLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    behaviorAdvancedTitle: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: Colors.textSecondary,
+    },
+    behaviorAdvancedBody: {
+        paddingHorizontal: 14,
+        paddingBottom: 14,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(60, 60, 67, 0.10)',
+        gap: 8,
+    },
+    behaviorAdvancedMetric: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    behaviorAdvancedMetricLabel: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textSecondary,
+    },
+    behaviorAdvancedMetricValue: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: Colors.textPrimary,
+    },
+    behaviorAdvancedCta: {
+        marginTop: 2,
+        borderRadius: 10,
+        backgroundColor: 'rgba(60, 60, 67, 0.06)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 38,
+    },
+    behaviorAdvancedCtaText: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: Colors.textPrimary,
     },
     trendsSection: {
         marginTop: 0,
@@ -1442,20 +3277,20 @@ const styles = StyleSheet.create({
         paddingBottom: 0,
     },
     trendsCard: {
-        // backgroundColor: '#22282C', // Uses gradient now
+        backgroundColor: 'rgba(255, 255, 255, 0.70)',
         borderRadius: 24,
         paddingHorizontal: 16,
         paddingTop: 20,
         paddingBottom: 24,
         alignItems: 'center',
         justifyContent: 'center',
-        borderWidth: 1.5, // Slightly thicker for the effect
-        borderColor: 'rgba(255,255,255,0.15)', // White shining outline
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.5)',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.25,
-        shadowRadius: 18,
-        elevation: 8,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 16,
+        elevation: 2,
     },
     trendsHeaderRow: {
         flexDirection: 'row',
@@ -1517,7 +3352,7 @@ const styles = StyleSheet.create({
     },
     // Metabolic Score Card styles - matches stat card styling
     metabolicScoreCard: {
-        backgroundColor: '#22282C',
+        backgroundColor: Colors.backgroundCardGlass,
         borderRadius: 16,
         padding: 16,
         marginBottom: 16,
@@ -1525,16 +3360,20 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.25,
         shadowRadius: 2,
+        borderWidth: 1,
+        borderColor: behaviorV1Theme.borderSoft,
     },
     metabolicScoreCardEmpty: {
-        backgroundColor: '#22282C',
-        borderRadius: 16,
+        backgroundColor: 'rgba(255, 255, 255, 0.70)',
+        borderRadius: 20,
         padding: 16,
         marginBottom: 16,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 16,
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.5)',
     },
     metabolicScoreEmptyLeft: {
         flexDirection: 'row',
@@ -1547,7 +3386,7 @@ const styles = StyleSheet.create({
     metabolicScoreEmptyTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 20,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
     },
     metabolicScoreEmptySubtitle: {
         fontFamily: fonts.regular,
@@ -1594,7 +3433,7 @@ const styles = StyleSheet.create({
     metabolicScoreValue: {
         fontFamily: fonts.medium,
         fontSize: 32,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         lineHeight: 36,
     },
     metabolicScoreMax: {
@@ -1622,7 +3461,7 @@ const styles = StyleSheet.create({
     },
     metabolicProgressBar: {
         height: 4,
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: 'rgba(0,0,0,0.06)',
         borderRadius: 2,
         marginBottom: 10,
         overflow: 'hidden',
@@ -1646,13 +3485,16 @@ const styles = StyleSheet.create({
     },
     statCard: {
         flex: 1,
-        backgroundColor: '#22282C',
-        borderRadius: 16,
+        backgroundColor: 'rgba(255, 255, 255, 0.70)', // Liquid Glass base
+        borderRadius: 20, // Softer
         padding: 16,
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.5)', // Subtle edge
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 16,
+        elevation: 2,
     },
     statHeader: {
         flexDirection: 'row',
@@ -1681,7 +3523,7 @@ const styles = StyleSheet.create({
     statUnit: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
     },
     statDescription: {
         fontFamily: fonts.regular,
@@ -1739,7 +3581,7 @@ const styles = StyleSheet.create({
     mealSectionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
         marginBottom: 16,
     },
     mealCardsScroll: {
@@ -1750,12 +3592,17 @@ const styles = StyleSheet.create({
     },
     mealCard: {
         width: SCREEN_WIDTH - 72,
-        backgroundColor: '#22282C',
-        borderRadius: 16,
+        backgroundColor: 'rgba(255, 255, 255, 0.70)',
+        borderRadius: 20,
         padding: 16,
         gap: 16,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.5)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 16,
+        elevation: 2,
     },
     mealHeader: {
         flexDirection: 'row',
@@ -1765,7 +3612,7 @@ const styles = StyleSheet.create({
         width: 36,
         height: 36,
         borderRadius: 8,
-        backgroundColor: '#3A4246',
+        backgroundColor: 'rgba(60, 60, 67, 0.06)',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -1797,14 +3644,14 @@ const styles = StyleSheet.create({
     },
     chartPlaceholder: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.2)',
+        backgroundColor: 'rgba(0,0,0,0.04)',
         borderRadius: 8,
         padding: 12,
     },
     chartLabel: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
         marginBottom: 8,
     },
     chartArea: {
@@ -1814,7 +3661,7 @@ const styles = StyleSheet.create({
     chartLine: {
         flex: 1,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255,255,255,0.1)',
+        borderBottomColor: 'rgba(60, 60, 67, 0.10)',
     },
     chartLegend: {
         flexDirection: 'row',
@@ -1835,7 +3682,7 @@ const styles = StyleSheet.create({
     legendText: {
         fontFamily: fonts.medium,
         fontSize: 12,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
     },
     mealStatus: {
         gap: 8,
@@ -1858,17 +3705,6 @@ const styles = StyleSheet.create({
         fontFamily: fonts.regular,
         fontSize: 14,
         color: Colors.textPrimary,
-    },
-    fabContainer: {
-        position: 'absolute',
-        right: 16,
-        bottom: 120,
-        zIndex: 20,
-    },
-    fabOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        zIndex: 10,
     },
     chartLoading: {
         height: 200,
@@ -1906,13 +3742,13 @@ const styles = StyleSheet.create({
         height: MINI_CHART_HEIGHT,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: 'rgba(63, 66, 67, 0.2)',
+        backgroundColor: 'rgba(60, 60, 67, 0.06)',
         borderRadius: 8,
     },
     miniChartEmptyText: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     miniChartLegend: {
         flexDirection: 'row',
@@ -1923,7 +3759,7 @@ const styles = StyleSheet.create({
     miniChartYLabel: {
         fontFamily: fonts.regular,
         fontSize: 10,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     miniChartLegendItems: {
         flexDirection: 'row',
@@ -1937,19 +3773,20 @@ const styles = StyleSheet.create({
     // No meals placeholder card
     noMealsCard: {
         width: '100%',
-        backgroundColor: '#22282C',
-        borderRadius: 16,
+        backgroundColor: 'rgba(255, 255, 255, 0.40)', // Empty state, even lighter glass
+        borderRadius: 20,
         paddingVertical: 48,
         justifyContent: 'center',
         alignItems: 'center',
         gap: 8,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.5)',
+        borderStyle: 'dashed',
     },
     noMealsText: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#E7E8E9',
+        color: Colors.textPrimary,
         marginTop: 8,
     },
     noMealsSubtext: {
@@ -1988,4 +3825,99 @@ const styles = StyleSheet.create({
         marginTop: 2,
     },
 
+});
+
+const scoreExpStyles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+        justifyContent: 'flex-end',
+    },
+    sheet: {
+        backgroundColor: '#FFFFFF',
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingHorizontal: 24,
+        paddingBottom: 40,
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderColor: 'rgba(60, 60, 67, 0.10)',
+    },
+    handle: {
+        width: 36,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: 'rgba(60, 60, 67, 0.20)',
+        alignSelf: 'center',
+        marginBottom: 20,
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+        marginBottom: 20,
+    },
+    scoreRingWrap: {
+        width: 72,
+        height: 72,
+    },
+    headerText: {
+        flex: 1,
+    },
+    title: {
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
+        color: behaviorV1Theme.textPrimary,
+        marginBottom: 4,
+    },
+    scoreValue: {
+        fontFamily: fonts.bold,
+        fontSize: 28,
+        color: behaviorV1Theme.sageBright,
+    },
+    content: {
+        gap: 14,
+    },
+    summary: {
+        fontFamily: fonts.regular,
+        fontSize: 15,
+        color: behaviorV1Theme.textPrimary,
+        lineHeight: 22,
+        marginBottom: 4,
+    },
+    row: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 10,
+    },
+    rowText: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: behaviorV1Theme.textSecondary,
+        flex: 1,
+        lineHeight: 20,
+    },
+    actionRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 10,
+        backgroundColor: 'rgba(45, 212, 191, 0.06)',
+        padding: 12,
+        borderRadius: 12,
+        marginTop: 4,
+    },
+    actionText: {
+        fontFamily: fonts.medium,
+        fontSize: 14,
+        color: behaviorV1Theme.textPrimary,
+        flex: 1,
+        lineHeight: 20,
+    },
+    loadingHint: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: behaviorV1Theme.textSecondary,
+        textAlign: 'center',
+        marginTop: 4,
+    },
 });

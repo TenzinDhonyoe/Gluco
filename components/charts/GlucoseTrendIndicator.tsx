@@ -11,7 +11,6 @@ const AnimatedLine = Animated.createAnimatedComponent(Line);
 // Mascot images
 const MASCOT_CRY = require('@/assets/images/mascots/gluco_app_mascott/gluco_mascott_cry.png');
 const MASCOT_DEFAULT = require('@/assets/images/mascots/gluco_app_mascott/gluco_mascott_default.png');
-const LOCK_ICON = require('@/assets/images/icons/lock_red.png');
 
 export type TrendStatus = 'low' | 'in_range' | 'high' | 'no_data';
 
@@ -78,7 +77,7 @@ export function GlucoseTrendIndicator({
             duration: 300,
             easing: Easing.out(Easing.cubic),
         });
-    }, [status, needleAngle, showNeedle]);
+    }, [status, needleAngle, showNeedle, animatedAngle]);
 
     // Dimensions
     const strokeWidth = 15;

@@ -133,13 +133,16 @@ export function MetricCard({
 const styles = StyleSheet.create({
     card: {
         flex: 1,
-        backgroundColor: '#22282C',
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(60, 60, 67, 0.08)',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+        elevation: 1,
     },
     header: {
         flexDirection: 'row',
@@ -194,7 +197,7 @@ const styles = StyleSheet.create({
     unit: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#E7E8E9',
+        color: Colors.textSecondary,
     },
     statusPill: {
         flexDirection: 'row',

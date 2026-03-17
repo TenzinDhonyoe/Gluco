@@ -2,7 +2,8 @@ import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { CravingsLevel, EnergyLevel, ensureSignedMealPhotoUrl, FullnessLevel, MoodLevel, upsertMealCheckin } from '@/lib/supabase';
+import { getScoreColor, getScoreEmoji, type ScoreLabel } from '@/lib/mealScore';
+import { CravingsLevel, EnergyLevel, ensureSignedMealPhotoUrl, FullnessLevel, getMealScore, MoodLevel, type MealScore, upsertMealCheckin } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -44,6 +45,7 @@ export default function MealCheckinScreen() {
     const { mealId, mealName, photoPath } = useLocalSearchParams<{ mealId: string; mealName?: string; photoPath?: string }>();
     const { user } = useAuth();
 
+    const [mealScore, setMealScore] = useState<MealScore | null>(null);
     const [energy, setEnergy] = useState<EnergyLevel | null>(null);
     const [fullness, setFullness] = useState<FullnessLevel | null>(null);
     const [cravings, setCravings] = useState<CravingsLevel | null>(null);
@@ -59,6 +61,13 @@ export default function MealCheckinScreen() {
             ensureSignedMealPhotoUrl(photoPath).then(setSignedPhotoUrl);
         }
     }, [photoPath]);
+
+    // Fetch meal score if available
+    useEffect(() => {
+        if (mealId) {
+            getMealScore(mealId).then(setMealScore).catch(() => {});
+        }
+    }, [mealId]);
 
     const handleSave = async () => {
         if (!user?.id || !mealId) return;
@@ -92,7 +101,7 @@ export default function MealCheckinScreen() {
                 <View style={styles.photoHeader}>
                     <Image source={{ uri: signedPhotoUrl }} style={styles.mealPhoto} />
                     <LinearGradient
-                        colors={['rgba(0,0,0,0.3)', 'transparent', Colors.background]}
+                        colors={['rgba(0,0,0,0.3)', 'transparent', Colors.backgroundSolid]}
                         locations={[0, 0.3, 1]}
                         style={styles.photoGradient}
                     />
@@ -107,7 +116,7 @@ export default function MealCheckinScreen() {
                     {/* Header */}
                     <View style={styles.header}>
                         <LiquidGlassIconButton size={44} onPress={() => router.back()}>
-                            <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                            <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
                         </LiquidGlassIconButton>
                         <Text style={styles.headerTitle}>After Meal Check In</Text>
                         <View style={styles.headerSpacer} />
@@ -116,6 +125,35 @@ export default function MealCheckinScreen() {
                     {mealName && (
                         <Text style={styles.mealName}>{mealName}</Text>
                     )}
+
+                    {/* Meal score pill — non-intrusive at top */}
+                    {mealScore && (() => {
+                        const sl = mealScore.score_label as ScoreLabel;
+                        const sc = getScoreColor(sl);
+                        const word = sl.charAt(0).toUpperCase() + sl.slice(1);
+                        return (
+                            <View style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 8,
+                                paddingHorizontal: 14,
+                                paddingVertical: 8,
+                                marginHorizontal: 20,
+                                marginBottom: 12,
+                                borderRadius: 40,
+                                backgroundColor: `${sc}10`,
+                                borderWidth: 0.5,
+                                borderColor: `${sc}25`,
+                            }}>
+                                <Text style={{ fontFamily: fonts.bold, fontSize: 18, color: sc }}>
+                                    {mealScore.score}
+                                </Text>
+                                <Text style={{ fontFamily: fonts.medium, fontSize: 13, color: Colors.textSecondary }}>
+                                    {word} response {getScoreEmoji(sl)}
+                                </Text>
+                            </View>
+                        );
+                    })()}
 
                         <ScrollView
                             style={styles.scrollView}
@@ -271,7 +309,7 @@ export default function MealCheckinScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: 'transparent',
     },
     photoHeader: {
         position: 'absolute',
@@ -293,7 +331,7 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     safeAreaNoBg: {
-        backgroundColor: Colors.background,
+        backgroundColor: Colors.backgroundSolid,
     },
     keyboardView: {
         flex: 1,
@@ -321,7 +359,7 @@ const styles = StyleSheet.create({
     headerTitle: {
         fontSize: 16,
         fontFamily: fonts.bold,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         letterSpacing: 1,
     },
     headerSpacer: {
@@ -359,13 +397,13 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
         paddingHorizontal: 16,
         borderRadius: 12,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: '#FFFFFF',
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)',
+        borderColor: Colors.borderLight,
         alignItems: 'center',
     },
     optionButtonSelected: {
-        backgroundColor: 'rgba(76, 175, 80, 0.2)',
+        backgroundColor: Colors.successLight,
         borderColor: Colors.success,
     },
     optionButtonText: {
@@ -377,10 +415,10 @@ const styles = StyleSheet.create({
         color: Colors.success,
     },
     notesInput: {
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: '#FFFFFF',
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)',
+        borderColor: Colors.borderLight,
         padding: 16,
         fontSize: 15,
         fontFamily: fonts.regular,
@@ -395,20 +433,22 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingBottom: 34,
         paddingTop: 16,
-        backgroundColor: 'rgba(18, 18, 18, 0.95)',
+        backgroundColor: 'rgba(242, 242, 247, 0.95)',
+        borderTopWidth: 1,
+        borderTopColor: Colors.borderLight,
     },
     saveButton: {
-        backgroundColor: Colors.success,
+        backgroundColor: Colors.buttonAction,
         borderRadius: 16,
         paddingVertical: 16,
         alignItems: 'center',
     },
     saveButtonDisabled: {
-        backgroundColor: '#3F4243',
+        backgroundColor: Colors.buttonDisabled,
     },
     saveButtonText: {
         fontSize: 16,
         fontFamily: fonts.semiBold,
-        color: Colors.background,
+        color: Colors.buttonActionText,
     },
 });

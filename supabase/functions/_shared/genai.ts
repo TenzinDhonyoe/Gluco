@@ -122,5 +122,53 @@ export async function callGenAIWithImage(
     }
 }
 
+/**
+ * Call Google Gen AI with multi-turn conversation history.
+ * Uses systemInstruction to keep the system prompt out of the contents array.
+ * Returns the text response or null on error.
+ */
+export interface ChatTurn {
+    role: 'user' | 'model';
+    content: string;
+}
+
+export async function callGenAIChat(
+    systemInstruction: string,
+    conversationHistory: ChatTurn[],
+    options?: GenAIOptions
+): Promise<string | null> {
+    try {
+        const ai = getClient();
+        const model = options?.model || Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL;
+
+        const config: Record<string, unknown> = {
+            systemInstruction,
+        };
+
+        if (options?.temperature !== undefined) {
+            config.temperature = options.temperature;
+        }
+        if (options?.maxOutputTokens !== undefined) {
+            config.maxOutputTokens = options.maxOutputTokens;
+        }
+
+        const contents = conversationHistory.map(msg => ({
+            role: msg.role,
+            parts: [{ text: msg.content }],
+        }));
+
+        const response = await ai.models.generateContent({
+            model,
+            contents,
+            config,
+        });
+
+        return response.text || null;
+    } catch (error) {
+        console.error('Gen AI chat call failed:', error);
+        return null;
+    }
+}
+
 // Re-export for backwards compatibility during migration
 export { callGenAI as callVertexAI };

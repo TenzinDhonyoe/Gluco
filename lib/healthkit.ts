@@ -42,7 +42,18 @@ function getAppleHealthKit() {
     return AppleHealthKit;
 }
 
+/** Per-day value for a single metric */
+export interface DailyBreakdownEntry {
+    date: string; // YYYY-MM-DD
+    value: number;
+}
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** Extract YYYY-MM-DD from an ISO date string */
+function toDateKey(isoDate: string): string {
+    return isoDate.split('T')[0];
+}
 
 function getDateRangeDays(startDate: Date, endDate: Date): number {
     const start = new Date(startDate);
@@ -95,6 +106,7 @@ export async function initHealthKit(): Promise<boolean> {
                     healthKit.Constants.Permissions.RestingHeartRate,
                     healthKit.Constants.Permissions.HeartRateVariabilitySDNN,
                     healthKit.Constants.Permissions.Workout,
+                    healthKit.Constants.Permissions.BloodGlucose,
                 ],
                 write: [],
             },
@@ -135,6 +147,7 @@ export interface SleepStats {
     totalMinutes: number;
     nights: number;
     avgMinutesPerNight: number;
+    dailyBreakdown: DailyBreakdownEntry[]; // value = sleep hours per night
 }
 
 /**
@@ -184,39 +197,48 @@ export async function getSleepData(
                                 totalMinutes: 0,
                                 nights: 0,
                                 avgMinutesPerNight: 0,
+                                dailyBreakdown: [],
                             });
                             return;
                         }
 
-                        // Calculate total sleep duration in minutes
-                        const totalMinutes = effectiveSamples.reduce((sum, sample) => {
-                            const start = new Date(sample.startDate).getTime();
-                            const end = new Date(sample.endDate).getTime();
-                            const durationMinutes = (end - start) / 60000;
-                            return sum + durationMinutes;
-                        }, 0);
+                        // Group sleep samples by night date
+                        // A "night" is determined by when sleep started; if between midnight and 6am, attribute to previous day
+                        const nightMinutesMap = new Map<string, number>();
 
-                        // Count unique nights by grouping samples by their start date
-                        // A "night" is determined by the date when sleep started
-                        const uniqueNights = new Set(
-                            effectiveSamples.map((sample) => {
-                                const date = new Date(sample.startDate);
-                                // Adjust for sleep that starts late at night
-                                // If sleep starts between midnight and 6am, consider it part of previous night
-                                if (date.getHours() < 6) {
-                                    date.setDate(date.getDate() - 1);
-                                }
-                                return date.toDateString();
-                            })
-                        );
+                        effectiveSamples.forEach((sample) => {
+                            const sampleStart = new Date(sample.startDate);
+                            const sampleEnd = new Date(sample.endDate);
+                            const durationMinutes = (sampleEnd.getTime() - sampleStart.getTime()) / 60000;
 
-                        const nights = uniqueNights.size;
+                            // Determine night date
+                            const nightDate = new Date(sampleStart);
+                            if (nightDate.getHours() < 6) {
+                                nightDate.setDate(nightDate.getDate() - 1);
+                            }
+                            const dateKey = toDateKey(nightDate.toISOString());
+
+                            nightMinutesMap.set(dateKey, (nightMinutesMap.get(dateKey) ?? 0) + durationMinutes);
+                        });
+
+                        // Calculate totals
+                        let totalMinutes = 0;
+                        nightMinutesMap.forEach((mins) => { totalMinutes += mins; });
+
+                        const nights = nightMinutesMap.size;
                         const avgMinutesPerNight = nights > 0 ? totalMinutes / nights : 0;
+
+                        // Build daily breakdown (value = sleep hours)
+                        const dailyBreakdown: DailyBreakdownEntry[] = [];
+                        nightMinutesMap.forEach((mins, dateKey) => {
+                            dailyBreakdown.push({ date: dateKey, value: Math.round((mins / 60) * 10) / 10 });
+                        });
 
                         resolve({
                             totalMinutes,
                             nights,
                             avgMinutesPerNight,
+                            dailyBreakdown,
                         });
                     }
                 );
@@ -247,6 +269,7 @@ export interface StepsStats {
     totalSteps: number;
     days: number;
     avgStepsPerDay: number;
+    dailyBreakdown: DailyBreakdownEntry[]; // value = steps per day
 }
 
 /**
@@ -283,16 +306,27 @@ export async function getSteps(
                         }
 
                         if (results.length === 0) {
-                            resolve({ totalSteps: 0, days: 0, avgStepsPerDay: 0 });
+                            resolve({ totalSteps: 0, days: 0, avgStepsPerDay: 0, dailyBreakdown: [] });
                             return;
                         }
 
+                        // Group by date (daily buckets may have multiple entries per day)
+                        const dayStepsMap = new Map<string, number>();
+                        results.forEach((sample) => {
+                            const dateKey = toDateKey(sample.startDate);
+                            dayStepsMap.set(dateKey, (dayStepsMap.get(dateKey) ?? 0) + sample.value);
+                        });
+
                         const totalSteps = results.reduce((sum, sample) => sum + sample.value, 0);
-                        const uniqueDays = new Set(results.map((sample) => new Date(sample.startDate).toDateString()));
-                        const days = uniqueDays.size > 0 ? uniqueDays.size : results.length;
+                        const days = dayStepsMap.size;
                         const avgStepsPerDay = days > 0 ? Math.round(totalSteps / days) : 0;
 
-                        resolve({ totalSteps, days, avgStepsPerDay });
+                        const dailyBreakdown: DailyBreakdownEntry[] = [];
+                        dayStepsMap.forEach((steps, dateKey) => {
+                            dailyBreakdown.push({ date: dateKey, value: Math.round(steps) });
+                        });
+
+                        resolve({ totalSteps, days, avgStepsPerDay, dailyBreakdown });
                     }
                 );
             } catch (error) {
@@ -315,6 +349,7 @@ export interface ActiveMinutesStats {
     days: number;
     avgMinutesPerDay: number;
     source: 'apple_exercise_time' | 'workouts' | null;
+    dailyBreakdown: DailyBreakdownEntry[]; // value = active minutes per day
 }
 
 /**
@@ -367,15 +402,28 @@ async function getAppleExerciseTime(
                         return;
                     }
 
-                    const rangeDays = getDateRangeDays(startDate, endDate);
+                    // Group by date
+                    const dayMinutesMap = new Map<string, number>();
+                    results.forEach((sample) => {
+                        const dateKey = toDateKey(sample.startDate);
+                        dayMinutesMap.set(dateKey, (dayMinutesMap.get(dateKey) ?? 0) + sample.value);
+                    });
+
                     const totalMinutes = results.reduce((sum, sample) => sum + sample.value, 0);
+                    const rangeDays = getDateRangeDays(startDate, endDate);
                     const avgMinutesPerDay = rangeDays > 0 ? Math.round(totalMinutes / rangeDays) : 0;
+
+                    const dailyBreakdown: DailyBreakdownEntry[] = [];
+                    dayMinutesMap.forEach((mins, dateKey) => {
+                        dailyBreakdown.push({ date: dateKey, value: Math.round(mins) });
+                    });
 
                     resolve({
                         totalMinutes,
                         days: rangeDays,
                         avgMinutesPerDay,
                         source: 'apple_exercise_time',
+                        dailyBreakdown,
                     });
                 }
             );
@@ -412,20 +460,31 @@ async function getWorkoutsDuration(
 
                     let totalMinutes = 0;
                     const rangeDays = getDateRangeDays(startDate, endDate);
+                    const dayMinutesMap = new Map<string, number>();
 
                     results.forEach((workout) => {
-                        const start = new Date(workout.start).getTime();
-                        const end = new Date(workout.end).getTime();
-                        totalMinutes += (end - start) / 60000;
+                        const wStart = new Date(workout.start).getTime();
+                        const wEnd = new Date(workout.end).getTime();
+                        const mins = (wEnd - wStart) / 60000;
+                        totalMinutes += mins;
+
+                        const dateKey = toDateKey(workout.start);
+                        dayMinutesMap.set(dateKey, (dayMinutesMap.get(dateKey) ?? 0) + mins);
                     });
 
                     const avgMinutesPerDay = rangeDays > 0 ? Math.round(totalMinutes / rangeDays) : 0;
+
+                    const dailyBreakdown: DailyBreakdownEntry[] = [];
+                    dayMinutesMap.forEach((mins, dateKey) => {
+                        dailyBreakdown.push({ date: dateKey, value: Math.round(mins) });
+                    });
 
                     resolve({
                         totalMinutes: Math.round(totalMinutes),
                         days: rangeDays,
                         avgMinutesPerDay,
                         source: 'workouts',
+                        dailyBreakdown,
                     });
                 }
             );
@@ -442,6 +501,7 @@ async function getWorkoutsDuration(
 export interface RestingHeartRateStats {
     avgRestingHR: number;
     days: number;
+    dailyBreakdown: DailyBreakdownEntry[]; // value = resting HR (bpm) per day
 }
 
 /**
@@ -469,16 +529,31 @@ export async function getRestingHeartRate(
 
                 healthKit.getRestingHeartRate(
                     options,
-                    (err: Error | null, results: Array<{ value: number }> | null) => {
+                    (err: Error | null, results: Array<{ value: number; startDate: string }> | null) => {
                         if (err || !results || results.length === 0) {
                             resolve(null);
                             return;
                         }
 
+                        // Group by date (average if multiple readings per day)
+                        const dayHRMap = new Map<string, { total: number; count: number }>();
+                        results.forEach((sample) => {
+                            const dateKey = toDateKey(sample.startDate);
+                            const entry = dayHRMap.get(dateKey) ?? { total: 0, count: 0 };
+                            entry.total += sample.value;
+                            entry.count++;
+                            dayHRMap.set(dateKey, entry);
+                        });
+
                         const totalHR = results.reduce((sum, sample) => sum + sample.value, 0);
                         const avgRestingHR = Math.round((totalHR / results.length) * 100) / 100;
 
-                        resolve({ avgRestingHR, days: results.length });
+                        const dailyBreakdown: DailyBreakdownEntry[] = [];
+                        dayHRMap.forEach(({ total, count }, dateKey) => {
+                            dailyBreakdown.push({ date: dateKey, value: Math.round((total / count) * 10) / 10 });
+                        });
+
+                        resolve({ avgRestingHR, days: dayHRMap.size, dailyBreakdown });
                     }
                 );
             } catch (error) {
@@ -499,6 +574,7 @@ export async function getRestingHeartRate(
 export interface HRVStats {
     avgHRV: number; // in milliseconds
     days: number;
+    dailyBreakdown: DailyBreakdownEntry[]; // value = HRV (ms) per day
 }
 
 /**
@@ -526,17 +602,32 @@ export async function getHRV(
 
                 healthKit.getHeartRateVariabilitySamples(
                     options,
-                    (err: Error | null, results: Array<{ value: number }> | null) => {
+                    (err: Error | null, results: Array<{ value: number; startDate: string }> | null) => {
                         if (err || !results || results.length === 0) {
                             resolve(null);
                             return;
                         }
 
                         // HRV is typically in seconds, convert to ms
+                        // Group by date (average if multiple readings per day)
+                        const dayHRVMap = new Map<string, { total: number; count: number }>();
+                        results.forEach((sample) => {
+                            const dateKey = toDateKey(sample.startDate);
+                            const entry = dayHRVMap.get(dateKey) ?? { total: 0, count: 0 };
+                            entry.total += sample.value * 1000;
+                            entry.count++;
+                            dayHRVMap.set(dateKey, entry);
+                        });
+
                         const totalHRV = results.reduce((sum, sample) => sum + sample.value * 1000, 0);
                         const avgHRV = Math.round((totalHRV / results.length) * 100) / 100;
 
-                        resolve({ avgHRV, days: results.length });
+                        const dailyBreakdown: DailyBreakdownEntry[] = [];
+                        dayHRVMap.forEach(({ total, count }, dateKey) => {
+                            dailyBreakdown.push({ date: dateKey, value: Math.round((total / count) * 100) / 100 });
+                        });
+
+                        resolve({ avgHRV, days: dayHRVMap.size, dailyBreakdown });
                     }
                 );
             } catch (error) {
@@ -547,5 +638,135 @@ export async function getHRV(
     } catch (error) {
         console.warn('Error in getHRV:', error);
         return null;
+    }
+}
+
+// ============================================
+// BLOOD GLUCOSE
+// ============================================
+
+export interface GlucoseSample {
+    id: string;
+    value: number;
+    unit: 'mmolPerL' | 'mgPerdL';
+    startDate: string;
+    endDate: string;
+    sourceName: string;
+    mealTime?: 'preprandial' | 'postprandial' | null;
+}
+
+export interface GlucoseSamplesStats {
+    samples: GlucoseSample[];
+    count: number;
+    source: 'healthkit';
+}
+
+/**
+ * Fetch blood glucose samples from HealthKit (CGM or manual entries).
+ * Returns raw samples sorted by startDate ascending.
+ */
+export async function getBloodGlucoseSamples(
+    startDate: Date,
+    endDate: Date,
+    unit: 'mmolPerL' | 'mgPerdL' = 'mgPerdL',
+): Promise<GlucoseSamplesStats | null> {
+    try {
+        const healthKit = getAppleHealthKit();
+        if (!healthKit) return null;
+
+        if (typeof healthKit.getBloodGlucoseSamples !== 'function') {
+            console.warn('getBloodGlucoseSamples method not available');
+            return null;
+        }
+
+        return new Promise((resolve) => {
+            try {
+                const options = {
+                    startDate: startDate.toISOString(),
+                    endDate: endDate.toISOString(),
+                    unit,
+                };
+
+                healthKit.getBloodGlucoseSamples(
+                    options,
+                    (err: Error | null, results: GlucoseSample[] | null) => {
+                        if (err || !results || results.length === 0) {
+                            resolve(null);
+                            return;
+                        }
+
+                        // Sort by startDate ascending
+                        const sorted = results.sort(
+                            (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+                        );
+
+                        resolve({
+                            samples: sorted,
+                            count: sorted.length,
+                            source: 'healthkit',
+                        });
+                    }
+                );
+            } catch (error) {
+                console.warn('Error calling getBloodGlucoseSamples:', error);
+                resolve(null);
+            }
+        });
+    } catch (error) {
+        console.warn('Error in getBloodGlucoseSamples:', error);
+        return null;
+    }
+}
+
+/**
+ * Sync HealthKit glucose samples to the glucose_logs table.
+ * Deduplicates by timestamp (±1 min) and value similarity.
+ * Returns count of new readings inserted.
+ */
+export async function syncHealthKitGlucoseToLogs(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+): Promise<number> {
+    try {
+        // Fetch from HealthKit in mmol/L (DB storage format)
+        const stats = await getBloodGlucoseSamples(startDate, endDate, 'mmolPerL');
+        if (!stats || stats.samples.length === 0) return 0;
+
+        // Dynamic import to avoid circular dependency
+        const { createGlucoseLog, getGlucoseLogsByDateRange } = await import('@/lib/supabase');
+
+        // Fetch existing logs for dedup
+        const existingLogs = await getGlucoseLogsByDateRange(userId, startDate, endDate);
+
+        let insertedCount = 0;
+        for (const sample of stats.samples) {
+            const sampleTime = new Date(sample.startDate);
+
+            // Dedup: check if a log exists within 1 min and similar value
+            const isDuplicate = existingLogs.some(log => {
+                const logTime = new Date(log.logged_at);
+                const timeDiffMs = Math.abs(sampleTime.getTime() - logTime.getTime());
+                const valueDiff = Math.abs(sample.value - log.glucose_level);
+                return timeDiffMs < 60000 && valueDiff < 0.2; // 1 min, 0.2 mmol/L tolerance
+            });
+
+            if (isDuplicate) continue;
+
+            const result = await createGlucoseLog(userId, {
+                glucose_level: sample.value,
+                unit: 'mmol/L',
+                logged_at: sampleTime.toISOString(),
+                context: 'healthkit_sync',
+                notes: `Source: ${sample.sourceName}`,
+            });
+
+            if (result) insertedCount++;
+        }
+
+        return insertedCount;
+    } catch (error) {
+        console.warn('Error syncing HealthKit glucose:', error);
+        return 0;
     }
 }

@@ -1,6 +1,5 @@
-import { AnimatedScreen } from '@/components/animations/animated-screen';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
-import { LiquidGlassButton } from '@/components/ui/LiquidGlassButton';
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -15,7 +14,6 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Animated,
-    Dimensions,
     Image,
     Linking,
     Modal,
@@ -28,7 +26,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const TIP_CARD_WIDTH = 271;
 const TIP_CARD_HEIGHT = 262;
 
@@ -155,11 +152,11 @@ function getCategoryIcon(category: TipCategory) {
 function getLogIcon(type: LogType) {
     switch (type) {
         case 'activity':
-            return <ActivityIcon color={Colors.textTertiary} />;
+            return <ActivityIcon color="rgba(129, 199, 132, 0.8)" />;
         case 'meal':
-            return <MealIcon color={Colors.textTertiary} />;
+            return <MealIcon color="rgba(255, 183, 77, 0.8)" />;
         case 'glucose':
-            return <GlucoseIcon color={Colors.textTertiary} />;
+            return <GlucoseIcon color="rgba(255, 82, 82, 0.8)" />;
     }
 }
 
@@ -188,51 +185,12 @@ function ActivityIcon({ color = Colors.activity }: { color?: string }) {
     );
 }
 
-function FilterIcon() {
-    return (
-        <View style={iconStyles.filterIcon}>
-            <View style={iconStyles.filterLine}>
-                <View style={[iconStyles.filterDot, { left: 2 }]} />
-            </View>
-            <View style={iconStyles.filterLine}>
-                <View style={[iconStyles.filterDot, { right: 2 }]} />
-            </View>
-            <View style={iconStyles.filterLine}>
-                <View style={[iconStyles.filterDot, { left: 4 }]} />
-            </View>
-        </View>
-    );
-}
-
 const iconStyles = StyleSheet.create({
     container: {
         width: 24,
         height: 24,
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    filterIcon: {
-        width: 16,
-        height: 16,
-        justifyContent: 'space-between',
-        paddingVertical: 2,
-    },
-    filterLine: {
-        width: 16,
-        height: 2,
-        backgroundColor: 'white',
-        borderRadius: 1,
-        position: 'relative',
-    },
-    filterDot: {
-        position: 'absolute',
-        width: 4,
-        height: 4,
-        backgroundColor: '#1a1b1c',
-        borderRadius: 2,
-        top: -1,
-        borderWidth: 1,
-        borderColor: 'white',
     },
 });
 
@@ -427,214 +385,207 @@ export default function LogScreen() {
     };
 
     return (
-        <AnimatedScreen>
-            <View style={styles.container}>
-                {/* Background gradient */}
-                <LinearGradient
-                    colors={['#1a1f24', '#181c20', '#111111']}
-                    locations={[0, 0.3, 1]}
-                    style={styles.backgroundGradient}
-                />
+        <View style={styles.container}>
+            <ForestGlassBackground />
 
-                <Animated.ScrollView
-                    style={styles.scrollView}
-                    contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 8 }]}
-                    showsVerticalScrollIndicator={false}
-                    onScroll={handleScroll}
-                    scrollEventThrottle={16}
+            <Animated.ScrollView
+                style={styles.scrollView}
+                contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 8 }]}
+                showsVerticalScrollIndicator={false}
+                onScroll={handleScroll}
+                scrollEventThrottle={16}
+            >
+                {/* Tips Section */}
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.tipsScroll}
+                    contentContainerStyle={styles.tipsContainer}
+                    snapToInterval={TIP_CARD_WIDTH + 16}
+                    decelerationRate="fast"
                 >
-                    {/* Tips Section */}
-                    <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        style={styles.tipsScroll}
-                        contentContainerStyle={styles.tipsContainer}
-                        snapToInterval={TIP_CARD_WIDTH + 16}
-                        decelerationRate="fast"
+                    {tipsData.map((tip) => (
+                        <TipCard key={tip.id} data={tip} onPress={() => handleTipPress(tip)} />
+                    ))}
+                </ScrollView>
+
+                {/* Quick Action Buttons */}
+                <View style={styles.quickActionsContainer}>
+                    <AnimatedPressable
+                        style={styles.quickActionButton}
+                        onPress={() => router.push('/meal-scanner')}
                     >
-                        {tipsData.map((tip) => (
-                            <TipCard key={tip.id} data={tip} onPress={() => handleTipPress(tip)} />
-                        ))}
-                    </ScrollView>
+                        <View style={styles.quickActionIconWrap}>
+                            <Ionicons name="restaurant" size={22} color="#FFB74D" />
+                        </View>
+                        <Text style={styles.quickActionText}>Log Meal</Text>
+                    </AnimatedPressable>
 
-                    {/* Quick Action Buttons */}
-                    <View style={styles.quickActionsContainer}>
-                        <LiquidGlassButton
-                            style={styles.quickActionButton}
-                            onPress={() => router.push('/meal-scanner')}
-                        >
-                            <View style={[styles.quickActionIcon, { backgroundColor: 'transparent' }]}>
-                                <Ionicons name="restaurant" size={24} color="#FFB74D" />
-                            </View>
-                            <Text style={styles.quickActionText}>Log Meal</Text>
-                        </LiquidGlassButton>
+                    <AnimatedPressable
+                        style={styles.quickActionButton}
+                        onPress={() => router.push('/log-glucose')}
+                    >
+                        <View style={styles.quickActionIconWrap}>
+                            <Ionicons name="water" size={22} color="#FF5252" />
+                        </View>
+                        <Text style={styles.quickActionText}>Log Glucose</Text>
+                    </AnimatedPressable>
 
-                        <LiquidGlassButton
-                            style={styles.quickActionButton}
-                            onPress={() => router.push('/log-glucose')}
-                        >
-                            <View style={[styles.quickActionIcon, { backgroundColor: 'transparent' }]}>
-                                <Ionicons name="water" size={24} color="#FF5252" />
-                            </View>
-                            <Text style={styles.quickActionText}>Log Glucose</Text>
-                        </LiquidGlassButton>
+                    <AnimatedPressable
+                        style={styles.quickActionButton}
+                        onPress={() => router.push('/log-activity')}
+                    >
+                        <View style={styles.quickActionIconWrap}>
+                            <Ionicons name="walk" size={22} color="#81C784" />
+                        </View>
+                        <Text style={styles.quickActionText}>Log Activity</Text>
+                    </AnimatedPressable>
+                </View>
 
-                        <LiquidGlassButton
-                            style={styles.quickActionButton}
-                            onPress={() => router.push('/log-activity')}
+                {/* Recent Logs Section */}
+                <View style={styles.logsSection}>
+                    {/* Section Header */}
+                    <View style={styles.logsSectionHeader}>
+                        <Text style={styles.logsSectionTitle}>Recent Logs</Text>
+                        <AnimatedPressable
+                            style={styles.filterButton}
+                            onPress={() => setShowFilterDropdown(true)}
                         >
-                            <View style={[styles.quickActionIcon, { backgroundColor: 'transparent' }]}>
-                                <Ionicons name="walk" size={24} color="#81C784" />
-                            </View>
-                            <Text style={styles.quickActionText}>Log Activity</Text>
-                        </LiquidGlassButton>
+                            <Text style={styles.filterText}>{currentFilterLabel}</Text>
+                            <Ionicons
+                                name="chevron-down"
+                                size={14}
+                                color={Colors.textTertiary}
+                            />
+                        </AnimatedPressable>
                     </View>
 
-                    {/* Recent Logs Section */}
-                    <View style={styles.logsSection}>
-                        {/* Section Header */}
-                        <View style={styles.logsSectionHeader}>
-                            <Text style={styles.logsSectionTitle}>RECENT LOGS</Text>
-                            <AnimatedPressable
-                                style={styles.filterButton}
-                                onPress={() => setShowFilterDropdown(true)}
-                            >
-                                <Text style={styles.filterText}>{currentFilterLabel}</Text>
-                                <Ionicons
-                                    name="chevron-down"
-                                    size={14}
-                                    color={Colors.textTertiary}
-                                />
-                            </AnimatedPressable>
-                        </View>
-
-                        {/* Logs List */}
-                        <View style={styles.logsCard}>
-                            {isLoading ? (
-                                <View style={styles.loadingContainer}>
-                                    <ActivityIndicator size="small" color={Colors.textTertiary} />
-                                    <Text style={styles.loadingText}>Loading logs...</Text>
-                                </View>
-                            ) : logs.length === 0 ? (
-                                <View style={styles.emptyContainer}>
-                                    <Ionicons name="document-text-outline" size={32} color={Colors.textTertiary} />
-                                    <Text style={styles.emptyText}>No logs yet</Text>
-                                    <Text style={styles.emptySubtext}>
-                                        Start tracking your glucose and activities!
-                                    </Text>
-                                </View>
-                            ) : filteredLogs.length === 0 ? (
-                                <View style={styles.emptyContainer}>
-                                    <Ionicons name="filter-outline" size={32} color={Colors.textTertiary} />
-                                    <Text style={styles.emptyText}>No {currentFilterLabel.toLowerCase()} logs</Text>
-                                    <Text style={styles.emptySubtext}>
-                                        Try a different filter or log some {currentFilterLabel.toLowerCase()}.
-                                    </Text>
-                                </View>
-                            ) : (
-                                filteredLogs.map((entry, index) => (
-                                    <React.Fragment key={entry.id}>
-                                        <LogEntryRow entry={entry} />
-                                        {index < filteredLogs.length - 1 && (
-                                            <View style={styles.logDivider} />
-                                        )}
-                                    </React.Fragment>
-                                ))
-                            )}
-                        </View>
-                    </View>
-
-                </Animated.ScrollView>
-
-                {/* Blurred Header */}
-                <View style={styles.blurHeaderContainer}>
-                    {/* Animated background - transparent at top, opaque when scrolled */}
-                    <Animated.View style={[styles.headerBackground, { opacity: headerBgOpacity }]} />
-                    <View style={{ paddingTop: insets.top }}>
-                        <View style={styles.header}>
-                            {/* Large title on the left - fades out on scroll */}
-                            <Animated.Text style={[styles.headerTitle, { opacity: largeTitleOpacity }]}>
-                                LOGS
-                            </Animated.Text>
-                            {/* Small centered title - fades in and slides down on scroll */}
-                            <Animated.Text style={[styles.headerTitleSmall, {
-                                opacity: smallTitleOpacity,
-                                transform: [{ translateY: smallTitleTranslateY }]
-                            }]}>
-                                LOGS
-                            </Animated.Text>
-                        </View>
+                    {/* Logs List */}
+                    <View style={styles.logsCard}>
+                        {isLoading ? (
+                            <View style={styles.loadingContainer}>
+                                <ActivityIndicator size="small" color={Colors.textTertiary} />
+                                <Text style={styles.loadingText}>Loading logs...</Text>
+                            </View>
+                        ) : logs.length === 0 ? (
+                            <View style={styles.emptyContainer}>
+                                <Ionicons name="document-text-outline" size={32} color={Colors.textTertiary} />
+                                <Text style={styles.emptyText}>No logs yet</Text>
+                                <Text style={styles.emptySubtext}>
+                                    Start tracking your glucose and activities!
+                                </Text>
+                            </View>
+                        ) : filteredLogs.length === 0 ? (
+                            <View style={styles.emptyContainer}>
+                                <Ionicons name="filter-outline" size={32} color={Colors.textTertiary} />
+                                <Text style={styles.emptyText}>No {currentFilterLabel.toLowerCase()} logs</Text>
+                                <Text style={styles.emptySubtext}>
+                                    Try a different filter or log some {currentFilterLabel.toLowerCase()}.
+                                </Text>
+                            </View>
+                        ) : (
+                            filteredLogs.map((entry, index) => (
+                                <React.Fragment key={entry.id}>
+                                    <LogEntryRow entry={entry} />
+                                    {index < filteredLogs.length - 1 && (
+                                        <View style={styles.logDivider} />
+                                    )}
+                                </React.Fragment>
+                            ))
+                        )}
                     </View>
                 </View>
 
-                {/* shadcn-inspired Filter Modal */}
-                <Modal
-                    visible={showFilterDropdown}
-                    transparent
-                    animationType="fade"
-                    onRequestClose={() => setShowFilterDropdown(false)}
+            </Animated.ScrollView>
+
+            {/* Blurred Header */}
+            <View style={styles.blurHeaderContainer}>
+                {/* Animated background - transparent at top, opaque when scrolled */}
+                <Animated.View style={[styles.headerBackground, { opacity: headerBgOpacity }]} />
+                <View style={{ paddingTop: insets.top }}>
+                    <View style={styles.header}>
+                        {/* Large title on the left - fades out on scroll */}
+                        <Animated.Text style={[styles.headerTitle, { opacity: largeTitleOpacity }]}>
+                            LOGS
+                        </Animated.Text>
+                        {/* Small centered title - fades in and slides down on scroll */}
+                        <Animated.Text style={[styles.headerTitleSmall, {
+                            opacity: smallTitleOpacity,
+                            transform: [{ translateY: smallTitleTranslateY }]
+                        }]}>
+                            LOGS
+                        </Animated.Text>
+                    </View>
+                </View>
+            </View>
+
+            {/* shadcn-inspired Filter Modal */}
+            <Modal
+                visible={showFilterDropdown}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowFilterDropdown(false)}
+            >
+                <Pressable
+                    style={styles.filterModalOverlay}
+                    onPress={() => setShowFilterDropdown(false)}
                 >
                     <Pressable
-                        style={styles.filterModalOverlay}
-                        onPress={() => setShowFilterDropdown(false)}
+                        style={styles.filterModalContent}
+                        onPress={(e) => e.stopPropagation()}
                     >
-                        <Pressable
-                            style={styles.filterModalContent}
-                            onPress={(e) => e.stopPropagation()}
-                        >
-                            <View style={styles.filterModalHeader}>
-                                <Text style={styles.filterModalTitle}>Filter by</Text>
-                                <Pressable
-                                    onPress={() => setShowFilterDropdown(false)}
-                                    style={styles.filterModalCloseBtn}
-                                >
-                                    <Ionicons name="close" size={20} color={Colors.textTertiary} />
-                                </Pressable>
-                            </View>
-                            <View style={styles.filterModalDivider} />
-                            {filterOptions.map((option, index) => (
-                                <Pressable
-                                    key={option.value}
-                                    style={({ pressed }) => [
-                                        styles.filterModalOption,
-                                        pressed && styles.filterModalOptionPressed,
-                                        index === filterOptions.length - 1 && styles.filterModalOptionLast,
-                                    ]}
-                                    onPress={() => {
-                                        setFilter(option.value);
-                                        setShowFilterDropdown(false);
-                                    }}
-                                >
-                                    <View style={styles.filterModalOptionLeft}>
-                                        <View style={styles.filterModalRadio}>
-                                            {filter === option.value && (
-                                                <View style={styles.filterModalRadioInner} />
-                                            )}
-                                        </View>
-                                        <Text style={[
-                                            styles.filterModalOptionText,
-                                            filter === option.value && styles.filterModalOptionTextActive,
-                                        ]}>
-                                            {option.label}
-                                        </Text>
+                        <View style={styles.filterModalHeader}>
+                            <Text style={styles.filterModalTitle}>Filter by</Text>
+                            <Pressable
+                                onPress={() => setShowFilterDropdown(false)}
+                                style={styles.filterModalCloseBtn}
+                            >
+                                <Ionicons name="close" size={20} color={Colors.textTertiary} />
+                            </Pressable>
+                        </View>
+                        <View style={styles.filterModalDivider} />
+                        {filterOptions.map((option, index) => (
+                            <Pressable
+                                key={option.value}
+                                style={({ pressed }) => [
+                                    styles.filterModalOption,
+                                    pressed && styles.filterModalOptionPressed,
+                                    index === filterOptions.length - 1 && styles.filterModalOptionLast,
+                                ]}
+                                onPress={() => {
+                                    setFilter(option.value);
+                                    setShowFilterDropdown(false);
+                                }}
+                            >
+                                <View style={styles.filterModalOptionLeft}>
+                                    <View style={styles.filterModalRadio}>
+                                        {filter === option.value && (
+                                            <View style={styles.filterModalRadioInner} />
+                                        )}
                                     </View>
-                                    {filter === option.value && (
-                                        <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />
-                                    )}
-                                </Pressable>
-                            ))}
-                        </Pressable>
+                                    <Text style={[
+                                        styles.filterModalOptionText,
+                                        filter === option.value && styles.filterModalOptionTextActive,
+                                    ]}>
+                                        {option.label}
+                                    </Text>
+                                </View>
+                                {filter === option.value && (
+                                    <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />
+                                )}
+                            </Pressable>
+                        ))}
                     </Pressable>
-                </Modal>
-            </View>
-        </AnimatedScreen>
+                </Pressable>
+            </Modal>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: 'transparent',
     },
     backgroundGradient: {
         position: 'absolute',
@@ -655,7 +606,7 @@ const styles = StyleSheet.create({
     },
     headerBackground: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: '#1a1f24',
+        backgroundColor: 'rgba(255, 255, 255, 0.75)',
     },
     header: {
         flexDirection: 'row',
@@ -666,7 +617,7 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 24,
+        fontSize: 18,
         color: Colors.textPrimary,
         letterSpacing: 1,
     },
@@ -684,7 +635,7 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     scrollContent: {
-        paddingBottom: Platform.OS === 'ios' ? 170 : 150,
+        paddingBottom: Platform.OS === 'ios' ? 170 : 160,
     },
     // Tips Section
     tipsScroll: {
@@ -697,9 +648,16 @@ const styles = StyleSheet.create({
     tipCard: {
         width: TIP_CARD_WIDTH,
         height: TIP_CARD_HEIGHT,
-        borderRadius: 16,
+        borderRadius: 18,
         overflow: 'hidden',
         position: 'relative',
+        borderWidth: 1,
+        borderColor: 'rgba(60, 60, 67, 0.12)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+        elevation: 3,
     },
     tipCardImage: {
         ...StyleSheet.absoluteFillObject,
@@ -726,7 +684,7 @@ const styles = StyleSheet.create({
     tipCardTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: Colors.textPrimary,
+        color: '#FFFFFF',
         lineHeight: 22,
     },
     tipCardDescription: {
@@ -738,7 +696,7 @@ const styles = StyleSheet.create({
     tipCardMetric: {
         fontFamily: fonts.bold,
         fontSize: 24,
-        color: Colors.textPrimary,
+        color: '#FFFFFF',
         marginBottom: 4,
     },
     tipCardReadMore: {
@@ -752,27 +710,36 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         paddingHorizontal: 16,
-        marginBottom: 24,
-        gap: 12,
+        marginBottom: 28,
+        gap: 10,
     },
     quickActionButton: {
         flex: 1,
-        paddingVertical: 16,
+        paddingVertical: 18,
         alignItems: 'center',
-        gap: 8,
-        // Visual styles handled by LiquidGlassButton
+        gap: 10,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 2,
     },
-    quickActionIcon: {
-        width: 44,
-        height: 44,
-        borderRadius: 12,
+    quickActionIconWrap: {
+        width: 46,
+        height: 46,
+        borderRadius: 23,
         justifyContent: 'center',
         alignItems: 'center',
     },
     quickActionText: {
-        fontFamily: fonts.medium,
-        fontSize: 12,
+        fontFamily: fonts.semiBold,
+        fontSize: 13,
         color: Colors.textPrimary,
+        letterSpacing: 0.2,
     },
     // Logs Section
     logsSection: {
@@ -785,9 +752,10 @@ const styles = StyleSheet.create({
         marginBottom: 16,
     },
     logsSectionTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
         color: Colors.textPrimary,
+        letterSpacing: 0.3,
     },
     filterButton: {
         flexDirection: 'row',
@@ -800,7 +768,7 @@ const styles = StyleSheet.create({
         color: Colors.textPrimary,
     },
     filterDropdown: {
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
         borderRadius: 12,
         marginBottom: 16,
         overflow: 'hidden',
@@ -826,20 +794,23 @@ const styles = StyleSheet.create({
         color: Colors.primary,
     },
     logsCard: {
-        backgroundColor: '#1a1b1c',
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(60, 60, 67, 0.08)',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
         elevation: 2,
     },
     logEntry: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        paddingVertical: 8,
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 4,
     },
     logEntryLeft: {
         flexDirection: 'row',
@@ -847,26 +818,28 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     logIcon: {
-        width: 24,
-        height: 24,
+        width: 34,
+        height: 34,
+        borderRadius: 10,
         justifyContent: 'center',
         alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
     },
     logInfo: {
         flex: 1,
-        gap: 8,
+        gap: 3,
     },
     logLabel: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: Colors.textTertiary,
-        lineHeight: 14 * 1.2,
+        fontFamily: fonts.semiBold,
+        fontSize: 15,
+        color: Colors.textPrimary,
+        lineHeight: 20,
     },
     logDescription: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: Colors.textPrimary,
-        lineHeight: 14 * 0.95,
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textSecondary,
+        lineHeight: 17,
     },
     logEntryRight: {
         flexDirection: 'row',
@@ -875,12 +848,14 @@ const styles = StyleSheet.create({
     },
     logTime: {
         fontFamily: fonts.regular,
-        fontSize: 12,
-        color: Colors.textPrimary,
-        lineHeight: 12 * 1.2,
+        fontSize: 13,
+        color: Colors.textTertiary,
+        lineHeight: 17,
     },
     logDivider: {
-        height: 16,
+        height: 1,
+        backgroundColor: 'rgba(60, 60, 67, 0.08)',
+        marginHorizontal: 4,
     },
     // Loading state styles
     loadingContainer: {
@@ -924,13 +899,13 @@ const styles = StyleSheet.create({
     filterModalContent: {
         width: '100%',
         maxWidth: 320,
-        backgroundColor: '#1a1b1c',
-        borderRadius: 16,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 18,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.1)',
+        borderColor: 'rgba(60, 60, 67, 0.12)',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 16 },
-        shadowOpacity: 0.4,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.15,
         shadowRadius: 24,
         elevation: 16,
     },
@@ -944,20 +919,20 @@ const styles = StyleSheet.create({
     filterModalTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         letterSpacing: 0.3,
     },
     filterModalCloseBtn: {
         width: 32,
         height: 32,
         borderRadius: 8,
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        backgroundColor: 'rgba(0, 0, 0, 0.05)',
         justifyContent: 'center',
         alignItems: 'center',
     },
     filterModalDivider: {
         height: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: 'rgba(60, 60, 67, 0.08)',
     },
     filterModalOption: {
         flexDirection: 'row',
@@ -966,10 +941,10 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingVertical: 16,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+        borderBottomColor: 'rgba(60, 60, 67, 0.06)',
     },
     filterModalOptionPressed: {
-        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        backgroundColor: 'rgba(0, 0, 0, 0.03)',
     },
     filterModalOptionLast: {
         borderBottomWidth: 0,
@@ -984,7 +959,7 @@ const styles = StyleSheet.create({
         height: 20,
         borderRadius: 10,
         borderWidth: 2,
-        borderColor: '#3F4243',
+        borderColor: 'rgba(60, 60, 67, 0.2)',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -1000,6 +975,6 @@ const styles = StyleSheet.create({
         color: Colors.textSecondary,
     },
     filterModalOptionTextActive: {
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
 });

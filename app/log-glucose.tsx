@@ -1,13 +1,13 @@
 import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu';
-import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { checkAndScorePendingMeals } from '@/lib/mealScoreTrigger';
 import { createGlucoseLog, type GlucoseContext, updatePostMealReviewWithManualGlucose } from '@/lib/supabase';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { parseGlucoseInput, getGlucoseInputPlaceholder, formatGlucoseWithUnit } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import {
@@ -22,7 +22,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 const GLUCOSE_CONTEXTS: { value: GlucoseContext; label: string }[] = [
   { value: 'pre_meal', label: 'Pre Meal' },
@@ -70,7 +69,7 @@ function ChevronDown() {
 export default function LogGlucoseScreen() {
   const { user } = useAuth();
   const glucoseUnit = useGlucoseUnit();
-  const { reviewId, context: paramContext, returnTo } = useLocalSearchParams<{
+  const { reviewId, context: paramContext } = useLocalSearchParams<{
     reviewId?: string;
     context?: string;
     returnTo?: string;
@@ -163,6 +162,9 @@ export default function LogGlucoseScreen() {
       });
 
       if (result) {
+        // Fire-and-forget: check if any pending meals can now be scored
+        checkAndScorePendingMeals(user.id).catch(() => {});
+
         // If coming from post-meal review, update the review with this glucose value
         if (reviewId) {
           const updateSuccess = await updatePostMealReviewWithManualGlucose(reviewId, levelMmol);
@@ -210,25 +212,7 @@ export default function LogGlucoseScreen() {
 
   return (
     <View style={styles.root}>
-      <LinearGradient
-        colors={['#1a1f24', '#181c20', '#111111']}
-        locations={[0, 0.3, 1]}
-        style={styles.topGlow}
-      />
-
-      <SafeAreaView edges={['top']} style={styles.safe}>
-        {/* Header */}
-        <View style={styles.header}>
-          <LiquidGlassIconButton size={44} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
-          </LiquidGlassIconButton>
-
-          <Text style={styles.headerTitle}>LOG GLUCOSE</Text>
-
-          {/* spacer for centering */}
-          <View style={styles.headerIconBtnSpacer} />
-        </View>
-
+      <View style={styles.safe}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
@@ -238,7 +222,7 @@ export default function LogGlucoseScreen() {
             {/* Time */}
             <View style={styles.block}>
               <Text style={styles.label}>Time</Text>
-              <Pressable onPress={() => setTimeModalOpen(true)} style={styles.selectShell}>
+              <Pressable onPress={() => { triggerHaptic(); setTimeModalOpen(true); }} style={styles.selectShell}>
                 <Text style={[styles.selectText, styles.selectTextActive]}>
                   {formatTime(glucoseTime)}
                 </Text>
@@ -273,7 +257,7 @@ export default function LogGlucoseScreen() {
                 onOpenChange={setContextModalOpen}
                 trigger={
                   <Pressable
-                    onPress={() => setContextModalOpen(true)}
+                    onPress={() => { triggerHaptic(); setContextModalOpen(true); }}
                     style={styles.selectShell}
                   >
                     <Text style={[styles.selectText, context && styles.selectTextActive]}>
@@ -305,7 +289,7 @@ export default function LogGlucoseScreen() {
         {/* Save Button */}
         <View style={styles.saveButtonContainer}>
           <Pressable
-            onPress={handleSave}
+            onPress={() => { triggerHaptic('medium'); handleSave(); }}
             disabled={isSaving || !glucoseLevel}
             style={({ pressed }) => [
               styles.saveButton,
@@ -328,6 +312,7 @@ export default function LogGlucoseScreen() {
               <View />
               <Pressable
                 onPress={() => {
+                  triggerHaptic('medium');
                   setGlucoseTime(fromParts({ hour12: tempHour12, minute: tempMinute, period: tempPeriod }));
                   setTimeModalOpen(false);
                 }}
@@ -410,7 +395,7 @@ export default function LogGlucoseScreen() {
             </View>
           </SheetContent>
         </Sheet>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
@@ -418,51 +403,10 @@ export default function LogGlucoseScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#111111',
-  },
-  topGlow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 220,
+    backgroundColor: Colors.background,
   },
   safe: {
     flex: 1,
-  },
-  header: {
-    height: 72,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerIconBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 33,
-    backgroundColor: 'rgba(63,66,67,0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.25,
-    shadowRadius: 2,
-  },
-  headerIconBtnPressed: {
-    opacity: 0.7,
-    transform: [{ scale: 0.97 }],
-  },
-  headerIconBtnSpacer: {
-    width: 48,
-    height: 48,
-    opacity: 0,
-  },
-  headerTitle: {
-    fontFamily: fonts.bold,
-    fontSize: 18,
-    color: Colors.textPrimary,
-    letterSpacing: 1,
   },
   content: {
     paddingHorizontal: 16,
@@ -471,11 +415,13 @@ const styles = StyleSheet.create({
     gap: 24,
   },
   formCard: {
-    backgroundColor: 'rgba(63,66,67,0.25)',
+    backgroundColor: 'rgba(240, 248, 249, 0.7)',
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 20,
     gap: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(45, 212, 191, 0.10)',
   },
   block: {
     gap: 12,
@@ -487,10 +433,10 @@ const styles = StyleSheet.create({
     lineHeight: 16 * 0.95,
   },
   selectShell: {
-    backgroundColor: '#1b1b1c',
+    backgroundColor: Colors.inputBackgroundSolid,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#313135',
+    borderColor: Colors.inputBorderSolid,
     paddingHorizontal: 16,
     paddingVertical: 16,
     flexDirection: 'row',
@@ -500,7 +446,7 @@ const styles = StyleSheet.create({
   selectText: {
     fontFamily: fonts.regular,
     fontSize: 16,
-    color: '#878787',
+    color: Colors.textTertiary,
     lineHeight: 16 * 0.95,
   },
   selectTextActive: {
@@ -513,10 +459,10 @@ const styles = StyleSheet.create({
   },
   glucoseInputShell: {
     flex: 1,
-    backgroundColor: '#1b1b1c',
+    backgroundColor: Colors.inputBackgroundSolid,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#313135',
+    borderColor: Colors.inputBorderSolid,
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
@@ -544,16 +490,14 @@ const styles = StyleSheet.create({
     right: 16,
   },
   saveButton: {
-    backgroundColor: '#285E2A',
-    borderRadius: 12,
+    backgroundColor: Colors.buttonAction,
+    borderRadius: 16,
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#448D47',
   },
   saveButtonDisabled: {
-    opacity: 0.5,
+    backgroundColor: Colors.buttonDisabled,
   },
   saveButtonPressed: {
     opacity: 0.8,
@@ -561,12 +505,13 @@ const styles = StyleSheet.create({
   saveButtonText: {
     fontFamily: fonts.bold,
     fontSize: 16,
-    color: Colors.textPrimary,
+    color: Colors.buttonActionText,
   },
   // Time picker styles (same as meal logging)
   timeSheet: {
-    backgroundColor: '#3F4243',
-    borderWidth: 0,
+    backgroundColor: 'rgba(240, 248, 249, 0.97)',
+    borderWidth: 1,
+    borderColor: 'rgba(45, 212, 191, 0.12)',
     left: 16,
     right: 16,
     bottom: 120,
@@ -584,7 +529,7 @@ const styles = StyleSheet.create({
   timeSheetSave: {
     fontFamily: fonts.medium,
     fontSize: 17,
-    color: '#3494D9',
+    color: Colors.primary,
   },
   timePickerRow: {
     flexDirection: 'row',
@@ -597,15 +542,15 @@ const styles = StyleSheet.create({
     width: 70,
     height: 132,
     borderRadius: 8,
-    backgroundColor: '#1b1b1c',
+    backgroundColor: Colors.inputBackgroundSolid,
     borderWidth: 1,
-    borderColor: '#313135',
+    borderColor: Colors.inputBorderSolid,
     overflow: 'hidden',
   },
   timeColon: {
     fontFamily: fonts.medium,
     fontSize: 18,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     marginHorizontal: 2,
   },
   wheelItem: {
@@ -614,15 +559,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   wheelItemActive: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(45, 212, 191, 0.08)',
   },
   wheelText: {
     fontFamily: fonts.medium,
     fontSize: 18,
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(60, 60, 67, 0.4)',
   },
   wheelTextActive: {
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     fontFamily: fonts.semiBold,
   },
 });

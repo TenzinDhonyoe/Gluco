@@ -1,4 +1,5 @@
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { CONFIG, searchWithProgressiveResults, shouldTriggerSearch } from '@/lib/foodSearch';
@@ -11,7 +12,7 @@ import {
     removeFavoriteFood,
 } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -300,14 +301,14 @@ export default function FoodSearchResultsView({
                         <Ionicons
                             name={favorited ? 'heart' : 'heart-outline'}
                             size={22}
-                            color={favorited ? '#FF6B6B' : '#878787'}
+                            color={favorited ? '#FF6B6B' : Colors.textTertiary}
                         />
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={[styles.checkButton, selected && styles.checkButtonSelected]}
                         onPress={() => toggleSelect(item)}
                     >
-                        {selected && <Ionicons name="checkmark" size={16} color="#FFFFFF" />}
+                        {selected && <Ionicons name="checkmark" size={16} color={Colors.buttonActionText} />}
                     </TouchableOpacity>
                 </View>
             </TouchableOpacity>
@@ -328,14 +329,14 @@ export default function FoodSearchResultsView({
                     style={styles.quantityButton}
                     onPress={() => updateQuantity(item, -1)}
                 >
-                    <Ionicons name="remove" size={22} color="#FFFFFF" />
+                    <Ionicons name="remove" size={22} color={Colors.textPrimary} />
                 </TouchableOpacity>
                 <Text style={styles.quantityText}>{item.quantity}</Text>
                 <TouchableOpacity
                     style={styles.quantityButton}
                     onPress={() => updateQuantity(item, 1)}
                 >
-                    <Ionicons name="add" size={22} color="#FFFFFF" />
+                    <Ionicons name="add" size={22} color={Colors.textPrimary} />
                 </TouchableOpacity>
             </View>
         </View>
@@ -343,17 +344,13 @@ export default function FoodSearchResultsView({
 
     return (
         <View style={styles.container}>
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.backgroundGradient}
-            />
+            <View style={styles.backgroundGradient} />
 
             <View style={[styles.contentContainer, { paddingTop: insets.top }]}>
                 {/* Header */}
                 <View style={styles.header}>
                     <LiquidGlassIconButton size={44} onPress={onClose}>
-                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                        <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
                     </LiquidGlassIconButton>
                     <View style={styles.headerSpacer} />
                     <View style={styles.headerSpacer} />
@@ -368,7 +365,7 @@ export default function FoodSearchResultsView({
                         <Ionicons
                             name={selectedItems.length > 0 ? "basket" : "basket-outline"}
                             size={22}
-                            color={selectedItems.length > 0 ? "#FFFFFF" : "#E7E8E9"}
+                            color={selectedItems.length > 0 ? Colors.buttonActionText : Colors.textPrimary}
                         />
                         {selectedItems.length > 0 && (
                             <View style={styles.badge}>
@@ -380,22 +377,22 @@ export default function FoodSearchResultsView({
 
                 {/* Search Input */}
                 <View style={styles.searchContainer}>
-                    <Ionicons name="search" size={20} color="#878787" style={styles.searchIcon} />
+                    <Ionicons name="search" size={20} color={Colors.textTertiary} style={styles.searchIcon} />
                     <TextInput
                         style={styles.searchInput}
                         placeholder="Search Food"
-                        placeholderTextColor="#878787"
+                        placeholderTextColor={Colors.textTertiary}
                         value={searchQuery}
                         onChangeText={setSearchQuery}
                         autoCapitalize="none"
                         autoCorrect={false}
                     />
                     {isSearching && (
-                        <ActivityIndicator size="small" color="#4CAF50" style={{ marginRight: 8 }} />
+                        <ActivityIndicator size="small" color={Colors.primary} style={{ marginRight: 8 }} />
                     )}
                     {searchQuery.length > 0 && !isSearching && (
                         <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
-                            <Ionicons name="close-circle" size={20} color="#878787" />
+                            <Ionicons name="close-circle" size={20} color={Colors.textTertiary} />
                         </TouchableOpacity>
                     )}
                 </View>
@@ -455,7 +452,7 @@ export default function FoodSearchResultsView({
                                 />
                             ) : isSearching ? (
                                 <View style={styles.loadingContainer}>
-                                    <ActivityIndicator color="#4CAF50" size="large" />
+                                    <ActivityIndicator color={Colors.primary} size="large" />
                                 </View>
                             ) : searchQuery.length >= 2 ? (
                                 <View style={styles.emptyContainer}>
@@ -464,7 +461,7 @@ export default function FoodSearchResultsView({
                                 </View>
                             ) : (
                                 <View style={styles.emptyContainer}>
-                                    <Ionicons name="search" size={48} color="#3A3D40" />
+                                    <Ionicons name="search" size={48} color={Colors.textMuted} />
                                     <Text style={styles.emptyText}>Search for foods</Text>
                                     <Text style={styles.emptySubtext}>Type at least 2 characters</Text>
                                 </View>
@@ -477,7 +474,7 @@ export default function FoodSearchResultsView({
                         <>
                             {isLoadingTab ? (
                                 <View style={styles.loadingContainer}>
-                                    <ActivityIndicator color="#4CAF50" size="large" />
+                                    <ActivityIndicator color={Colors.primary} size="large" />
                                 </View>
                             ) : recents.length > 0 ? (
                                 <FlatList
@@ -489,7 +486,7 @@ export default function FoodSearchResultsView({
                                 />
                             ) : (
                                 <View style={styles.emptyContainer}>
-                                    <Ionicons name="time-outline" size={48} color="#3A3D40" />
+                                    <Ionicons name="time-outline" size={48} color={Colors.textMuted} />
                                     <Text style={styles.emptyText}>No recent foods</Text>
                                     <Text style={styles.emptySubtext}>Foods you select will appear here</Text>
                                 </View>
@@ -502,7 +499,7 @@ export default function FoodSearchResultsView({
                         <>
                             {isLoadingTab ? (
                                 <View style={styles.loadingContainer}>
-                                    <ActivityIndicator color="#4CAF50" size="large" />
+                                    <ActivityIndicator color={Colors.primary} size="large" />
                                 </View>
                             ) : favorites.length > 0 ? (
                                 <FlatList
@@ -514,7 +511,7 @@ export default function FoodSearchResultsView({
                                 />
                             ) : (
                                 <View style={styles.emptyContainer}>
-                                    <Ionicons name="heart-outline" size={48} color="#3A3D40" />
+                                    <Ionicons name="heart-outline" size={48} color={Colors.textMuted} />
                                     <Text style={styles.emptyText}>No favorites yet</Text>
                                     <Text style={styles.emptySubtext}>Tap the heart to save foods</Text>
                                 </View>
@@ -535,7 +532,7 @@ export default function FoodSearchResultsView({
                             <View style={styles.cartModalHeader}>
                                 <Text style={styles.cartModalTitle}>Selected Foods ({selectedItems.length})</Text>
                                 <TouchableOpacity onPress={() => setShowCartModal(false)}>
-                                    <Ionicons name="close" size={24} color="#E7E8E9" />
+                                    <Ionicons name="close" size={24} color={Colors.textPrimary} />
                                 </TouchableOpacity>
                             </View>
 
@@ -568,7 +565,7 @@ export default function FoodSearchResultsView({
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
     },
     contentContainer: {
         flex: 1,
@@ -592,7 +589,7 @@ const styles = StyleSheet.create({
         width: 48,
         height: 48,
         borderRadius: 24,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.buttonSecondary,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -603,7 +600,7 @@ const styles = StyleSheet.create({
         width: 48,
         height: 48,
         borderRadius: 12,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.buttonSecondary,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -613,7 +610,7 @@ const styles = StyleSheet.create({
         marginHorizontal: 16,
         marginTop: 12,
         marginBottom: 12,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.inputBackground,
         borderRadius: 14,
         paddingHorizontal: 14,
         height: 52,
@@ -625,7 +622,7 @@ const styles = StyleSheet.create({
         flex: 1,
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     clearButton: {
         padding: 4,
@@ -635,26 +632,26 @@ const styles = StyleSheet.create({
         marginTop: 8,
         paddingVertical: 8,
         paddingHorizontal: 12,
-        backgroundColor: 'rgba(52, 148, 217, 0.15)',
+        backgroundColor: Colors.primaryLight,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: 'rgba(52, 148, 217, 0.3)',
+        borderColor: Colors.primaryMedium,
     },
     didYouMeanText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#A0A0A0',
+        color: Colors.textSecondary,
     },
     didYouMeanQuery: {
         fontFamily: fonts.semiBold,
-        color: '#4CAF50',
+        color: Colors.primary,
     },
     tabsContainer: {
         flexDirection: 'row',
         paddingHorizontal: 16,
         marginTop: 8,
         borderBottomWidth: 1,
-        borderBottomColor: '#2A2D30',
+        borderBottomColor: Colors.borderCard,
     },
     tab: {
         paddingVertical: 12,
@@ -663,16 +660,16 @@ const styles = StyleSheet.create({
     },
     tabActive: {
         borderBottomWidth: 2,
-        borderBottomColor: '#FFFFFF',
+        borderBottomColor: Colors.textPrimary,
     },
     tabText: {
         fontFamily: fonts.semiBold,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         letterSpacing: 1,
     },
     tabTextActive: {
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     resultsContainer: {
         flex: 1,
@@ -691,13 +688,13 @@ const styles = StyleSheet.create({
     emptyText: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 16,
     },
     emptySubtext: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#5A5D60',
+        color: Colors.textTertiary,
     },
     listContent: {
         paddingHorizontal: 16,
@@ -708,7 +705,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         paddingVertical: 16,
         borderBottomWidth: 1,
-        borderBottomColor: '#2A2D30',
+        borderBottomColor: Colors.borderCard,
     },
     foodInfo: {
         flex: 1,
@@ -717,19 +714,19 @@ const styles = StyleSheet.create({
     foodName: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 2,
     },
     foodBrand: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 4,
     },
     foodNutrients: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
         lineHeight: 18,
     },
     foodActions: {
@@ -745,28 +742,28 @@ const styles = StyleSheet.create({
         height: 24,
         borderRadius: 12,
         borderWidth: 2,
-        borderColor: '#878787',
+        borderColor: Colors.textTertiary,
         justifyContent: 'center',
         alignItems: 'center',
     },
     checkButtonSelected: {
-        backgroundColor: '#4CAF50',
-        borderColor: '#4CAF50',
+        backgroundColor: Colors.buttonAction,
+        borderColor: Colors.buttonAction,
     },
     // New Cart Styles
     cartButton: {
         width: 48,
         height: 48,
         borderRadius: 12,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.buttonSecondary,
         justifyContent: 'center',
         alignItems: 'center',
         position: 'relative',
     },
     cartButtonActive: {
-        backgroundColor: 'rgba(76, 175, 80, 0.3)',
+        backgroundColor: Colors.buttonAction,
         borderWidth: 1,
-        borderColor: 'rgba(76, 175, 80, 0.5)',
+        borderColor: Colors.buttonAction,
     },
     badge: {
         position: 'absolute',
@@ -780,7 +777,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingHorizontal: 4,
         borderWidth: 1.5,
-        borderColor: '#111111',
+        borderColor: Colors.backgroundSolid,
     },
     badgeText: {
         fontFamily: fonts.bold,
@@ -797,7 +794,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0, 0, 0, 0.7)',
     },
     cartModalContent: {
-        backgroundColor: '#1A1D1F',
+        backgroundColor: Colors.backgroundCard,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         paddingTop: 16,
@@ -812,12 +809,12 @@ const styles = StyleSheet.create({
         marginBottom: 16,
         paddingBottom: 16,
         borderBottomWidth: 1,
-        borderBottomColor: '#2A2D30',
+        borderBottomColor: Colors.borderCard,
     },
     cartModalTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     cartList: {
         maxHeight: 300,
@@ -826,9 +823,7 @@ const styles = StyleSheet.create({
         paddingBottom: 16,
     },
     modalSaveButton: {
-        backgroundColor: '#285E2A',
-        borderWidth: 1,
-        borderColor: '#448D47',
+        backgroundColor: Colors.buttonAction,
         borderRadius: 30,
         paddingVertical: 16,
         alignItems: 'center',
@@ -840,7 +835,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingVertical: 12,
         borderBottomWidth: 1,
-        borderBottomColor: '#2A2D30',
+        borderBottomColor: Colors.borderCard,
     },
     selectedItemInfo: {
         flex: 1,
@@ -849,17 +844,17 @@ const styles = StyleSheet.create({
     selectedItemName: {
         fontFamily: fonts.semiBold,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     selectedItemBrand: {
         fontFamily: fonts.regular,
         fontSize: 11,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     selectedItemNutrients: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     quantityControls: {
         flexDirection: 'row',
@@ -870,21 +865,19 @@ const styles = StyleSheet.create({
         width: 44,
         height: 44,
         borderRadius: 12,
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
         justifyContent: 'center',
         alignItems: 'center',
     },
     quantityText: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         minWidth: 32,
         textAlign: 'center',
     },
     saveButton: {
-        backgroundColor: '#285E2A',
-        borderWidth: 1,
-        borderColor: '#448D47',
+        backgroundColor: Colors.buttonAction,
         borderRadius: 12,
         paddingVertical: 14,
         alignItems: 'center',
@@ -893,7 +886,7 @@ const styles = StyleSheet.create({
     saveButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.buttonActionText,
     },
     // Manual Entry Button styles
     manualEntryButton: {
@@ -905,16 +898,16 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         marginHorizontal: 16,
         marginBottom: 0,
-        backgroundColor: 'rgba(52, 148, 217, 0.12)',
+        backgroundColor: Colors.primaryLight,
         borderRadius: 14,
         borderWidth: 1,
-        borderColor: 'rgba(52, 148, 217, 0.35)',
+        borderColor: Colors.primaryMedium,
         gap: 10,
     },
     manualEntryButtonText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#4CAF50',
+        color: Colors.primary,
         marginLeft: 6,
     },
     // Modal styles
@@ -924,7 +917,7 @@ const styles = StyleSheet.create({
         justifyContent: 'flex-end',
     },
     modalContent: {
-        backgroundColor: '#1C1C1E',
+        backgroundColor: Colors.backgroundCard,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         padding: 20,
@@ -939,23 +932,23 @@ const styles = StyleSheet.create({
     modalTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     modalLabel: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 8,
         marginTop: 12,
     },
     modalInput: {
-        backgroundColor: '#2C2C2E',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 10,
         paddingHorizontal: 16,
         paddingVertical: 14,
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     modalRow: {
         flexDirection: 'row',
@@ -965,18 +958,18 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     modalAddButton: {
-        backgroundColor: '#285E2A',
+        backgroundColor: Colors.buttonAction,
         borderRadius: 12,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 24,
     },
     modalAddButtonDisabled: {
-        backgroundColor: '#3A3D40',
+        backgroundColor: Colors.buttonDisabled,
     },
     modalAddButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.buttonActionText,
     },
 });

@@ -1,7 +1,6 @@
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
-import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Colors } from '@/constants/Colors';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -14,7 +13,6 @@ import {
     TextInput,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -91,10 +89,6 @@ export default function CustomizationScreen() {
         setSelectedUnit(newUnit);
     };
 
-    const handleBack = () => {
-        router.back();
-    };
-
     const handleSave = async () => {
         if (!user) {
             Alert.alert('Error', 'You must be logged in to save settings');
@@ -159,30 +153,14 @@ export default function CustomizationScreen() {
     if (isLoading) {
         return (
             <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#3494D9" />
+                <ActivityIndicator size="large" color={Colors.primary} />
             </View>
         );
     }
 
     return (
         <View style={styles.container}>
-            {/* Background gradient that matches Today tab */}
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.backgroundGradient}
-            />
-
-            <SafeAreaView style={styles.safeArea} edges={['top']}>
-                {/* Header */}
-                <View style={styles.header}>
-                    <LiquidGlassIconButton size={44} onPress={handleBack}>
-                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
-                    </LiquidGlassIconButton>
-                    <Text style={styles.headerTitle}>CUSTOMIZATION</Text>
-                    <View style={styles.headerSpacer} />
-                </View>
-
+            <View style={styles.safeArea}>
                 {/* Content */}
                 <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
                     {/* Glucose Unit Card */}
@@ -247,7 +225,7 @@ export default function CustomizationScreen() {
                                         value={targetMin}
                                         onChangeText={setTargetMin}
                                         placeholder={getGlucoseInputPlaceholder(selectedUnit)}
-                                        placeholderTextColor="#878787"
+                                        placeholderTextColor={Colors.textTertiary}
                                         style={styles.textInput}
                                         keyboardType="decimal-pad"
                                         returnKeyType="done"
@@ -266,7 +244,7 @@ export default function CustomizationScreen() {
                                         value={targetMax}
                                         onChangeText={setTargetMax}
                                         placeholder={selectedUnit === 'mg/dL' ? 'e.g., 180' : 'e.g., 10.0'}
-                                        placeholderTextColor="#878787"
+                                        placeholderTextColor={Colors.textTertiary}
                                         style={styles.textInput}
                                         keyboardType="decimal-pad"
                                         returnKeyType="done"
@@ -284,7 +262,7 @@ export default function CustomizationScreen() {
                 {/* Save Button */}
                 <View style={styles.saveButtonContainer}>
                     <Pressable
-                        onPress={handleSave}
+                        onPress={() => { triggerHaptic('medium'); handleSave(); }}
                         disabled={isSaving}
                         style={({ pressed }) => [
                             styles.saveButton,
@@ -299,7 +277,7 @@ export default function CustomizationScreen() {
                         )}
                     </Pressable>
                 </View>
-            </SafeAreaView>
+            </View>
         </View>
     );
 }
@@ -307,56 +285,16 @@ export default function CustomizationScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: Colors.background,
     },
     loadingContainer: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
     },
     safeArea: {
         flex: 1,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 16,
-    },
-    backButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
-        elevation: 2,
-    },
-    backButtonPressed: {
-        opacity: 0.7,
-        transform: [{ scale: 0.97 }],
-    },
-    headerTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
-        letterSpacing: 2,
-    },
-    headerSpacer: {
-        width: 48,
     },
     content: {
         flex: 1,
@@ -364,22 +302,22 @@ const styles = StyleSheet.create({
         paddingTop: 16,
     },
     card: {
-        backgroundColor: '#1A1D1F',
-        borderRadius: 16,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#2A2D30',
+        borderColor: Colors.borderCard,
         padding: 20,
     },
     cardTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 8,
     },
     cardDescription: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         lineHeight: 20,
         marginBottom: 24,
     },
@@ -389,7 +327,7 @@ const styles = StyleSheet.create({
     label: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 12,
     },
     inputRow: {
@@ -399,23 +337,23 @@ const styles = StyleSheet.create({
     },
     inputShell: {
         flex: 1,
-        backgroundColor: '#1b1b1c',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
         paddingHorizontal: 16,
         paddingVertical: 16,
     },
     textInput: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         padding: 0,
     },
     unitLabel: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         width: 60,
     },
     unitSelector: {
@@ -424,30 +362,30 @@ const styles = StyleSheet.create({
     },
     unitOption: {
         flex: 1,
-        backgroundColor: '#232527',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 12,
         borderWidth: 2,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
         padding: 16,
         alignItems: 'center',
     },
     unitOptionSelected: {
-        borderColor: '#3494D9',
-        backgroundColor: 'rgba(52, 148, 217, 0.1)',
+        borderColor: Colors.primary,
+        backgroundColor: Colors.primaryLight,
     },
     unitOptionText: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 4,
     },
     unitOptionTextSelected: {
-        color: '#3494D9',
+        color: Colors.primary,
     },
     unitOptionSubtext: {
         fontFamily: fonts.regular,
         fontSize: 11,
-        color: '#666',
+        color: Colors.textPlaceholder,
         textAlign: 'center',
     },
     saveButtonContainer: {
@@ -455,13 +393,11 @@ const styles = StyleSheet.create({
         paddingBottom: 40,
     },
     saveButton: {
-        backgroundColor: '#285E2A',
+        backgroundColor: Colors.buttonAction,
         borderRadius: 12,
         paddingVertical: 16,
         alignItems: 'center',
         justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: '#448D47',
     },
     saveButtonDisabled: {
         opacity: 0.5,
@@ -472,6 +408,6 @@ const styles = StyleSheet.create({
     saveButtonText: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.buttonActionText,
     },
 });

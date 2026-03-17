@@ -62,7 +62,6 @@ export function GlucoseTrendChart({
   const prevPointsRef = useRef<{ x: number; y: number }[]>([]);
 
   // Use reanimated shared values for smooth path transitions
-  const pathProgress = useSharedValue(0);
   const lineOpacity = useSharedValue(1);
   const dotsOpacity = useSharedValue(1);
 
@@ -230,17 +229,14 @@ export function GlucoseTrendChart({
   const activeRawData = active != null ? rawData[active] : null;
   const showIndicator = isTouching && !!activePt && !!activeRawData && w > 0;
 
-  // Y-axis values to display (in mmol/L - will be converted for display)
-  const yLabelsMmol = [12, 10, 8, 6, 4];
-  
   // Format Y-axis labels based on unit
-  const yLabels = useMemo(() => 
-    yLabelsMmol.map(val => ({
+  const yLabels = useMemo(() => {
+    const yLabelsMmol = [12, 10, 8, 6, 4];
+    return yLabelsMmol.map(val => ({
       mmol: val,
       display: formatGlucose(val, glucoseUnit),
-    })),
-    [glucoseUnit]
-  );
+    }));
+  }, [glucoseUnit]);
 
   return (
     <View style={[styles.container, { height }]} onLayout={onLayout} {...panResponder.panHandlers}>

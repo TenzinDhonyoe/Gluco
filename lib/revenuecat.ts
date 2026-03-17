@@ -47,15 +47,24 @@ export async function initializeRevenueCat(): Promise<boolean> {
         const Purchases = await getPurchases();
         if (!Purchases) return false;
 
-        const { LOG_LEVEL } = await import('react-native-purchases');
-        if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
+        const { LOG_LEVEL, STOREKIT_VERSION } = await import('react-native-purchases');
+        if (__DEV__) {
+            Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
+            Purchases.setLogHandler((level, message) => {
+                // Silence noisy cancellation errors — not real failures
+                if (level === LOG_LEVEL.ERROR && /cancelled|canceled/i.test(message)) return;
+                if (level === LOG_LEVEL.ERROR) console.error(`[RevenueCat] ${message}`);
+                else if (level === LOG_LEVEL.WARN) console.warn(`[RevenueCat] ${message}`);
+                else console.log(`[RevenueCat] ${message}`);
+            });
+        }
 
         if (Platform.OS === 'ios') {
             if (!REVENUECAT_IOS_API_KEY) {
                 console.error('RevenueCat iOS key is missing. Set EXPO_PUBLIC_REVENUECAT_IOS_API_KEY.');
                 return false;
             }
-            Purchases.configure({ apiKey: REVENUECAT_IOS_API_KEY });
+            Purchases.configure({ apiKey: REVENUECAT_IOS_API_KEY, storeKitVersion: STOREKIT_VERSION.STOREKIT_2 });
             isConfigured = true;
             if (__DEV__) console.log('RevenueCat: Configured for iOS');
         } else if (Platform.OS === 'android') {

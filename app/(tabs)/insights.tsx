@@ -1,20 +1,25 @@
-import { AnimatedScreen } from '@/components/animations/animated-screen';
 import { MetabolicScoreRing } from '@/components/charts/MetabolicScoreRing';
 import { SegmentedControl } from '@/components/controls/segmented-control';
+import { ActiveExperimentCard } from '@/components/experiments/ActiveExperimentCard';
+import { ExperimentLibraryCard } from '@/components/experiments/ExperimentLibraryCard';
 import { DataCoverageCard } from '@/components/progress/DataCoverageCard';
 import { MetricCard } from '@/components/progress/MetricCard';
 import { Disclaimer } from '@/components/ui/Disclaimer';
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { useNextBestAction } from '@/hooks/useNextBestAction';
 import { usePersonalInsights } from '@/hooks/usePersonalInsights';
-import { usePersonalizedTips } from '@/hooks/usePersonalizedTips';
-import { InsightAction, InsightData, TrackingMode } from '@/lib/insights';
+import { useWeeklyReview } from '@/hooks/useWeeklyReview';
+import { isBehaviorV1Experience } from '@/lib/experience';
+import { InsightAction, InsightCategory, InsightData, PersonalInsight, TrackingMode } from '@/lib/insights';
 import {
     ActivityLog,
     CarePathwayTemplate,
     DailyContext,
+    ExperimentTemplate,
     GlucoseLog,
     MealWithCheckin,
     MetabolicWeeklyScore,
@@ -22,11 +27,13 @@ import {
     UserAction,
     UserCarePathway,
     UserExperiment,
+    WeightLog,
     createUserAction,
     getActiveCarePathway,
     getActivityLogsByDateRange,
     getCarePathwayTemplates,
     getDailyContextByRange,
+    getExperimentTemplates,
     getFibreIntakeSummary,
     getGlucoseLogsByDateRange,
     getMealsWithCheckinsByDateRange,
@@ -34,6 +41,7 @@ import {
     getSuggestedExperiments,
     getUserActionsByStatus,
     getUserExperiments,
+    getWeightLogsByDateRange,
     startCarePathway,
     startUserExperiment,
     supabase,
@@ -41,10 +49,11 @@ import {
     updateUserAction,
     upsertMetabolicDailyFeature,
 } from '@/lib/supabase';
+import { recordStreakActivity } from '@/lib/streaks';
 import { formatGlucoseWithUnit } from '@/lib/utils/glucoseUnits';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
@@ -52,7 +61,6 @@ import {
     Alert,
     Animated,
     Image,
-    Linking,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -61,6 +69,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type TabKey = 'actions' | 'progress' | 'experiments';
+type ActionFocusKey = 'glucose' | 'activity' | 'sleep';
 
 type MetricKey =
     | 'meal_count'
@@ -69,7 +78,8 @@ type MetricKey =
     | 'glucose_avg'
     | 'glucose_logs_count'
     | 'steps'
-    | 'sleep_hours';
+    | 'sleep_hours'
+    | 'weight_logs_count';
 
 // Metabolic score API response type
 interface MetabolicScoreResponse {
@@ -108,11 +118,11 @@ interface MetabolicScoreResponse {
         };
     };
     // Aggregates from the API (approximate from drivers)
-    drivers?: Array<{
+    drivers?: {
         key: string;
         points: number;
         text: string;
-    }>;
+    }[];
 }
 
 // Parsed metabolic score data for UI
@@ -142,8 +152,55 @@ interface MetabolicScoreData {
 const ACTION_BASELINE_DAYS = 7;
 const DEFAULT_TARGET_MIN = 3.9;
 const DEFAULT_TARGET_MAX = 10.0;
+const ACTION_FOCUS_OPTIONS: { label: string; value: ActionFocusKey }[] = [
+    { label: 'GLUCOSE', value: 'glucose' },
+    { label: 'ACTIVITY', value: 'activity' },
+    { label: 'SLEEP', value: 'sleep' },
+];
 
-const PROGRESS_RANGES = [30, 90, 180];
+const BEHAVIOR_SEGMENTED_PALETTE = {
+    containerBg: 'rgba(118, 118, 128, 0.12)',
+    containerBorder: 'rgba(60, 60, 67, 0.06)',
+    sliderColors: ['rgba(255,255,255,1)', 'rgba(255,255,255,0.98)', 'rgba(255,255,255,1)'] as [string, string, string],
+    sliderBorder: 'rgba(0,0,0,0.04)',
+    inactiveText: '#8E8E93',
+    activeText: '#1C1C1E',
+};
+const ACTION_TYPE_TO_FOCUS: Record<string, ActionFocusKey> = {
+    post_meal_walk: 'activity',
+    log_activity: 'activity',
+    steps_boost: 'activity',
+    light_activity: 'activity',
+    sleep_window: 'sleep',
+    sleep_logging: 'sleep',
+    sleep_consistency: 'sleep',
+    log_glucose: 'glucose',
+    meal_pairing: 'glucose',
+    pre_meal_fibre: 'glucose',
+    fiber_boost: 'glucose',
+    log_meal: 'glucose',
+    meal_checkin: 'glucose',
+    log_weight: 'activity',
+};
+
+const EXPERIMENT_SLUG_TO_FOCUS: Record<string, ActionFocusKey> = {
+    'oatmeal-vs-eggs': 'glucose',
+    'rice-portion-swap': 'glucose',
+    'fiber-preload': 'glucose',
+    'meal-timing': 'glucose',
+    'breakfast-skip': 'glucose',
+    'acv-shot': 'glucose',
+    'hydration-challenge': 'glucose',
+    'post-meal-walk': 'activity',
+    'cold-shower': 'activity',
+    'box-breathing': 'sleep',
+};
+
+function mapTemplateFocus(slug: string, category: string): ActionFocusKey {
+    if (EXPERIMENT_SLUG_TO_FOCUS[slug]) return EXPERIMENT_SLUG_TO_FOCUS[slug];
+    if (category === 'meal' || category === 'portion' || category === 'timing') return 'glucose';
+    return 'activity';
+}
 
 function addHours(date: Date, hours: number): Date {
     const result = new Date(date.getTime());
@@ -151,42 +208,27 @@ function addHours(date: Date, hours: number): Date {
     return result;
 }
 
-function clamp(value: number, min: number, max: number): number {
-    return Math.min(Math.max(value, min), max);
+function mapInsightCategoryToFocus(category: InsightCategory): ActionFocusKey {
+    if (category === 'sleep') return 'sleep';
+    if (category === 'activity' || category === 'weight') return 'activity';
+    return 'glucose';
 }
 
-function clamp01(value: number): number {
-    return clamp(value, 0, 1);
-}
+function mapActionTypeToFocus(actionType: string): ActionFocusKey {
+    const normalized = actionType.toLowerCase();
+    const mapped = ACTION_TYPE_TO_FOCUS[normalized];
+    if (mapped) return mapped;
 
-// Calculate component score (0-100) based on "badness" formulas
-// 100 = Perfect, 0 = Bad
-function calculateComponentScore(type: 'sleep' | 'activity' | 'glucose', value: number | null): number | null {
-    if (value === null) return null;
-
-    let badness = 0;
-
-    switch (type) {
-        case 'sleep':
-            // Sleep duration: clamp01(abs(weeklySleep - 7.5) / 2.5)
-            // 7.5 is ideal. < 5 or > 10 is max badness.
-            badness = clamp01(Math.abs(value - 7.5) / 2.5);
-            break;
-        case 'activity':
-            // Steps: clamp01(1 - (weeklySteps - 3000) / (12000 - 3000))
-            // 12000 is ideal (0 badness). 3000 is max badness.
-            badness = clamp01(1 - (value - 3000) / (9000));
-            break;
-        case 'glucose':
-            // Glucose: Using Time In Range % as the metric.
-            // 100% TIR = 0 badness. 50% TIR = 1 badness (?)
-            // Let's say < 50% TIR is max badness.
-            // badness = clamp01(1 - (tir - 50) / (100 - 50))
-            badness = clamp01(1 - (value - 50) / 50);
-            break;
+    if (normalized.includes('sleep')) return 'sleep';
+    if (
+        normalized.includes('glucose') ||
+        normalized.includes('meal') ||
+        normalized.includes('fiber') ||
+        normalized.includes('fibre')
+    ) {
+        return 'glucose';
     }
-
-    return Math.round(100 * (1 - badness));
+    return 'activity';
 }
 
 function addDays(date: Date, days: number): Date {
@@ -257,6 +299,7 @@ function formatMetricValue(metricKey: MetricKey, value: number | null, glucoseUn
         case 'meal_count':
         case 'checkin_count':
         case 'glucose_logs_count':
+        case 'weight_logs_count':
             return `${Math.round(value)}`;
         case 'sleep_hours':
             return `${value.toFixed(1)}h`;
@@ -306,16 +349,16 @@ function computeVelocity(scores: MetabolicWeeklyScore[], rangeDays: number): {
 
 export default function InsightsScreen() {
     const { user, profile } = useAuth();
-    const { tips: tipsData, loading: tipsLoading } = usePersonalizedTips({
-        userId: user?.id,
-        aiEnabled: profile?.ai_enabled ?? true,
-    });
     const glucoseUnit = useGlucoseUnit();
     const params = useLocalSearchParams();
     const insets = useSafeAreaInsets();
-    const HEADER_HEIGHT = 120 + insets.top;
+    const isBehaviorV1 = isBehaviorV1Experience(profile?.experience_variant);
+    const HEADER_HEIGHT = (isBehaviorV1 ? 132 : 120) + insets.top;
 
-    const [activeTab, setActiveTab] = useState<TabKey>('progress');
+    const [activeTab, setActiveTab] = useState<TabKey>(
+        profile?.experience_variant === 'behavior_v1' ? 'actions' : 'progress'
+    );
+    const [activeFocusTab, setActiveFocusTab] = useState<ActionFocusKey>('activity');
     const insightsRangeDays = 30;
 
     // Scroll-based header animation
@@ -338,6 +381,7 @@ export default function InsightsScreen() {
     const [glucoseLogs, setGlucoseLogs] = useState<GlucoseLog[]>([]);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
     const [meals, setMeals] = useState<MealWithCheckin[]>([]);
+    const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
     const [dailyContext, setDailyContext] = useState<DailyContext[]>([]);
     const [actions, setActions] = useState<UserAction[]>([]);
     const [avgFibrePerDay, setAvgFibrePerDay] = useState<number | undefined>(undefined);
@@ -352,16 +396,20 @@ export default function InsightsScreen() {
     const [metabolicScore, setMetabolicScore] = useState<MetabolicScoreData | null>(null);
     const [metabolicScoreLoading, setMetabolicScoreLoading] = useState(false);
 
+    useWeeklyReview(user?.id, isBehaviorV1);
 
+    const { action: nbaAction, source: nbaSource, loading: nbaLoading } = useNextBestAction(user?.id, isBehaviorV1);
 
     // Experiments state
     const [suggestedExperiments, setSuggestedExperiments] = useState<SuggestedExperiment[]>([]);
     const [activeExperiments, setActiveExperiments] = useState<UserExperiment[]>([]);
+    const [allTemplates, setAllTemplates] = useState<ExperimentTemplate[]>([]);
     const [experimentsLoading, setExperimentsLoading] = useState(false);
     const [startingExperiment, setStartingExperiment] = useState<string | null>(null);
     const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set());
 
     const toggleCardExpanded = (id: string) => {
+        triggerHaptic();
         setExpandedCardIds(prev => {
             const next = new Set(prev);
             if (next.has(id)) {
@@ -375,10 +423,19 @@ export default function InsightsScreen() {
 
     const syncingActionsRef = useRef(false);
     const syncingFeaturesRef = useRef(false);
+    const behaviorDefaultAppliedRef = useRef(false);
+    const behaviorFocusDefaultAppliedRef = useRef(false);
 
     const targetMin = profile?.target_min ?? DEFAULT_TARGET_MIN;
     const targetMax = profile?.target_max ?? DEFAULT_TARGET_MAX;
     const trackingMode = (profile?.tracking_mode || 'meals_wearables') as TrackingMode;
+
+    React.useEffect(() => {
+        if (isBehaviorV1 && !behaviorDefaultAppliedRef.current) {
+            setActiveTab('actions');
+            behaviorDefaultAppliedRef.current = true;
+        }
+    }, [isBehaviorV1]);
 
     const { startDate, endDate } = useMemo(() => getDateRange(insightsRangeDays), [insightsRangeDays]);
     const startDateKey = useMemo(() => toDateKey(startDate), [startDate]);
@@ -410,6 +467,7 @@ export default function InsightsScreen() {
             userTargetMin: targetMin,
             userTargetMax: targetMax,
             meals,
+            weightLogsCount: weightLogs.length,
             avgSleepHours: avgSleep,
             avgSteps,
             avgActiveMinutes,
@@ -418,7 +476,7 @@ export default function InsightsScreen() {
             totalMealsThisWeek: meals.length,
             checkinsThisWeek: mealsWithCheckins.length,
         };
-    }, [glucoseLogs, meals, dailyContext, targetMin, targetMax, avgFibrePerDay]);
+    }, [glucoseLogs, meals, weightLogs.length, dailyContext, targetMin, targetMax, avgFibrePerDay]);
 
     const { insights: personalInsights, loading: personalInsightsLoading } = usePersonalInsights({
         userId: user?.id,
@@ -426,6 +484,12 @@ export default function InsightsScreen() {
         rangeKey: getRangeKey(insightsRangeDays),
         enabled: !!user?.id,
         fallbackData,
+        generationOptions: {
+            experienceVariant: isBehaviorV1 ? 'behavior_v1' : 'legacy',
+            readinessLevel: profile?.readiness_level ?? undefined,
+            comBBarrier: profile?.com_b_barrier ?? undefined,
+            showGlucoseAdvanced: profile?.show_glucose_advanced ?? false,
+        },
     });
 
     const fetchCoreData = useCallback(async () => {
@@ -436,10 +500,11 @@ export default function InsightsScreen() {
 
         setInsightsLoading(true);
         try {
-            const [logs, activities, mealsData, dailyData, fibreSummary, pathway, templates, weekly] = await Promise.all([
+            const [logs, activities, mealsData, weightData, dailyData, fibreSummary, pathway, templates, weekly] = await Promise.all([
                 getGlucoseLogsByDateRange(user.id, startDate, endDate),
                 getActivityLogsByDateRange(user.id, startDate, endDate),
                 getMealsWithCheckinsByDateRange(user.id, startDate, endDate),
+                getWeightLogsByDateRange(user.id, startDate, endDate),
                 getDailyContextByRange(user.id, startDateKey, endDateKey),
                 getFibreIntakeSummary(user.id, 'month'),
                 getActiveCarePathway(user.id),
@@ -450,6 +515,7 @@ export default function InsightsScreen() {
             setGlucoseLogs(logs);
             setActivityLogs(activities);
             setMeals(mealsData);
+            setWeightLogs(weightData);
             setDailyContext(dailyData);
             setCarePathway(pathway);
             setPathwayTemplates(templates);
@@ -483,12 +549,14 @@ export default function InsightsScreen() {
         if (!user) return;
         setExperimentsLoading(true);
         try {
-            const [active, suggestions] = await Promise.all([
+            const [active, suggestions, templates] = await Promise.all([
                 getUserExperiments(user.id, ['draft', 'active']),
                 getSuggestedExperiments(user.id, 6),
+                getExperimentTemplates(),
             ]);
             setActiveExperiments(active);
             if (suggestions?.suggestions) setSuggestedExperiments(suggestions.suggestions);
+            setAllTemplates(templates);
         } catch (error) {
             console.error('Error fetching experiments:', error);
         } finally {
@@ -556,10 +624,14 @@ export default function InsightsScreen() {
 
     useFocusEffect(
         useCallback(() => {
+            if (isBehaviorV1) {
+                setActiveTab('actions');
+                return;
+            }
             if (params.tab && ['actions', 'progress', 'experiments'].includes(params.tab as string)) {
                 setActiveTab(params.tab as TabKey);
             }
-        }, [params.tab])
+        }, [params.tab, isBehaviorV1])
     );
 
     const computeMetricValue = useCallback((
@@ -607,10 +679,12 @@ export default function InsightsScreen() {
                 if (!values.length) return null;
                 return values.reduce((sum, value) => sum + value, 0) / values.length;
             }
+            case 'weight_logs_count':
+                return weightLogs.filter(log => isWithinWindow(log.logged_at, windowStart, windowEnd)).length;
             default:
                 return null;
         }
-    }, [meals, glucoseLogs, dailyContext, targetMin, targetMax]);
+    }, [meals, glucoseLogs, dailyContext, weightLogs, targetMin, targetMax]);
 
     // Component score calculations (moved to top level to avoid hook errors)
     const last7DaysEnd = useMemo(() => new Date(), []);
@@ -623,14 +697,6 @@ export default function InsightsScreen() {
     const avgSteps7d = useMemo(() => {
         return computeMetricValue('steps', last7DaysStart, last7DaysEnd);
     }, [computeMetricValue, last7DaysStart, last7DaysEnd]);
-
-    const avgTIR7d = useMemo(() => {
-        return computeMetricValue('time_in_range', last7DaysStart, last7DaysEnd);
-    }, [computeMetricValue, last7DaysStart, last7DaysEnd]);
-
-    const sleepScore = calculateComponentScore('sleep', avgSleep7d);
-    const activityScore = calculateComponentScore('activity', avgSteps7d);
-    const glucoseScore = calculateComponentScore('glucose', avgTIR7d);
 
     const detectActionCompletion = useCallback((action: UserAction): boolean => {
         const windowStart = new Date(action.window_start);
@@ -653,6 +719,8 @@ export default function InsightsScreen() {
                 return activityLogs.some(log => isWithinWindow(log.logged_at, windowStart, windowEnd));
             case 'log_glucose':
                 return glucoseLogs.some(log => isWithinWindow(log.logged_at, windowStart, windowEnd));
+            case 'log_weight':
+                return weightLogs.some(log => isWithinWindow(log.logged_at, windowStart, windowEnd));
             case 'sleep_logging':
             case 'sleep_window':
             case 'sleep_consistency': {
@@ -663,7 +731,7 @@ export default function InsightsScreen() {
             default:
                 return false;
         }
-    }, [meals, activityLogs, glucoseLogs, dailyContext]);
+    }, [meals, activityLogs, glucoseLogs, weightLogs, dailyContext]);
 
     const syncActionOutcomes = useCallback(async () => {
         if (!user || syncingActionsRef.current || actionsLoading) return;
@@ -849,7 +917,7 @@ export default function InsightsScreen() {
         });
 
         if (updated) setCarePathway(updated);
-    }, [carePathway, computeMetricValue, updateCarePathway]);
+    }, [carePathway, computeMetricValue]);
 
     useFocusEffect(
         useCallback(() => {
@@ -859,6 +927,7 @@ export default function InsightsScreen() {
 
     const handleStartAction = async (insightId: string, action: InsightAction) => {
         if (!user) return;
+        triggerHaptic('medium');
         const windowStart = new Date();
         const windowEnd = addHours(windowStart, action.windowHours || 48);
         const metricKey = action.metricKey as MetricKey;
@@ -889,16 +958,19 @@ export default function InsightsScreen() {
     };
 
     const handleMarkActionDone = async (action: UserAction) => {
+        triggerHaptic('medium');
         await updateUserAction(action.id, {
             status: 'completed',
             completed_at: new Date().toISOString(),
             completion_source: 'manual',
         });
+        if (user) recordStreakActivity(user.id).catch(() => {});
         await fetchActions();
     };
 
     const handleStartPathway = async (template: CarePathwayTemplate) => {
         if (!user) return;
+        triggerHaptic('medium');
         setPathwayLoading(true);
         try {
             const now = new Date();
@@ -920,6 +992,7 @@ export default function InsightsScreen() {
     };
 
     const handleTogglePathwayStep = async (stepId: string) => {
+        triggerHaptic();
         if (!carePathway) return;
         const completed = Array.isArray(carePathway.progress?.completed_step_ids)
             ? carePathway.progress.completed_step_ids
@@ -936,6 +1009,7 @@ export default function InsightsScreen() {
 
     const handleStartExperiment = async (suggestion: SuggestedExperiment) => {
         if (!user || startingExperiment) return;
+        triggerHaptic('medium');
         setStartingExperiment(suggestion.template.id);
         try {
             const experiment = await startUserExperiment(
@@ -963,15 +1037,118 @@ export default function InsightsScreen() {
         }
     };
 
+    const handleStartFromTemplate = (template: ExperimentTemplate) => {
+        if (!user || startingExperiment) return;
+        triggerHaptic();
+        // If user already has an active experiment for this template, go to detail
+        const existing = activeExperiments.find(e => e.template_id === template.id);
+        if (existing) {
+            router.push({ pathname: '/experiment-detail', params: { id: existing.id } } as any);
+            return;
+        }
+
+        const durationDays = template.protocol?.duration_days || 7;
+        Alert.alert(
+            `Start "${template.title}"?`,
+            `${template.short_description || template.description || ''}\n\nThis is a ${durationDays}-day experiment. You'll log completion each day.`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Start Experiment',
+                    onPress: async () => {
+                        setStartingExperiment(template.id);
+                        try {
+                            const experiment = await startUserExperiment(user.id, template.id);
+                            if (experiment) {
+                                setStartingExperiment(null);
+                                fetchExperimentsData();
+                                router.push({ pathname: '/experiment-detail', params: { id: experiment.id } } as any);
+                            } else {
+                                setStartingExperiment(null);
+                                Alert.alert('Error', 'Failed to start experiment.');
+                            }
+                        } catch (error) {
+                            console.error('Error starting experiment:', error);
+                            setStartingExperiment(null);
+                            Alert.alert('Error', 'Something went wrong.');
+                        }
+                    },
+                },
+            ]
+        );
+    };
+
     const actionCandidates = useMemo(() => {
         const activeActionTypes = new Set(actions.filter(a => a.status === 'active').map(a => a.action_type));
-        return personalInsights.filter(insight => !activeActionTypes.has(insight.action.actionType)).slice(0, 4);
+        return personalInsights.filter(insight => !activeActionTypes.has(insight.action.actionType));
     }, [personalInsights, actions]);
 
     const activeActions = useMemo(() => actions.filter(action => action.status === 'active'), [actions]);
     const recentActions = useMemo(() => actions.filter(action => action.status !== 'active').slice(0, 3), [actions]);
+    const legacyActionCandidates = useMemo(() => actionCandidates.slice(0, 4), [actionCandidates]);
 
     const glucoseStats = useMemo(() => computeGlucoseStats(glucoseLogs, targetMin, targetMax), [glucoseLogs, targetMin, targetMax]);
+
+    const defaultFocusTab = useMemo<ActionFocusKey>(() => {
+        const firstActive = activeActions[0];
+        if (firstActive) return mapActionTypeToFocus(firstActive.action_type);
+        const firstCandidate = actionCandidates[0];
+        if (firstCandidate) return mapInsightCategoryToFocus(firstCandidate.category);
+        return 'activity';
+    }, [activeActions, actionCandidates]);
+
+    React.useEffect(() => {
+        if (!isBehaviorV1 || behaviorFocusDefaultAppliedRef.current) return;
+        if (actionsLoading || personalInsightsLoading) return;
+        setActiveFocusTab(defaultFocusTab);
+        behaviorFocusDefaultAppliedRef.current = true;
+    }, [isBehaviorV1, actionsLoading, personalInsightsLoading, defaultFocusTab]);
+
+    const focusPanel = useMemo(() => {
+        if (activeFocusTab === 'glucose') {
+            const inRange = glucoseStats.timeInRange;
+            const hasZone = inRange !== null && inRange !== undefined;
+            return {
+                title: 'Glucose Plan',
+                icon: 'water-outline' as const,
+                metric: hasZone ? `${Math.round(inRange)}% in zone` : 'Optional signal',
+                detail: hasZone
+                    ? `Personalized next steps from ${glucoseStats.count} readings this range.`
+                    : 'Use glucose actions when you want deeper feedback. Meal-based actions still personalize this plan.',
+                emptyTitle: 'No glucose actions queued',
+                emptyText: 'Add one signal to unlock your next personalized glucose step.',
+                cta: { label: 'Log glucose', route: '/log-glucose' },
+            };
+        }
+
+        if (activeFocusTab === 'sleep') {
+            const hasSleep = avgSleep7d !== null && avgSleep7d !== undefined;
+            return {
+                title: 'Sleep Plan',
+                icon: 'moon-outline' as const,
+                metric: hasSleep ? `${avgSleep7d.toFixed(1)}h avg` : 'Build baseline',
+                detail: hasSleep
+                    ? 'Personalized bedtime consistency actions tuned to your recent sleep pattern.'
+                    : 'Log sleep for a few nights to unlock more precise sleep actions.',
+                emptyTitle: 'No sleep actions queued',
+                emptyText: 'Start with one simple sleep action tonight to build momentum.',
+                cta: { label: 'View patterns', route: '/insights?tab=progress' },
+            };
+        }
+
+        const hasSteps = avgSteps7d !== null && avgSteps7d !== undefined;
+        return {
+            title: 'Activity Plan',
+            icon: 'walk-outline' as const,
+            metric: hasSteps ? `${Math.round(avgSteps7d).toLocaleString()} avg steps` : 'Build baseline',
+            detail: hasSteps
+                ? 'Personalized movement actions based on your current weekly activity rhythm.'
+                : 'Log activity to unlock personalized movement targets and pacing.',
+            emptyTitle: 'No activity actions queued',
+            emptyText: 'Add one movement log to generate your next activity action.',
+            cta: { label: 'Log activity', route: '/log-activity' },
+        };
+    }, [activeFocusTab, glucoseStats.timeInRange, glucoseStats.count, avgSleep7d, avgSteps7d]);
 
     const shouldRecommendPathway = useMemo(() => {
         if (glucoseStats.timeInRange === null || glucoseStats.timeInRange === undefined || glucoseStats.count < 7) {
@@ -1030,30 +1207,34 @@ export default function InsightsScreen() {
                 : styles.deltaNegative;
 
         return (
-            <View key={action.id} style={styles.actionCard}>
+            <View key={action.id} style={[styles.actionCard, isBehaviorV1 && styles.behaviorActionCard]}>
                 <View style={styles.actionHeaderRow}>
-                    <Text style={styles.actionTitleHero}>{action.title}</Text>
+                    <Text style={[styles.actionTitleHero, isBehaviorV1 && styles.behaviorActionTitleHero]}>{action.title}</Text>
                     <TouchableOpacity onPress={() => toggleCardExpanded(action.id)} hitSlop={10}>
-                        <Ionicons name={isExpanded ? "information-circle" : "information-circle-outline"} size={22} color="#878787" />
+                        <Ionicons
+                            name={isExpanded ? "information-circle" : "information-circle-outline"}
+                            size={22}
+                            color={Colors.textTertiary}
+                        />
                     </TouchableOpacity>
                 </View>
 
-                <Text style={styles.actionDescription}>{action.description}</Text>
+                <Text style={[styles.actionDescription, isBehaviorV1 && styles.behaviorActionDescription]}>{action.description}</Text>
 
                 {isExpanded && (
-                    <View style={styles.expandedContent}>
-                        <Text style={styles.actionMeta}>Window ends in {timeLeft}h</Text>
+                    <View style={[styles.expandedContent, isBehaviorV1 && styles.behaviorExpandedContent]}>
+                        <Text style={[styles.actionMeta, isBehaviorV1 && styles.behaviorActionMeta]}>Window ends in {timeLeft}h</Text>
                         <View style={styles.actionOutcomeRow}>
                             <View>
-                                <Text style={styles.actionOutcomeLabel}>Baseline</Text>
-                                <Text style={styles.actionOutcomeValue}>{formatMetricValue(metricKey, baselineValue, glucoseUnit)}</Text>
+                                <Text style={[styles.actionOutcomeLabel, isBehaviorV1 && styles.behaviorActionOutcomeLabel]}>Baseline</Text>
+                                <Text style={[styles.actionOutcomeValue, isBehaviorV1 && styles.behaviorActionOutcomeValue]}>{formatMetricValue(metricKey, baselineValue, glucoseUnit)}</Text>
                             </View>
                             <View>
-                                <Text style={styles.actionOutcomeLabel}>Outcome</Text>
-                                <Text style={styles.actionOutcomeValue}>{formatMetricValue(metricKey, outcomeValue, glucoseUnit)}</Text>
+                                <Text style={[styles.actionOutcomeLabel, isBehaviorV1 && styles.behaviorActionOutcomeLabel]}>Outcome</Text>
+                                <Text style={[styles.actionOutcomeValue, isBehaviorV1 && styles.behaviorActionOutcomeValue]}>{formatMetricValue(metricKey, outcomeValue, glucoseUnit)}</Text>
                             </View>
                             <View>
-                                <Text style={styles.actionOutcomeLabel}>Delta</Text>
+                                <Text style={[styles.actionOutcomeLabel, isBehaviorV1 && styles.behaviorActionOutcomeLabel]}>Delta</Text>
                                 <Text style={[styles.actionOutcomeValue, deltaStyle]}>
                                     {improvementLabel}
                                 </Text>
@@ -1071,21 +1252,22 @@ export default function InsightsScreen() {
                          */}
                         {action.cta ? (
                             <TouchableOpacity
-                                style={styles.primaryButton}
+                                style={[styles.primaryButton, isBehaviorV1 && styles.behaviorPrimaryButton]}
                                 onPress={() => {
+                                    triggerHaptic();
                                     if (action.cta?.route) {
                                         router.push(action.cta.route as any);
                                     }
                                 }}
                             >
-                                <Text style={styles.primaryButtonText}>{action.cta.label}</Text>
+                                <Text style={[styles.primaryButtonText, isBehaviorV1 && styles.behaviorPrimaryButtonText]}>{action.cta.label}</Text>
                             </TouchableOpacity>
                         ) : (
                             <TouchableOpacity
-                                style={styles.primaryButton}
+                                style={[styles.primaryButton, isBehaviorV1 && styles.behaviorPrimaryButton]}
                                 onPress={() => handleMarkActionDone(action)}
                             >
-                                <Text style={styles.primaryButtonText}>Mark done</Text>
+                                <Text style={[styles.primaryButtonText, isBehaviorV1 && styles.behaviorPrimaryButtonText]}>Mark done</Text>
                             </TouchableOpacity>
                         )}
                         {/* Option to mark done if CTA exists? Maybe secondary. Keeping simple for now. */}
@@ -1095,49 +1277,71 @@ export default function InsightsScreen() {
         );
     };
 
-    const renderActionCandidates = () => {
+    const renderActionCandidates = (
+        candidates: PersonalInsight[],
+        emptyState: { title: string; text: string; cta?: { label: string; route: string } }
+    ) => {
         if (personalInsightsLoading) {
-            return <ActivityIndicator color="#878787" style={{ marginVertical: 12 }} />;
+            return <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 12 }} />;
         }
 
-        if (actionCandidates.length === 0) {
+        if (candidates.length === 0) {
             return (
-                <View style={styles.emptyStateCard}>
+                <View style={[styles.emptyStateCard, isBehaviorV1 && styles.behaviorEmptyStateCard]}>
                     <Image source={Images.mascots.thinking} style={styles.emptyStateImage} />
-                    <Text style={styles.emptyStateTitle}>No new actions right now</Text>
-                    <Text style={styles.emptyStateText}>Keep logging to unlock the next step.</Text>
+                    <Text style={[styles.emptyStateTitle, isBehaviorV1 && styles.behaviorEmptyStateTitle]}>{emptyState.title}</Text>
+                    <Text style={[styles.emptyStateText, isBehaviorV1 && styles.behaviorEmptyStateText]}>{emptyState.text}</Text>
+                    {emptyState.cta && (
+                        <TouchableOpacity
+                            style={[styles.emptyStateCtaButton, isBehaviorV1 && styles.behaviorEmptyStateCtaButton]}
+                            onPress={() => {
+                                triggerHaptic();
+                                router.push(emptyState.cta?.route as any);
+                            }}
+                        >
+                            <Text style={[styles.emptyStateCtaText, isBehaviorV1 && styles.behaviorEmptyStateCtaText]}>
+                                {emptyState.cta.label}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
             );
         }
 
-        return actionCandidates.map(insight => {
+        return candidates.map(insight => {
             const isExpanded = expandedCardIds.has(insight.id);
             return (
-                <View key={insight.id} style={styles.actionCard}>
+                <View key={insight.id} style={[styles.actionCard, isBehaviorV1 && styles.behaviorActionCard]}>
                     <View style={styles.actionHeaderRow}>
-                        <Text style={styles.actionTitleHero}>{insight.action.title}</Text>
+                        <Text style={[styles.actionTitleHero, isBehaviorV1 && styles.behaviorActionTitleHero]}>{insight.action.title}</Text>
                         <TouchableOpacity onPress={() => toggleCardExpanded(insight.id)} hitSlop={10}>
-                            <Ionicons name={isExpanded ? "information-circle" : "information-circle-outline"} size={22} color="#878787" />
+                            <Ionicons
+                                name={isExpanded ? "information-circle" : "information-circle-outline"}
+                                size={22}
+                                color={Colors.textTertiary}
+                            />
                         </TouchableOpacity>
                     </View>
 
-                    <Text style={styles.actionDescription}>{insight.action.description}</Text>
+                    <Text style={[styles.actionDescription, isBehaviorV1 && styles.behaviorActionDescription]}>{insight.action.description}</Text>
 
                     {isExpanded && (
-                        <View style={styles.expandedContent}>
-                            <Text style={styles.actionMeta}>Insight: {insight.because}</Text>
-                            <View style={styles.statusPill}>
-                                <Text style={styles.statusPillText}>Duration: {insight.action.windowHours}h</Text>
+                        <View style={[styles.expandedContent, isBehaviorV1 && styles.behaviorExpandedContent]}>
+                            <Text style={[styles.actionMeta, isBehaviorV1 && styles.behaviorActionMeta]}>Insight: {insight.because}</Text>
+                            <View style={[styles.statusPill, isBehaviorV1 && styles.behaviorStatusPill]}>
+                                <Text style={[styles.statusPillText, isBehaviorV1 && styles.behaviorStatusPillText]}>
+                                    Duration: {insight.action.windowHours}h
+                                </Text>
                             </View>
                         </View>
                     )}
 
                     <View style={styles.actionButtons}>
                         <TouchableOpacity
-                            style={styles.primaryButton}
+                            style={[styles.primaryButton, isBehaviorV1 && styles.behaviorPrimaryButton]}
                             onPress={() => handleStartAction(insight.id, insight.action)}
                         >
-                            <Text style={styles.primaryButtonText}>Start action</Text>
+                            <Text style={[styles.primaryButtonText, isBehaviorV1 && styles.behaviorPrimaryButtonText]}>Start action</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -1160,17 +1364,23 @@ export default function InsightsScreen() {
             const steps = template.steps || [];
 
             return (
-                <View style={styles.pathwayCard}>
+                <View style={[styles.pathwayCard, isBehaviorV1 && styles.behaviorPathwayCard]}>
                     <View style={styles.pathwayHeader}>
                         <View>
-                            <Text style={styles.pathwayTitle}>{template.title}</Text>
-                            <Text style={styles.pathwayMeta}>Day {dayIndex} of {totalDays} · ends {toDateKey(endAt)}</Text>
+                            <Text style={[styles.pathwayTitle, isBehaviorV1 && styles.behaviorPathwayTitle]}>{template.title}</Text>
+                            <Text style={[styles.pathwayMeta, isBehaviorV1 && styles.behaviorPathwayMeta]}>
+                                Day {dayIndex} of {totalDays} · ends {toDateKey(endAt)}
+                            </Text>
                         </View>
-                        <View style={styles.statusPill}>
-                            <Text style={styles.statusPillText}>{carePathway.status}</Text>
+                        <View style={[styles.statusPill, isBehaviorV1 && styles.behaviorStatusPill]}>
+                            <Text style={[styles.statusPillText, isBehaviorV1 && styles.behaviorStatusPillText]}>
+                                {carePathway.status}
+                            </Text>
                         </View>
                     </View>
-                    <Text style={styles.pathwayDescription}>{template.description}</Text>
+                    <Text style={[styles.pathwayDescription, isBehaviorV1 && styles.behaviorPathwayDescription]}>
+                        {template.description}
+                    </Text>
 
                     <View style={styles.pathwaySteps}>
                         {steps.map(step => {
@@ -1178,17 +1388,25 @@ export default function InsightsScreen() {
                             return (
                                 <TouchableOpacity
                                     key={step.id}
-                                    style={[styles.pathwayStepRow, isDone && styles.pathwayStepRowDone]}
+                                    style={[
+                                        styles.pathwayStepRow,
+                                        isBehaviorV1 && styles.behaviorPathwayStepRow,
+                                        isDone && styles.pathwayStepRowDone,
+                                    ]}
                                     onPress={() => handleTogglePathwayStep(step.id)}
                                 >
                                     <Ionicons
                                         name={isDone ? 'checkmark-circle' : 'ellipse-outline'}
                                         size={18}
-                                        color={isDone ? '#4CAF50' : '#878787'}
+                                        color={isDone ? Colors.success : Colors.textTertiary}
                                     />
                                     <View style={{ flex: 1 }}>
-                                        <Text style={styles.pathwayStepTitle}>{step.title}</Text>
-                                        <Text style={styles.pathwayStepDescription}>{step.description}</Text>
+                                        <Text style={[styles.pathwayStepTitle, isBehaviorV1 && styles.behaviorPathwayStepTitle]}>
+                                            {step.title}
+                                        </Text>
+                                        <Text style={[styles.pathwayStepDescription, isBehaviorV1 && styles.behaviorPathwayStepDescription]}>
+                                            {step.description}
+                                        </Text>
                                     </View>
                                 </TouchableOpacity>
                             );
@@ -1198,14 +1416,18 @@ export default function InsightsScreen() {
                     {carePathway.delta && (
                         <View style={styles.pathwayOutcomeRow}>
                             <View>
-                                <Text style={styles.pathwayOutcomeLabel}>Delta (time-in-zone)</Text>
-                                <Text style={styles.pathwayOutcomeValue}>
+                                <Text style={[styles.pathwayOutcomeLabel, isBehaviorV1 && styles.behaviorPathwayOutcomeLabel]}>
+                                    Delta (time-in-zone)
+                                </Text>
+                                <Text style={[styles.pathwayOutcomeValue, isBehaviorV1 && styles.behaviorPathwayOutcomeValue]}>
                                     {formatMetricValue('time_in_range', carePathway.delta.time_in_range ?? null, glucoseUnit)}
                                 </Text>
                             </View>
                             <View>
-                                <Text style={styles.pathwayOutcomeLabel}>Delta (avg glucose)</Text>
-                                <Text style={styles.pathwayOutcomeValue}>
+                                <Text style={[styles.pathwayOutcomeLabel, isBehaviorV1 && styles.behaviorPathwayOutcomeLabel]}>
+                                    Delta (avg glucose)
+                                </Text>
+                                <Text style={[styles.pathwayOutcomeValue, isBehaviorV1 && styles.behaviorPathwayOutcomeValue]}>
                                     {formatMetricValue('glucose_avg', carePathway.delta.glucose_avg ?? null, glucoseUnit)}
                                 </Text>
                             </View>
@@ -1219,36 +1441,44 @@ export default function InsightsScreen() {
 
         if (shouldRecommendPathway) {
             return (
-                <View style={styles.pathwayCard}>
-                    <Text style={styles.pathwayTitle}>{template.title}</Text>
-                    <Text style={styles.pathwayDescription}>A structured 7-day plan to steady your recent trend.</Text>
-                    <Text style={styles.pathwayMeta}>Triggered by {Math.round(glucoseStats.timeInRange || 0)}% time-in-zone.</Text>
+                <View style={[styles.pathwayCard, isBehaviorV1 && styles.behaviorPathwayCard]}>
+                    <Text style={[styles.pathwayTitle, isBehaviorV1 && styles.behaviorPathwayTitle]}>{template.title}</Text>
+                    <Text style={[styles.pathwayDescription, isBehaviorV1 && styles.behaviorPathwayDescription]}>
+                        A structured 7-day plan to steady your recent trend.
+                    </Text>
+                    <Text style={[styles.pathwayMeta, isBehaviorV1 && styles.behaviorPathwayMeta]}>
+                        Triggered by {Math.round(glucoseStats.timeInRange || 0)}% time-in-zone.
+                    </Text>
                     <TouchableOpacity
-                        style={styles.primaryButton}
+                        style={[styles.primaryButton, isBehaviorV1 && styles.behaviorPrimaryButton]}
                         onPress={() => handleStartPathway(template)}
                         disabled={pathwayLoading}
                     >
-                        <Text style={styles.primaryButtonText}>Start 7-day pathway</Text>
+                        <Text style={[styles.primaryButtonText, isBehaviorV1 && styles.behaviorPrimaryButtonText]}>
+                            Start 7-day pathway
+                        </Text>
                     </TouchableOpacity>
                 </View>
             );
         }
 
         return (
-            <View style={styles.pathwayCard}>
-                <Text style={styles.pathwayTitle}>{template.title}</Text>
-                <Text style={styles.pathwayDescription}>A structured plan becomes available once a trend needs intervention.</Text>
+            <View style={[styles.pathwayCard, isBehaviorV1 && styles.behaviorPathwayCard]}>
+                <Text style={[styles.pathwayTitle, isBehaviorV1 && styles.behaviorPathwayTitle]}>{template.title}</Text>
+                <Text style={[styles.pathwayDescription, isBehaviorV1 && styles.behaviorPathwayDescription]}>
+                    A structured plan becomes available once a trend needs intervention.
+                </Text>
             </View>
         );
     };
 
-    const renderActionsTab = () => (
+    const renderLegacyActionsTab = () => (
         <Animated.ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16}>
             <Text style={styles.sectionTitle}>Action Loop</Text>
             <Text style={styles.sectionDescription}>Every signal maps to a 24-72 hour next step.</Text>
 
             {actionsLoading ? (
-                <ActivityIndicator color="#878787" style={{ marginVertical: 16 }} />
+                <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 16 }} />
             ) : (
                 <>
                     {activeActions.length > 0 && (
@@ -1260,7 +1490,10 @@ export default function InsightsScreen() {
 
                     <View style={styles.sectionBlock}>
                         <Text style={styles.sectionSubtitle}>Recommended next steps</Text>
-                        {renderActionCandidates()}
+                        {renderActionCandidates(legacyActionCandidates, {
+                            title: 'No new actions right now',
+                            text: 'Keep logging to unlock the next step.',
+                        })}
                     </View>
 
                     {recentActions.length > 0 && (
@@ -1278,39 +1511,147 @@ export default function InsightsScreen() {
         </Animated.ScrollView>
     );
 
-    const renderTipCard = (tip: any) => (
-        <TouchableOpacity
-            key={tip.id}
-            style={styles.tipCard}
-            onPress={() => {
-                if (tip.articleUrl) {
-                    console.log('Opening tip URL:', tip.articleUrl);
-                    // Use Linking as a fallback if WebBrowser is unreliable
-                    Linking.openURL(tip.articleUrl).catch(err =>
-                        console.error('Failed to open URL:', err)
-                    );
-                } else {
-                    console.warn('No article URL for tip:', tip.title);
-                }
-            }}
-            activeOpacity={0.7}
-        >
-            <View style={[styles.tipIconContainer, { backgroundColor: tip.category === 'glucose' ? 'rgba(52, 199, 89, 0.15)' : tip.category === 'meal' ? 'rgba(255, 149, 0, 0.15)' : 'rgba(0, 122, 255, 0.15)' }]}>
-                <Ionicons
-                    name={tip.category === 'glucose' ? 'water' : tip.category === 'meal' ? 'nutrition' : 'walk'}
-                    size={20}
-                    color={tip.category === 'glucose' ? Colors.success : tip.category === 'meal' ? Colors.warning : Colors.primary}
-                />
-            </View>
-            <View style={styles.tipContent}>
-                <View style={styles.tipHeader}>
-                    <Text style={styles.tipTitle}>{tip.title}</Text>
-                    {tip.metric && <Text style={styles.tipMetric}>{tip.metric}</Text>}
+    const activeExperimentForCard = useMemo(() => {
+        return activeExperiments.find(e => e.status === 'active' && e.experiment_templates);
+    }, [activeExperiments]);
+
+    // Filter library templates to exclude the active experiment's template
+    const libraryTemplates = useMemo(() => {
+        const activeTemplateId = activeExperimentForCard?.template_id;
+        return allTemplates.filter(t => t.id !== activeTemplateId);
+    }, [allTemplates, activeExperimentForCard]);
+
+    // Suggested experiments filtered by active focus tab (AI-personalized, ranked by score)
+    const focusedSuggestions = useMemo(() => {
+        const activeTemplateId = activeExperimentForCard?.template_id;
+        return suggestedExperiments
+            .filter(s => s.template.id !== activeTemplateId)
+            .filter(s => mapTemplateFocus(s.template.slug, s.template.category) === activeFocusTab)
+            .sort((a, b) => b.score - a.score);
+    }, [suggestedExperiments, activeFocusTab, activeExperimentForCard]);
+
+    // Fallback: filtered library templates when no suggestions available for this tab
+    const focusedLibraryFallback = useMemo(() => {
+        if (focusedSuggestions.length > 0) return [];
+        return libraryTemplates.filter(t => mapTemplateFocus(t.slug, t.category) === activeFocusTab);
+    }, [libraryTemplates, activeFocusTab, focusedSuggestions.length]);
+
+    const renderNextBestActionCard = () => {
+        if (nbaLoading) {
+            return (
+                <View style={styles.nbaCard}>
+                    <View style={styles.nbaShimmer}>
+                        <ActivityIndicator color="rgba(45, 212, 191, 0.6)" size="small" />
+                        <Text style={styles.nbaShimmerText}>Finding your next best action...</Text>
+                    </View>
                 </View>
-                <Text style={styles.tipDescription}>{tip.description}</Text>
-                <Text style={styles.tipLink}>Learn more <Ionicons name="arrow-forward" size={10} /></Text>
+            );
+        }
+
+        if (!nbaAction) return null;
+
+        return (
+            <View style={styles.nbaCard}>
+                <View style={styles.nbaHeader}>
+                    <View style={styles.nbaLabelRow}>
+                        <Ionicons name="sparkles" size={14} color="rgba(45, 212, 191, 1)" />
+                        <Text style={styles.nbaLabel}>SUGGESTED FOR YOU</Text>
+                    </View>
+                    <View style={[styles.nbaSourceBadge, nbaSource === 'ai' ? styles.nbaSourceAi : styles.nbaSourceRules]}>
+                        <Text style={[styles.nbaSourceText, nbaSource === 'ai' ? styles.nbaSourceTextAi : styles.nbaSourceTextRules]}>
+                            {nbaSource === 'ai' ? 'AI' : 'Rules'}
+                        </Text>
+                    </View>
+                </View>
+                <Text style={styles.nbaTitle}>{nbaAction.title}</Text>
+                <Text style={styles.nbaDescription}>{nbaAction.description}</Text>
+                {nbaAction.because ? (
+                    <Text style={styles.nbaBecause}>{nbaAction.because}</Text>
+                ) : null}
             </View>
-        </TouchableOpacity>
+        );
+    };
+
+    const renderBehaviorActionsTab = () => (
+        <Animated.ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 4 }]} showsVerticalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16}>
+            {/* AI Next Best Action - hero card */}
+            {renderNextBestActionCard()}
+
+            {/* Focus panel summary */}
+            <View style={[styles.focusSummaryCard, styles.behaviorFocusSummaryCard]}>
+                <View style={styles.focusSummaryHeader}>
+                    <View style={[styles.focusSummaryIcon, styles.behaviorFocusSummaryIcon]}>
+                        <Ionicons name={focusPanel.icon} size={16} color="rgba(45, 212, 191, 1)" />
+                    </View>
+                    <View style={styles.focusSummaryTextWrap}>
+                        <Text style={[styles.focusSummaryTitle, styles.behaviorFocusSummaryTitle]}>{focusPanel.title}</Text>
+                        <Text style={[styles.focusSummaryMetric, styles.behaviorFocusSummaryMetric]}>{focusPanel.metric}</Text>
+                    </View>
+                </View>
+                <Text style={[styles.focusSummaryBody, styles.behaviorFocusSummaryBody]}>{focusPanel.detail}</Text>
+            </View>
+
+            {/* Current experiment (if active and matches focus tab) */}
+            {activeExperimentForCard && (
+                <View style={styles.experimentsSection}>
+                    <Text style={styles.experimentsSectionLabel}>CURRENT EXPERIMENT</Text>
+                    <ActiveExperimentCard experiment={activeExperimentForCard} onStopped={fetchExperimentsData} />
+                </View>
+            )}
+
+            {/* Personalized experiments for this focus tab */}
+            {experimentsLoading ? (
+                <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 12 }} />
+            ) : (
+                <View style={styles.experimentsSection}>
+                    <View style={styles.experimentsLibraryHeader}>
+                        <Text style={styles.experimentsLibraryTitle}>Try an Experiment</Text>
+                        <TouchableOpacity onPress={() => { triggerHaptic(); router.push('/experiments-list' as any); }}>
+                            <Text style={styles.experimentsFilterLink}>See all</Text>
+                        </TouchableOpacity>
+                    </View>
+                    {focusedSuggestions.length > 0 ? (
+                        <View style={styles.experimentsGrid}>
+                            {focusedSuggestions.map((suggestion) => (
+                                <View key={suggestion.template.id} style={styles.experimentsGridItem}>
+                                    <ExperimentLibraryCard
+                                        template={suggestion.template}
+                                        onPress={handleStartFromTemplate}
+                                        reason={suggestion.reasons?.[0]}
+                                    />
+                                </View>
+                            ))}
+                            {focusedSuggestions.length % 2 !== 0 && <View style={styles.experimentsGridItem} />}
+                        </View>
+                    ) : focusedLibraryFallback.length > 0 ? (
+                        <View style={styles.experimentsGrid}>
+                            {focusedLibraryFallback.map((template) => (
+                                <View key={template.id} style={styles.experimentsGridItem}>
+                                    <ExperimentLibraryCard
+                                        template={template}
+                                        onPress={handleStartFromTemplate}
+                                    />
+                                </View>
+                            ))}
+                            {focusedLibraryFallback.length % 2 !== 0 && <View style={styles.experimentsGridItem} />}
+                        </View>
+                    ) : (
+                        <View style={styles.focusEmptyExperiments}>
+                            <Text style={styles.focusEmptyExperimentsText}>
+                                No experiments available for this focus area yet.
+                            </Text>
+                            <TouchableOpacity onPress={() => { triggerHaptic(); router.push('/experiments-list' as any); }}>
+                                <Text style={styles.experimentsFilterLink}>Browse all experiments</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
+                </View>
+            )}
+        </Animated.ScrollView>
+    );
+
+    const renderActionsTab = () => (
+        isBehaviorV1 ? renderBehaviorActionsTab() : renderLegacyActionsTab()
     );
 
     const renderProgressTab = () => {
@@ -1326,18 +1667,9 @@ export default function InsightsScreen() {
 
         const getScoreLabel = (s: number | null) => {
             if (s === null) return 'No data';
-            if (s >= 85) return 'Excellent';
-            if (s >= 70) return 'Optimized';
-            if (s >= 50) return 'Fair';
-            return 'Needs Focus';
-        };
-
-        const getScoreDescription = (s: number | null) => {
-            if (s === null) return 'Log 7 days of data to unlock your metabolic score.';
-            if (s >= 85) return 'Your metabolism is firing on all cylinders.';
-            if (s >= 70) return 'You’re maintaining a strong metabolic baseline.';
-            if (s >= 50) return 'A few adjustments could boost your score.';
-            return 'Prioritize sleep and movement to get back on track.';
+            if (s >= 70) return 'Excellent';
+            if (s >= 50) return 'Good';
+            return 'Needs focus';
         };
 
         // Get last 7 days data (sorted oldest first for charts)
@@ -1386,70 +1718,48 @@ export default function InsightsScreen() {
         return (
             <Animated.ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: HEADER_HEIGHT + 16 }]} showsVerticalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16}>
                 {/* Section 1: Hero Score Card */}
-                <LinearGradient
-                    colors={['#2A2C2C', '#1A1A1E']}
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 1 }}
-                    style={styles.heroCard}
-                >
-                    <View style={styles.heroHeader}>
-                        <Text style={styles.heroLabel}>METABOLIC HEALTH</Text>
-                        <View style={styles.heroStatusRow}>
-                            <Text style={[styles.heroStatusText, { color: getScoreColor(score) }]}>
-                                {getScoreLabel(score)}
+                <View style={[styles.progressCard, { alignItems: 'center', paddingVertical: 28 }]}>
+                    {metabolicScoreLoading ? (
+                        <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 40 }} />
+                    ) : hasScore ? (
+                        <>
+                            <MetabolicScoreRing
+                                size={120}
+                                score={score}
+                                scoreColor={getScoreColor(score)}
+                            />
+                            <Text style={styles.heroTitle}>Metabolic Health</Text>
+                            <View style={styles.heroSubtitleRow}>
+                                <Text style={[styles.heroSubtitle, { color: getScoreColor(score) }]}>
+                                    {getScoreLabel(score)}
+                                </Text>
+                                {velocity.delta !== null && (
+                                    <View style={styles.deltaPillInline}>
+                                        <Ionicons
+                                            name={velocity.delta >= 0 ? 'arrow-up' : 'arrow-down'}
+                                            size={10}
+                                            color={velocity.delta >= 0 ? Colors.success : Colors.error}
+                                        />
+                                        <Text style={[
+                                            styles.deltaTextInline,
+                                            { color: velocity.delta >= 0 ? Colors.success : Colors.error }
+                                        ]}>
+                                            {velocity.delta >= 0 ? '+' : ''}{Math.round(velocity.delta)}
+                                        </Text>
+                                    </View>
+                                )}
+                            </View>
+                        </>
+                    ) : (
+                        <>
+                            <MetabolicScoreRing size={120} />
+                            <Text style={styles.heroTitle}>Metabolic Health</Text>
+                            <Text style={styles.heroSubtitle}>
+                                Log more data to unlock your score
                             </Text>
-                            {velocity.delta !== null && (
-                                <View style={[styles.deltaPillInline, { backgroundColor: 'rgba(0,0,0,0.2)' }]}>
-                                    <Ionicons
-                                        name={velocity.delta >= 0 ? 'arrow-up' : 'arrow-down'}
-                                        size={12}
-                                        color={velocity.delta >= 0 ? Colors.success : Colors.error}
-                                    />
-                                    <Text style={[
-                                        styles.deltaTextInline,
-                                        { color: velocity.delta >= 0 ? Colors.success : Colors.error }
-                                    ]}>
-                                        {velocity.delta >= 0 ? '+' : ''}{Math.round(velocity.delta)}
-                                    </Text>
-                                </View>
-                            )}
-                        </View>
-                        <Text style={styles.heroContext}>
-                            {getScoreDescription(score)}
-                        </Text>
-                    </View>
-
-                    <View style={styles.heroRingContainer}>
-                        <MetabolicScoreRing
-                            size={140}
-                            score={score}
-                            scoreColor={getScoreColor(score)}
-                        />
-                    </View>
-
-                    {/* Mini Metrics Row */}
-                    <View style={styles.heroMetricsRow}>
-                        <View style={styles.heroMetricItem}>
-                            <Ionicons name="moon" size={14} color={Colors.sleep} />
-                            <Text style={styles.heroMetricValue}>{computedAggregates.weeklySleep?.toFixed(1) ?? '--'}h</Text>
-                        </View>
-                        <View style={styles.heroMetricDivider} />
-                        <View style={styles.heroMetricItem}>
-                            <Ionicons name="footsteps" size={14} color={Colors.activity} />
-                            <Text style={styles.heroMetricValue}>{computedAggregates.weeklySteps ? (computedAggregates.weeklySteps / 1000).toFixed(1) + 'k' : '--'}</Text>
-                        </View>
-                        <View style={styles.heroMetricDivider} />
-                        <View style={styles.heroMetricItem}>
-                            <Ionicons name="heart" size={14} color={Colors.heartRate} />
-                            <Text style={styles.heroMetricValue}>{Math.round(computedAggregates.weeklyRHR ?? 0) || '--'}</Text>
-                        </View>
-                        <View style={styles.heroMetricDivider} />
-                        <View style={styles.heroMetricItem}>
-                            <Ionicons name="pulse" size={14} color={Colors.primary} />
-                            <Text style={styles.heroMetricValue}>{Math.round(computedAggregates.weeklyHRV ?? 0) || '--'} ms</Text>
-                        </View>
-                    </View>
-                </LinearGradient>
+                        </>
+                    )}
+                </View>
 
                 {/* Section 2: Metric Cards Grid */}
                 <Text style={[styles.sectionTitle, { marginBottom: 4 }]}>Score Breakdown</Text>
@@ -1500,33 +1810,11 @@ export default function InsightsScreen() {
                     </View>
                 </View>
 
-                {/* Section 3: Personalized AI Tips */}
-                {/* Only show if AI tips is enabled/available? Assuming yes for now */}
-                <View style={{ marginTop: 24, marginBottom: 8 }}>
-                    <Text style={styles.sectionTitle}>Personalized Tips</Text>
-                    <Text style={styles.sectionDescription}>AI-curated insights based on your recent logs.</Text>
-                </View>
-
-                {tipsLoading ? (
-                    <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 20 }} />
-                ) : tipsData?.tips && tipsData.tips.length > 0 ? (
-                    <View style={styles.tipsContainer}>
-                        {tipsData.tips.map(renderTipCard)}
-                    </View>
-                ) : (
-                    <View style={styles.tipsEmptyStateCard}>
-                        <Text style={styles.tipsEmptyStateTitle}>No tips yet</Text>
-                        <Text style={styles.tipsEmptyStateText}>Log more data to get personalized advice.</Text>
-                    </View>
-                )}
-
-                {/* Section 4: Simplified Data Coverage (shifted down) */}
-                <View style={{ marginTop: 24 }}>
-                    <DataCoverageCard
-                        confidence={metabolicScore?.confidence || 'insufficient_data'}
-                        daysWithData={daysWithData}
-                    />
-                </View>
+                {/* Section 3: Simplified Data Coverage */}
+                <DataCoverageCard
+                    confidence={metabolicScore?.confidence || 'insufficient_data'}
+                    daysWithData={daysWithData}
+                />
                 {/* Add habits and data coverage sections back */}
                 <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Compounding Habits</Text>
                 <Text style={styles.sectionDescription}>Habits that build momentum over 30+ days.</Text>
@@ -1568,7 +1856,7 @@ export default function InsightsScreen() {
                 <Text style={styles.sectionDescription}>Structured experiments refine what actually moves your numbers.</Text>
                 <TouchableOpacity
                     style={styles.primaryButton}
-                    onPress={() => router.push('/experiments-list' as any)}
+                    onPress={() => { triggerHaptic(); router.push('/experiments-list' as any); }}
                 >
                     <Text style={styles.primaryButtonText}>Browse experiments</Text>
                 </TouchableOpacity>
@@ -1588,7 +1876,7 @@ export default function InsightsScreen() {
 
             <Text style={styles.sectionSubtitle}>Suggested next tests</Text>
             {experimentsLoading ? (
-                <ActivityIndicator color="#878787" style={{ marginVertical: 16 }} />
+                <ActivityIndicator color={Colors.textTertiary} style={{ marginVertical: 16 }} />
             ) : (
                 suggestedExperiments.map(suggestion => (
                     <View key={suggestion.template.id} style={styles.actionCard}>
@@ -1609,60 +1897,84 @@ export default function InsightsScreen() {
     );
 
     return (
-        <AnimatedScreen>
-            <View style={styles.container}>
-                <LinearGradient
-                    colors={['#1a1f24', '#181c20', '#111111']}
-                    locations={[0, 0.35, 1]}
-                    style={StyleSheet.absoluteFillObject}
-                />
+        <View style={styles.container}>
+            <ForestGlassBackground />
 
-                {/* Content - scrolls behind header */}
-                <View style={styles.safeArea}>
-                    {insightsLoading ? (
-                        <View style={[styles.loadingContainer, { paddingTop: HEADER_HEIGHT + 8 }]}>
-                            <ActivityIndicator color="#878787" />
-                            <Text style={styles.loadingText}>Loading insights...</Text>
-                        </View>
+            {/* Content - scrolls behind header */}
+            <View style={styles.safeArea}>
+                {insightsLoading ? (
+                    <View style={[styles.loadingContainer, { paddingTop: HEADER_HEIGHT + 8 }]}>
+                        <ActivityIndicator color={Colors.textTertiary} />
+                        <Text style={styles.loadingText}>
+                            {isBehaviorV1 ? 'Loading action plans...' : 'Loading insights...'}
+                        </Text>
+                    </View>
+                ) : (
+                    isBehaviorV1 ? (
+                        renderBehaviorActionsTab()
                     ) : (
                         <>
                             {activeTab === 'progress' && renderProgressTab()}
                             {activeTab === 'actions' && renderActionsTab()}
                             {activeTab === 'experiments' && renderExperimentsTab()}
                         </>
+                    )
+                )}
+            </View>
+
+            {/* Blurred Header */}
+            <View style={styles.blurHeaderContainer}>
+                {/* Animated background - transparent at top, opaque when scrolled */}
+                <Animated.View style={[styles.headerBackground, { opacity: headerBgOpacity }]} />
+                <View style={{ paddingTop: insets.top }}>
+                    {isBehaviorV1 ? (
+                        <View style={styles.behaviorHeaderContainer}>
+                            <View style={styles.planHeaderRow}>
+                                <Text style={[styles.behaviorHeaderTitle, styles.behaviorHeaderTitleTuned]}>ACTION PLAN</Text>
+                                <View style={[styles.betaPill, styles.behaviorBetaPill]}>
+                                    <Text style={[styles.betaPillText, styles.behaviorBetaPillText]}>BETA</Text>
+                                </View>
+                            </View>
+                            <View style={styles.focusControlWrap}>
+                                <SegmentedControl
+                                    options={ACTION_FOCUS_OPTIONS}
+                                    value={activeFocusTab}
+                                    onChange={setActiveFocusTab}
+                                    palette={BEHAVIOR_SEGMENTED_PALETTE}
+                                />
+                            </View>
+                        </View>
+                    ) : (
+                        <>
+                            <View style={styles.header}>
+                                <Text style={styles.headerTitle}>INSIGHTS</Text>
+                            </View>
+                            <View style={styles.segmentedControlContainer}>
+                                <SegmentedControl
+                                    options={[
+                                        { label: 'PROGRESS', value: 'progress' },
+                                        { label: 'ACTIONS', value: 'actions' },
+                                        { label: 'EXPERIMENTS', value: 'experiments' },
+                                    ]}
+                                    value={activeTab}
+                                    onChange={setActiveTab}
+                                />
+                            </View>
+                        </>
                     )}
                 </View>
-
-                {/* Blurred Header */}
-                <View style={styles.blurHeaderContainer}>
-                    {/* Animated background - transparent at top, opaque when scrolled */}
-                    <Animated.View style={[styles.headerBackground, { opacity: headerBgOpacity }]} />
-                    <View style={{ paddingTop: insets.top }}>
-                        <View style={styles.header}>
-                            <Text style={styles.headerTitle}>INSIGHTS</Text>
-                        </View>
-                        <View style={styles.segmentedControlContainer}>
-                            <SegmentedControl
-                                options={[
-                                    { label: 'PROGRESS', value: 'progress' },
-                                    { label: 'ACTIONS', value: 'actions' },
-                                    { label: 'EXPERIMENTS', value: 'experiments' },
-                                ]}
-                                value={activeTab}
-                                onChange={setActiveTab}
-                            />
-                        </View>
-                    </View>
-                </View>
             </View>
-        </AnimatedScreen>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
+    },
+    behaviorScreenVeil: {
+        ...StyleSheet.absoluteFillObject,
     },
     safeArea: {
         flex: 1,
@@ -1676,7 +1988,7 @@ const styles = StyleSheet.create({
     },
     headerBackground: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: '#1a1f24',
+        backgroundColor: 'rgba(255, 255, 255, 0.75)',
     },
     header: {
         flexDirection: 'row',
@@ -1686,8 +1998,8 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontFamily: fonts.bold,
-        fontSize: 24,
-        color: '#FFFFFF',
+        fontSize: 18,
+        color: Colors.textPrimary,
         letterSpacing: 1,
         textTransform: 'uppercase',
     },
@@ -1695,10 +2007,25 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingBottom: 0,
     },
+    behaviorHeaderContainer: {
+        paddingHorizontal: 16,
+        paddingTop: 20,
+        paddingBottom: 6,
+        gap: 12,
+    },
+    behaviorHeaderTitle: {
+        fontFamily: fonts.bold,
+        fontSize: 18,
+        color: Colors.textPrimary,
+        letterSpacing: 1,
+    },
+    behaviorHeaderTitleTuned: {
+        color: Colors.textPrimary,
+    },
     subtitle: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#B8B8B8',
+        color: Colors.textSecondary,
         textAlign: 'center',
         marginBottom: 10,
     },
@@ -1715,45 +2042,158 @@ const styles = StyleSheet.create({
     loadingText: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     sectionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
+    },
+    behaviorSectionTitle: {
+        color: Colors.textPrimary,
     },
     sectionSubtitle: {
         fontFamily: fonts.semiBold,
         fontSize: 15,
-        color: '#E0E0E0',
+        color: Colors.textPrimary,
         marginBottom: 8,
+    },
+    behaviorSectionSubtitle: {
+        color: Colors.textPrimary,
     },
     sectionDescription: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#A0A0A0',
+        color: Colors.textSecondary,
+    },
+    behaviorSectionDescription: {
+        color: Colors.textSecondary,
     },
     sectionBlock: {
         gap: 12,
     },
+    planHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        alignSelf: 'flex-start',
+    },
+    betaPill: {
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: 'rgba(60, 60, 67, 0.18)',
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+    },
+    betaPillText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 11,
+        color: Colors.textSecondary,
+        letterSpacing: 0.4,
+    },
+    behaviorBetaPill: {
+        borderColor: 'rgba(60, 60, 67, 0.12)',
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
+    },
+    behaviorBetaPillText: {
+        color: Colors.textSecondary,
+    },
+    focusControlWrap: {
+        marginTop: 2,
+    },
+    focusSummaryCard: {
+        borderRadius: 18,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+        backgroundColor: '#FFFFFF',
+        gap: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 2,
+    },
+    behaviorFocusSummaryCard: {
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+    },
+    focusSummaryHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    focusSummaryIcon: {
+        width: 30,
+        height: 30,
+        borderRadius: 999,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
+        borderWidth: 1,
+        borderColor: 'rgba(45, 212, 191, 0.15)',
+    },
+    behaviorFocusSummaryIcon: {
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
+        borderColor: 'rgba(45, 212, 191, 0.15)',
+    },
+    focusSummaryTextWrap: {
+        flex: 1,
+        gap: 2,
+    },
+    focusSummaryTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: Colors.textPrimary,
+    },
+    behaviorFocusSummaryTitle: {
+        color: Colors.textPrimary,
+    },
+    focusSummaryMetric: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: Colors.textSecondary,
+    },
+    behaviorFocusSummaryMetric: {
+        color: Colors.primary,
+    },
+    focusSummaryBody: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        lineHeight: 18,
+        color: Colors.textSecondary,
+    },
+    behaviorFocusSummaryBody: {
+        color: Colors.textSecondary,
+    },
     actionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 4,
     },
     actionMeta: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#A0A0A0',
+        color: Colors.textSecondary,
     },
     actionCard: {
-        backgroundColor: '#1A1A1E',
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 16,
         gap: 6,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+        elevation: 1,
+    },
+    behaviorActionCard: {
+        backgroundColor: '#FFFFFF',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     actionHeaderRow: {
         flexDirection: 'row',
@@ -1765,42 +2205,62 @@ const styles = StyleSheet.create({
     actionTitleHero: {
         fontFamily: fonts.bold,
         fontSize: 17,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         flex: 1,
         lineHeight: 22,
+    },
+    behaviorActionTitleHero: {
+        color: Colors.textPrimary,
     },
     actionDescription: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#B0B0B0',
+        color: Colors.textSecondary,
         lineHeight: 20,
+    },
+    behaviorActionDescription: {
+        color: Colors.textSecondary,
     },
     expandedContent: {
         marginTop: 8,
         paddingTop: 8,
         borderTopWidth: 1,
-        borderTopColor: 'rgba(255,255,255,0.06)',
+        borderTopColor: 'rgba(60, 60, 67, 0.08)',
         gap: 8,
+    },
+    behaviorExpandedContent: {
+        borderTopColor: 'rgba(60, 60, 67, 0.08)',
+    },
+    behaviorActionMeta: {
+        color: Colors.textSecondary,
     },
     statusPill: {
         alignSelf: 'flex-start',
         paddingHorizontal: 8,
         paddingVertical: 2,
         borderRadius: 4,
-        backgroundColor: 'rgba(255,255,255,0.06)',
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
         marginTop: 4,
+    },
+    behaviorStatusPill: {
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
+        borderWidth: 1,
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     statusPillText: {
         fontFamily: fonts.medium,
         fontSize: 10,
-        color: '#878787',
+        color: Colors.textTertiary,
         textTransform: 'uppercase',
     },
+    behaviorStatusPillText: {
+        color: Colors.textSecondary,
+    },
     statusActive: {
-        backgroundColor: 'rgba(53, 150, 80, 0.15)',
+        backgroundColor: 'rgba(53, 150, 80, 0.10)',
     },
     statusInactive: {
-        backgroundColor: 'rgba(255,255,255,0.08)',
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
     },
     actionOutcomeRow: {
         flexDirection: 'row',
@@ -1810,22 +2270,28 @@ const styles = StyleSheet.create({
     actionOutcomeLabel: {
         fontFamily: fonts.regular,
         fontSize: 11,
-        color: '#878787',
+        color: Colors.textTertiary,
+    },
+    behaviorActionOutcomeLabel: {
+        color: Colors.textSecondary,
     },
     actionOutcomeValue: {
         fontFamily: fonts.semiBold,
         fontSize: 13,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 2,
     },
+    behaviorActionOutcomeValue: {
+        color: Colors.textPrimary,
+    },
     deltaPositive: {
-        color: '#4CAF50',
+        color: Colors.success,
     },
     deltaNegative: {
-        color: '#F44336',
+        color: Colors.error,
     },
     deltaNeutral: {
-        color: '#B0B0B0',
+        color: Colors.textTertiary,
     },
     actionButtons: {
         flexDirection: 'row',
@@ -1833,7 +2299,7 @@ const styles = StyleSheet.create({
         marginTop: 8,
     },
     primaryButton: {
-        backgroundColor: '#285E2A',
+        backgroundColor: Colors.buttonSecondary,
         paddingVertical: 10,
         paddingHorizontal: 14,
         borderRadius: 12,
@@ -1841,14 +2307,22 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         flex: 1,
     },
+    behaviorPrimaryButton: {
+        backgroundColor: Colors.primary,
+        borderWidth: 1,
+        borderColor: 'rgba(45, 212, 191, 0.3)',
+    },
     primaryButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 13,
+        color: Colors.textPrimary,
+    },
+    behaviorPrimaryButtonText: {
         color: '#FFFFFF',
     },
     secondaryButton: {
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
+        borderColor: 'rgba(60, 60, 67, 0.18)',
         paddingVertical: 10,
         paddingHorizontal: 14,
         borderRadius: 12,
@@ -1859,16 +2333,20 @@ const styles = StyleSheet.create({
     secondaryButtonText: {
         fontFamily: fonts.medium,
         fontSize: 13,
-        color: '#E0E0E0',
+        color: Colors.textPrimary,
     },
     emptyStateCard: {
-        backgroundColor: '#1A1A1E',
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 20,
         alignItems: 'center',
         gap: 8,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+    },
+    behaviorEmptyStateCard: {
+        backgroundColor: '#FFFFFF',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     emptyStateImage: {
         width: 72,
@@ -1878,21 +2356,57 @@ const styles = StyleSheet.create({
     emptyStateTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
+    },
+    behaviorEmptyStateTitle: {
+        color: Colors.textPrimary,
     },
     emptyStateText: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#A0A0A0',
+        color: Colors.textSecondary,
         textAlign: 'center',
     },
+    behaviorEmptyStateText: {
+        color: Colors.textSecondary,
+    },
+    emptyStateCtaButton: {
+        marginTop: 6,
+        paddingHorizontal: 14,
+        paddingVertical: 9,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(60, 60, 67, 0.18)',
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+    },
+    behaviorEmptyStateCtaButton: {
+        borderColor: 'rgba(45, 212, 191, 0.3)',
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
+    },
+    emptyStateCtaText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 12,
+        color: Colors.textPrimary,
+    },
+    behaviorEmptyStateCtaText: {
+        color: Colors.textPrimary,
+    },
     pathwayCard: {
-        backgroundColor: '#1A1A1E',
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 16,
         gap: 10,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+        elevation: 1,
+    },
+    behaviorPathwayCard: {
+        backgroundColor: '#FFFFFF',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     pathwayHeader: {
         flexDirection: 'row',
@@ -1902,17 +2416,26 @@ const styles = StyleSheet.create({
     pathwayTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
+    },
+    behaviorPathwayTitle: {
+        color: Colors.textPrimary,
     },
     pathwayDescription: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#CFCFCF',
+        color: Colors.textSecondary,
+    },
+    behaviorPathwayDescription: {
+        color: Colors.textSecondary,
     },
     pathwayMeta: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#8A8A8A',
+        color: Colors.textTertiary,
+    },
+    behaviorPathwayMeta: {
+        color: Colors.textSecondary,
     },
     pathwaySteps: {
         gap: 8,
@@ -1924,20 +2447,31 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 10,
         borderRadius: 12,
-        backgroundColor: 'rgba(255,255,255,0.04)',
+        backgroundColor: 'rgba(0, 0, 0, 0.02)',
+    },
+    behaviorPathwayStepRow: {
+        backgroundColor: 'rgba(45, 212, 191, 0.04)',
+        borderWidth: 1,
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     pathwayStepRowDone: {
-        backgroundColor: 'rgba(76, 175, 80, 0.12)',
+        backgroundColor: 'rgba(76, 175, 80, 0.08)',
     },
     pathwayStepTitle: {
         fontFamily: fonts.medium,
         fontSize: 13,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
+    },
+    behaviorPathwayStepTitle: {
+        color: Colors.textPrimary,
     },
     pathwayStepDescription: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#B0B0B0',
+        color: Colors.textSecondary,
+    },
+    behaviorPathwayStepDescription: {
+        color: Colors.textSecondary,
     },
     pathwayOutcomeRow: {
         flexDirection: 'row',
@@ -1948,13 +2482,19 @@ const styles = StyleSheet.create({
     pathwayOutcomeLabel: {
         fontFamily: fonts.regular,
         fontSize: 11,
-        color: '#8A8A8A',
+        color: Colors.textTertiary,
+    },
+    behaviorPathwayOutcomeLabel: {
+        color: Colors.textSecondary,
     },
     pathwayOutcomeValue: {
         fontFamily: fonts.semiBold,
         fontSize: 13,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 2,
+    },
+    behaviorPathwayOutcomeValue: {
+        color: Colors.textPrimary,
     },
     pathwayDisclaimer: {
         marginTop: 6,
@@ -1967,49 +2507,48 @@ const styles = StyleSheet.create({
     rangeToggle: {
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
+        borderColor: 'rgba(60, 60, 67, 0.18)',
         paddingHorizontal: 12,
         paddingVertical: 6,
     },
     rangeToggleActive: {
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: 'rgba(0, 0, 0, 0.06)',
     },
     rangeToggleText: {
         fontFamily: fonts.medium,
         fontSize: 12,
-        color: '#B0B0B0',
+        color: Colors.textTertiary,
     },
     rangeToggleTextActive: {
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     progressCard: {
-        backgroundColor: '#22282C',
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 16,
         gap: 6,
-        // Liquid glass / 3D effect
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.15)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
         shadowRadius: 8,
-        elevation: 5,
+        elevation: 2,
     },
     progressLabel: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#8A8A8A',
+        color: Colors.textTertiary,
     },
     progressValue: {
         fontFamily: fonts.bold,
         fontSize: 28,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     progressMeta: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#A0A0A0',
+        color: Colors.textSecondary,
     },
     habitRow: {
         flexDirection: 'row',
@@ -2017,39 +2556,39 @@ const styles = StyleSheet.create({
     },
     habitCard: {
         flex: 1,
-        backgroundColor: '#1A1A1E',
+        backgroundColor: '#FFFFFF',
         borderRadius: 14,
         padding: 14,
         gap: 6,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     habitValue: {
         fontFamily: fonts.bold,
         fontSize: 20,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     habitLabel: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#A0A0A0',
+        color: Colors.textSecondary,
     },
     dataCoverageText: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#B0B0B0',
+        color: Colors.textSecondary,
     },
     experimentsHeader: {
         gap: 8,
         marginBottom: 12,
     },
     componentRow: {
-        backgroundColor: '#1A1A1E',
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 16,
         gap: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
     },
     componentHeader: {
         flexDirection: 'row',
@@ -2064,16 +2603,16 @@ const styles = StyleSheet.create({
     componentTitle: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     componentValue: {
         fontFamily: fonts.semiBold,
         fontSize: 14,
-        color: '#E0E0E0',
+        color: Colors.textPrimary,
     },
     progressBarContainer: {
         height: 6,
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: 'rgba(0, 0, 0, 0.06)',
         borderRadius: 3,
         overflow: 'hidden',
     },
@@ -2081,91 +2620,49 @@ const styles = StyleSheet.create({
         height: '100%',
         borderRadius: 3,
     },
-    heroCard: {
-        backgroundColor: '#1E1E20',
-        borderRadius: 24,
-        padding: 20,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.4,
-        shadowRadius: 20,
-        elevation: 10,
-        marginBottom: 8,
+    heroTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 20,
+        color: Colors.textPrimary,
+        marginTop: 14,
     },
-    heroHeader: {
-        alignItems: 'center',
-        marginBottom: 20,
-    },
-    heroLabel: {
+    heroSubtitle: {
         fontFamily: fonts.medium,
-        fontSize: 11,
-        color: '#878787',
-        letterSpacing: 1.5,
-        textTransform: 'uppercase',
-        marginBottom: 8,
+        fontSize: 14,
+        color: Colors.textTertiary,
     },
-    heroStatusRow: {
+    heroSubtitleRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
-        marginBottom: 6,
+        marginTop: 4,
     },
-    heroStatusText: {
-        fontFamily: fonts.bold,
-        fontSize: 24,
-        color: '#FFFFFF',
-    },
-    heroContext: {
-        fontFamily: fonts.regular,
-        fontSize: 14,
-        color: '#B0B0B0',
-        textAlign: 'center',
-    },
-    heroRingContainer: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 24,
-    },
-    heroMetricsRow: {
+    deltaPill: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'rgba(0,0,0,0.2)',
-        borderRadius: 16,
-        paddingVertical: 12,
-        paddingHorizontal: 16,
-        gap: 0, // handling spacing with dividers/padding
-    },
-    heroMetricItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
+        gap: 4,
+        marginTop: 12,
         paddingHorizontal: 10,
-    },
-    heroMetricValue: {
-        fontFamily: fonts.medium,
-        fontSize: 13,
-        color: '#E0E0E0',
-    },
-    heroMetricDivider: {
-        width: 1,
-        height: 16,
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        paddingVertical: 5,
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+        borderRadius: 12,
     },
     deltaPillInline: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 2,
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        backgroundColor: 'rgba(255,255,255,0.06)',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
         borderRadius: 8,
+    },
+    deltaText: {
+        fontFamily: fonts.medium,
+        fontSize: 12,
     },
     deltaTextInline: {
         fontFamily: fonts.medium,
-        fontSize: 12,
+        fontSize: 11,
     },
     metricsGrid: {
         gap: 12,
@@ -2185,86 +2682,238 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: Colors.textTertiary,
     },
-    tipCard: {
-        backgroundColor: '#22282C',
+    weeklyReviewCard: {
         borderRadius: 16,
         padding: 16,
-        marginBottom: 12,
-        flexDirection: 'row',
-        gap: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        borderColor: 'rgba(60, 60, 67, 0.08)',
+        backgroundColor: '#FFFFFF',
+        marginBottom: 4,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+        elevation: 1,
     },
-    tipIconContainer: {
-        width: 40,
-        height: 40,
-        borderRadius: 12,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    tipContent: {
-        flex: 1,
-        gap: 4,
-    },
-    tipHeader: {
+    weeklyReviewHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 2,
+        marginBottom: 10,
     },
-    tipTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 15,
-        color: '#FFFFFF',
-        flex: 1,
+    weeklyReviewBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: 'rgba(45, 212, 191, 0.08)',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
     },
-    tipMetric: {
-        fontFamily: fonts.medium,
-        fontSize: 11,
-        color: '#8E8E93',
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 4,
-        overflow: 'hidden',
-    },
-    tipDescription: {
-        fontFamily: fonts.regular,
-        fontSize: 13,
-        color: '#B0B0B0',
-        lineHeight: 18,
-    },
-    tipLink: {
-        fontFamily: fonts.medium,
+    weeklyReviewBadgeText: {
+        fontFamily: fonts.semiBold,
         fontSize: 12,
         color: Colors.primary,
-        marginTop: 4,
+        letterSpacing: 0.3,
     },
-    tipsContainer: {
-        gap: 0,
-    },
-    tipsEmptyStateCard: {
-        backgroundColor: '#1C1C1E',
-        borderRadius: 16,
-        padding: 24,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: '#2C2C2E',
-        borderStyle: 'dashed',
-    },
-    tipsEmptyStateTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
-        marginBottom: 4,
-    },
-    tipsEmptyStateText: {
+    weeklyReviewText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#8E8E93',
+        color: Colors.textPrimary,
+        lineHeight: 21,
+        marginBottom: 12,
+    },
+    weeklyReviewExperiment: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+        backgroundColor: 'rgba(45, 212, 191, 0.06)',
+        padding: 10,
+        borderRadius: 10,
+        marginBottom: 10,
+    },
+    weeklyReviewExperimentText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textSecondary,
+        flex: 1,
+        lineHeight: 19,
+    },
+    weeklyReviewMetric: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    weeklyReviewMetricText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 12,
+        textTransform: 'capitalize',
+    },
+
+    // ============================================
+    // EXPERIMENTS HUB STYLES (behavior_v1)
+    // ============================================
+    experimentsHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+    },
+    experimentsHeaderTitle: {
+        fontFamily: fonts.bold,
+        fontSize: 26,
+        color: Colors.textPrimary,
+    },
+    experimentsHeaderSubtitle: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: Colors.textSecondary,
+        marginTop: 2,
+    },
+    experimentsSearchButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: 4,
+    },
+    experimentsSection: {
+        gap: 10,
+    },
+    experimentsSectionLabel: {
+        fontFamily: fonts.bold,
+        fontSize: 12,
+        color: Colors.textSecondary,
+        letterSpacing: 0.8,
+    },
+    experimentsLibraryHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    experimentsLibraryTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 18,
+        color: Colors.textPrimary,
+    },
+    experimentsFilterLink: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: Colors.primary,
+    },
+    experimentsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 12,
+    },
+    experimentsGridItem: {
+        flexBasis: '47%',
+        flexGrow: 1,
+    },
+    nbaCard: {
+        borderRadius: 18,
+        padding: 16,
+        gap: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(45, 212, 191, 0.25)',
+        backgroundColor: 'rgba(45, 212, 191, 0.04)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 2,
+    },
+    nbaShimmer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 8,
+    },
+    nbaShimmerText: {
+        fontFamily: fonts.medium,
+        fontSize: 13,
+        color: Colors.textTertiary,
+    },
+    nbaHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    nbaLabelRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    nbaLabel: {
+        fontFamily: fonts.bold,
+        fontSize: 11,
+        color: 'rgba(45, 212, 191, 1)',
+        letterSpacing: 0.6,
+    },
+    nbaSourceBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 999,
+    },
+    nbaSourceAi: {
+        backgroundColor: 'rgba(45, 212, 191, 0.12)',
+    },
+    nbaSourceRules: {
+        backgroundColor: 'rgba(142, 142, 147, 0.12)',
+    },
+    nbaSourceText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 10,
+        letterSpacing: 0.3,
+    },
+    nbaSourceTextAi: {
+        color: 'rgba(45, 212, 191, 1)',
+    },
+    nbaSourceTextRules: {
+        color: Colors.textTertiary,
+    },
+    nbaTitle: {
+        fontFamily: fonts.bold,
+        fontSize: 17,
+        color: Colors.textPrimary,
+        lineHeight: 22,
+    },
+    nbaDescription: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: Colors.textSecondary,
+        lineHeight: 20,
+    },
+    nbaBecause: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        fontStyle: 'italic',
+        color: Colors.textTertiary,
+        lineHeight: 17,
+    },
+    nbaCtaButton: {
+        marginTop: 4,
+        alignSelf: 'flex-start',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 12,
+        backgroundColor: 'rgba(45, 212, 191, 0.12)',
+    },
+    nbaCtaText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: 'rgba(45, 212, 191, 1)',
+    },
+    focusEmptyExperiments: {
+        alignItems: 'center',
+        paddingVertical: 20,
+        gap: 8,
+    },
+    focusEmptyExperimentsText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textTertiary,
         textAlign: 'center',
     },
 });
-
-

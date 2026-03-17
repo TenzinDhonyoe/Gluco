@@ -43,8 +43,6 @@ export const MealCheckinCard = React.memo(({ meal, onPress }: MealCheckinCardPro
 
     // Get status color based on check-in or missing
     // If checkin exists, use green/blue. If not, use orange for action needed.
-    const statusColor = hasCheckin ? '#4CAF50' : '#FF9800';
-
     return (
         <AnimatedPressable
             style={styles.container}
@@ -104,6 +102,7 @@ export const MealCheckinCard = React.memo(({ meal, onPress }: MealCheckinCardPro
         </AnimatedPressable>
     );
 });
+MealCheckinCard.displayName = 'MealCheckinCard';
 
 const styles = StyleSheet.create({
     container: {

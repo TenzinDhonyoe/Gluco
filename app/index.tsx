@@ -1,17 +1,20 @@
+import { FadeText } from '@/components/reacticx/organisms/fade-text';
 import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { isBehaviorV1Experience, SKIP_FRAMEWORK_RESET_GATE } from '@/lib/experience';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useIsFocused } from '@react-navigation/native';
 import { ResizeMode, Video } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import * as SplashScreen from 'expo-splash-screen';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Dimensions,
-    Image,
     Linking,
     SafeAreaView,
     StyleSheet,
@@ -29,79 +32,164 @@ export const PAYWALL_SEEN_KEY = 'paywall_seen';
 
 // Feature flag: Set to true to enable paywall after onboarding
 // Currently disabled for beta - all users get full access
-export const PAYWALL_ENABLED = false;
-const SPLASH_LOGO = require('../assets/images/mascots/gluco_app_mascott/gluco_splash.png');
+export const PAYWALL_ENABLED = true;
+
+// Semantic step routes (new naming)
+const ONBOARDING_STEP_ROUTES: Record<string, string> = {
+    'profile': '/onboarding-profile',
+    'goals': '/onboarding-goals',
+    'body': '/onboarding-body',
+    'tracking': '/onboarding-tracking',
+    'coaching': '/onboarding-coaching',
+    'ai': '/onboarding-ai',
+};
+
+// Legacy numeric step keys → new semantic keys (for users mid-onboarding during update)
+const LEGACY_STEP_MIGRATION: Record<string, string> = {
+    '1': 'profile',
+    '2': 'goals',
+    '3': 'body',
+    '4': 'tracking',
+    '5': 'coaching',
+};
+
+/** Resolve a stored step key (legacy or new) to an onboarding route */
+function getOnboardingResumeRoute(storedStep: string): string | null {
+    // Try new semantic key first
+    if (ONBOARDING_STEP_ROUTES[storedStep]) {
+        return ONBOARDING_STEP_ROUTES[storedStep];
+    }
+    // Migrate legacy numeric key
+    const migrated = LEGACY_STEP_MIGRATION[storedStep];
+    if (migrated && ONBOARDING_STEP_ROUTES[migrated]) {
+        // Persist the migrated key so future launches use the new format
+        AsyncStorage.setItem(ONBOARDING_STEP_KEY, migrated).catch(() => null);
+        return ONBOARDING_STEP_ROUTES[migrated];
+    }
+    return null;
+}
+
+function getGreetingText(firstName: string | null | undefined): string {
+    const hour = new Date().getHours();
+    const timeGreeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+    const name = firstName?.trim();
+    return name ? `${timeGreeting}, ${name}` : timeGreeting;
+}
 
 export default function WelcomeScreen() {
     const { user, profile, loading } = useAuth();
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+    const [showGreeting, setShowGreeting] = useState(false);
+    const pendingRouteRef = useRef<string | null>(null);
+    const hasNavigated = useRef(false);
+    const isFocused = useIsFocused();
+
+    const greetingText = useMemo(
+        () => getGreetingText(profile?.first_name),
+        [profile?.first_name],
+    );
+
+    // Navigate after greeting animation finishes
+    const navigateAfterGreeting = useCallback(() => {
+        const route = pendingRouteRef.current;
+        if (!route) return;
+        pendingRouteRef.current = null;
+        hasNavigated.current = true;
+        router.replace(route as never);
+    }, []);
+
+    // When greeting is shown, wait for the animation then navigate
+    useEffect(() => {
+        if (!showGreeting) return;
+        // Total animation time: words * wordDelay + duration + small buffer
+        const wordCount = greetingText.split(' ').length;
+        const totalMs = wordCount * 250 + 1000 + 500;
+        const timer = setTimeout(navigateAfterGreeting, totalMs);
+        return () => clearTimeout(timer);
+    }, [showGreeting, greetingText, navigateAfterGreeting]);
+
+    // Reset hasNavigated when screen regains focus so it re-evaluates auth state
+    useEffect(() => {
+        if (isFocused) {
+            hasNavigated.current = false;
+        }
+    }, [isFocused]);
 
     // Check auth state and redirect accordingly
     useEffect(() => {
         const checkAuthState = async () => {
             // Wait for auth to finish loading
             if (loading) return;
+            // Prevent double-navigation
+            if (hasNavigated.current) return;
+            // Don't navigate if this screen is not focused (another screen is on top)
+            if (!isFocused) return;
+
+            // Hide native splash now that we know what to do
+            SplashScreen.hideAsync();
 
             if (user) {
                 // User is logged in
                 if (!user.email_confirmed_at) {
-                    // Email not confirmed yet - go to confirm email screen
+                    hasNavigated.current = true;
                     router.replace({
                         pathname: '/confirm-email',
                         params: { email: user.email || '' },
                     } as never);
                 } else if (!profile || !profile.onboarding_completed) {
                     // Email confirmed but onboarding not complete
-                    // First check AsyncStorage for saved step (more reliable for resume)
                     const storedStep = await AsyncStorage.getItem(ONBOARDING_STEP_KEY);
 
                     if (storedStep) {
-                        // Use stored step for routing
-                        const stepRoutes: Record<string, string> = {
-                            '1': '/onboarding-2',  // Step 1: Profile (screen is onboarding-2)
-                            '2': '/onboarding-1',  // Step 2: Goals (screen is onboarding-1)
-                            '3': '/onboarding-3',  // Step 3: Optional height/weight
-                            '4': '/onboarding-4',  // Step 4: Tracking mode
-                            '5': '/onboarding-5',  // Step 5: Coaching style
-                        };
-                        const route = stepRoutes[storedStep];
+                        const route = getOnboardingResumeRoute(storedStep);
                         if (route) {
+                            hasNavigated.current = true;
                             router.replace(route as never);
                             return;
                         }
                     }
 
                     // Fallback: Profile-based routing if no stored step
-                    // Flow: Step 1 (profile) → Step 2 (goals) → Step 3 (optional) → Step 4 (tracking) → Step 5 (coaching)
+                    hasNavigated.current = true;
                     if (!profile?.first_name || !profile?.last_name) {
-                        router.replace('/onboarding-2' as never);
+                        router.replace('/onboarding-profile' as never);
                     } else if (!profile?.goals || profile.goals.length === 0) {
-                        router.replace('/onboarding-1' as never);
+                        router.replace('/onboarding-goals' as never);
                     } else if (profile?.tracking_mode === undefined) {
-                        router.replace('/onboarding-3' as never);
+                        router.replace('/onboarding-body' as never);
                     } else if (!profile?.coaching_style) {
-                        router.replace('/onboarding-5' as never);
+                        router.replace('/onboarding-coaching' as never);
                     } else {
-                        router.replace('/onboarding-5' as never);
+                        router.replace('/onboarding-ai' as never);
                     }
                 } else {
-                    // Onboarding complete - check if paywall should be shown
+                    // Onboarding complete
                     await AsyncStorage.removeItem(ONBOARDING_STEP_KEY);
 
-                    // If paywall is disabled (beta), go straight to dashboard
-                    if (!PAYWALL_ENABLED) {
-                        router.replace('/(tabs)' as never);
-                    } else {
-                        // Check if user has already seen/dismissed the paywall
+                    const behaviorV1Enabled = isBehaviorV1Experience(profile?.experience_variant);
+
+                    if (
+                        behaviorV1Enabled &&
+                        !profile?.framework_reset_completed_at &&
+                        !SKIP_FRAMEWORK_RESET_GATE
+                    ) {
+                        hasNavigated.current = true;
+                        router.replace('/framework-reset' as never);
+                        return;
+                    }
+
+                    // Determine final destination
+                    let destination = '/(tabs)';
+                    if (PAYWALL_ENABLED) {
                         const paywallSeen = await AsyncStorage.getItem(PAYWALL_SEEN_KEY);
                         if (!paywallSeen) {
-                            // Show paywall first
-                            router.replace('/paywall' as never);
-                        } else {
-                            // Paywall already seen, go to dashboard
-                            router.replace('/(tabs)' as never);
+                            destination = '/paywall';
                         }
                     }
+
+                    // Show greeting splash before navigating
+                    pendingRouteRef.current = destination;
+                    setShowGreeting(true);
                 }
             } else {
                 // No user - show welcome screen
@@ -110,19 +198,19 @@ export default function WelcomeScreen() {
         };
 
         checkAuthState();
+    }, [user, profile, loading, isFocused]);
 
-        // Safety timeout: If auth check takes too long (e.g. 5 seconds), 
-        // stop loading and show welcome screen to prevent infinite spinner.
-        // If auth eventually resolves to a user, the useEffect above will redirect them.
+    // Separate timeout effect — does not re-trigger the main auth check
+    useEffect(() => {
         const timeoutId = setTimeout(() => {
-            if (loading || isCheckingAuth) {
+            if (!hasNavigated.current) {
                 console.log('Auth check timed out, showing welcome screen fallback');
                 setIsCheckingAuth(false);
             }
         }, 5000);
 
         return () => clearTimeout(timeoutId);
-    }, [user, profile, loading]);
+    }, []);
 
     const handleGetStarted = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -137,13 +225,28 @@ export default function WelcomeScreen() {
         Linking.openURL(LEGAL_URLS.privacyPolicy);
     };
 
-    // Show loading while checking auth
-    if (loading || isCheckingAuth) {
+    // Greeting splash — white background, centered fade-in text
+    if (showGreeting) {
         return (
-            <View style={[styles.container, styles.loadingContainer]}>
-                <Image source={SPLASH_LOGO} style={styles.loadingLogo} />
+            <View style={styles.greetingContainer}>
+                <FadeText
+                    inputs={[greetingText]}
+                    wordDelay={250}
+                    duration={1000}
+                    fontSize={27}
+                    fontWeight="600"
+                    color="#1C1C1E"
+                    textAlign="center"
+                    blurIntensity={[20, 5, 0]}
+                    style={{ fontFamily: fonts.semiBold }}
+                />
             </View>
         );
+    }
+
+    // While loading/checking auth, return nothing — native splash stays visible
+    if (loading || isCheckingAuth || user) {
+        return <View style={[styles.container, styles.loadingContainer]} />;
     }
 
     return (
@@ -199,15 +302,16 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: Colors.background,
     },
+    greetingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+    },
     loadingContainer: {
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#151718',
-    },
-    loadingLogo: {
-        width: 200,
-        height: 200,
-        resizeMode: 'contain',
+        backgroundColor: '#F2F2F7',
     },
     backgroundVideo: {
         position: 'absolute',
@@ -266,7 +370,7 @@ const styles = StyleSheet.create({
         lineHeight: 36,
         letterSpacing: -0.3,
         textAlign: 'left',
-        color: Colors.textPrimary,
+        color: '#FFFFFF',
         textShadowColor: 'rgba(0, 0, 0, 0.6)',
         textShadowOffset: { width: 0, height: 2 },
         textShadowRadius: 8,
@@ -287,27 +391,17 @@ const styles = StyleSheet.create({
         width: '100%',
         maxWidth: 361,
         height: 56,
-        backgroundColor: Colors.buttonSecondary,
-        borderWidth: 1,
-        borderColor: Colors.buttonSecondaryBorder,
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 20,
-        shadowColor: '#4CAF50',
-        shadowOffset: {
-            width: 0,
-            height: 4,
-        },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-        elevation: 8,
     },
     buttonText: {
         fontFamily: fonts.semiBold,
         fontSize: 17,
         letterSpacing: 0.3,
-        color: Colors.textPrimary,
+        color: '#1C1C1E',
     },
     subtextText: {
         fontFamily: fonts.regular,
@@ -318,7 +412,7 @@ const styles = StyleSheet.create({
         width: Math.min(356, width - 40),
     },
     linkText: {
-        color: Colors.textPrimary,
+        color: '#FFFFFF',
         textDecorationLine: 'underline',
     },
 });

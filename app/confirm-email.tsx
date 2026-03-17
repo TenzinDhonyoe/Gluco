@@ -1,15 +1,16 @@
+import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    ImageBackground,
     SafeAreaView,
     StyleSheet,
     Text,
@@ -22,23 +23,34 @@ export default function ConfirmEmailScreen() {
     const { user, profile } = useAuth();
     const [isResending, setIsResending] = useState(false);
     const [resendCooldown, setResendCooldown] = useState(0);
+    const hasNavigated = useRef(false);
+
+    const navigateToRoot = () => {
+        if (router.canDismiss()) {
+            router.dismissAll();
+        } else {
+            router.replace('/' as never);
+        }
+    };
 
     // Poll for email confirmation status
     useEffect(() => {
         let interval: ReturnType<typeof setInterval>;
 
         const checkEmailConfirmation = async () => {
+            if (hasNavigated.current) return;
             try {
                 const { data: { session } } = await supabase.auth.getSession();
                 if (session?.user?.email_confirmed_at) {
                     // User has confirmed their email
                     clearInterval(interval);
+                    hasNavigated.current = true;
 
                     // Refresh the auth context
                     await supabase.auth.refreshSession();
 
-                    // Navigate to index which will route to appropriate onboarding step
-                    router.replace('/' as never);
+                    // Go directly to onboarding without flashing the index loading screen
+                    router.replace('/onboarding-profile' as never);
                 }
             } catch (error) {
                 console.error('Error checking confirmation:', error);
@@ -58,14 +70,14 @@ export default function ConfirmEmailScreen() {
 
     // Also watch for auth state changes
     useEffect(() => {
+        if (hasNavigated.current) return;
         if (user && user.email_confirmed_at) {
-            // User has confirmed their email
+            hasNavigated.current = true;
             if (profile?.onboarding_completed) {
-                // Already completed onboarding, go to home
-                router.replace('/' as never);
+                navigateToRoot();
             } else {
-                // Go to onboarding
-                router.replace('/onboarding-2' as never);
+                // Go directly to onboarding without flashing the index loading screen
+                router.replace('/onboarding-profile' as never);
             }
         }
     }, [user, profile]);
@@ -82,6 +94,7 @@ export default function ConfirmEmailScreen() {
 
     const handleResendEmail = async () => {
         if (resendCooldown > 0 || !email) return;
+        triggerHaptic();
 
         setIsResending(true);
         try {
@@ -105,10 +118,11 @@ export default function ConfirmEmailScreen() {
     };
 
     const handleBack = () => {
-        router.replace('/' as never);
+        router.back();
     };
 
     const handleOpenEmail = () => {
+        triggerHaptic();
         Alert.alert(
             'Check Your Email',
             'Please open your email app and click the confirmation link. After verification, return to Gluco and we will automatically continue setup.',
@@ -117,12 +131,15 @@ export default function ConfirmEmailScreen() {
     };
 
     const handleRefreshStatus = async () => {
+        triggerHaptic('medium');
+        if (hasNavigated.current) return;
         try {
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user?.email_confirmed_at) {
+                hasNavigated.current = true;
                 await supabase.auth.refreshSession();
-                // Navigate to index which will route to appropriate onboarding step
-                router.replace('/' as never);
+                // Go directly to onboarding
+                router.replace('/onboarding-profile' as never);
             } else {
                 Alert.alert('Not Confirmed Yet', 'Please click the confirmation link in your email first.');
             }
@@ -134,11 +151,7 @@ export default function ConfirmEmailScreen() {
 
     return (
         <View style={styles.container}>
-            <ImageBackground
-                source={require('../assets/images/backgrounds/background.png')}
-                style={styles.backgroundImage}
-                resizeMode="cover"
-            >
+                <ForestGlassBackground blurIntensity={18} />
                 <SafeAreaView style={styles.safeArea}>
                     <View style={styles.content}>
                         {/* Back Button */}
@@ -172,7 +185,7 @@ export default function ConfirmEmailScreen() {
                             onPress={handleOpenEmail}
                             activeOpacity={0.8}
                         >
-                            <Ionicons name="mail" size={20} color={Colors.textPrimary} style={styles.buttonIcon} />
+                            <Ionicons name="mail" size={20} color={Colors.buttonActionText} style={styles.buttonIcon} />
                             <Text style={styles.primaryButtonText}>Open Email App</Text>
                         </TouchableOpacity>
 
@@ -210,14 +223,13 @@ export default function ConfirmEmailScreen() {
 
                         {/* Waiting indicator */}
                         <View style={styles.waitingContainer}>
-                            <ActivityIndicator size="small" color="#878787" />
+                            <ActivityIndicator size="small" color={Colors.textTertiary} />
                             <Text style={styles.waitingText}>
                                 Auto-checking for confirmation...
                             </Text>
                         </View>
                     </View>
                 </SafeAreaView>
-            </ImageBackground>
         </View>
     );
 }
@@ -225,12 +237,7 @@ export default function ConfirmEmailScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
-    },
-    backgroundImage: {
-        flex: 1,
-        width: '100%',
-        height: '100%',
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -285,14 +292,14 @@ const styles = StyleSheet.create({
         marginBottom: 12,
     },
     emailText: {
-        color: '#3494d9',
+        color: Colors.primary,
         fontFamily: fonts.bold,
     },
     subDescription: {
         fontFamily: fonts.regular,
         fontSize: 14,
         lineHeight: 20,
-        color: '#878787',
+        color: Colors.textTertiary,
         textAlign: 'center',
         marginBottom: 40,
         paddingHorizontal: 20,
@@ -303,10 +310,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         width: '100%',
         height: 52,
-        backgroundColor: Colors.buttonPrimary,
-        borderWidth: 1,
-        borderColor: Colors.buttonBorder,
-        borderRadius: 8,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 16,
         marginBottom: 16,
     },
     buttonIcon: {
@@ -315,14 +320,14 @@ const styles = StyleSheet.create({
     primaryButtonText: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
     secondaryButton: {
         width: '100%',
         height: 52,
         backgroundColor: 'transparent',
         borderWidth: 1,
-        borderColor: '#3f4243',
+        borderColor: Colors.borderCard,
         borderRadius: 8,
         justifyContent: 'center',
         alignItems: 'center',
@@ -334,13 +339,13 @@ const styles = StyleSheet.create({
     secondaryButtonText: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     checkStatusButton: {
         width: '100%',
         height: 48,
-        backgroundColor: '#3494d9',
-        borderRadius: 8,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 24,
@@ -348,7 +353,7 @@ const styles = StyleSheet.create({
     checkStatusText: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: Colors.textPrimary,
+        color: Colors.buttonActionText,
     },
     waitingContainer: {
         flexDirection: 'row',
@@ -358,7 +363,7 @@ const styles = StyleSheet.create({
     waitingText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginLeft: 8,
     },
 });

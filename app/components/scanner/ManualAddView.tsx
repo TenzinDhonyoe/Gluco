@@ -1,8 +1,9 @@
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { LinearGradient } from 'expo-linear-gradient';
+
 import React, { useState } from 'react';
 import {
     Alert,
@@ -123,17 +124,13 @@ export default function ManualAddView({ onClose, onSave }: ManualAddViewProps) {
         >
             <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                 <View style={styles.innerContainer}>
-                    <LinearGradient
-                        colors={['#1a1f24', '#181c20', '#111111']}
-                        locations={[0, 0.3, 1]}
-                        style={styles.backgroundGradient}
-                    />
+                    <View style={styles.backgroundGradient} />
 
                     <View style={[styles.contentContainer, { paddingTop: insets.top }]}>
                         {/* Header */}
                         <View style={styles.header}>
                             <LiquidGlassIconButton size={44} onPress={onClose}>
-                                <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                                <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
                             </LiquidGlassIconButton>
                             <Text style={styles.title}>MANUAL ENTRY</Text>
                             <View style={styles.headerSpacer} />
@@ -162,11 +159,11 @@ export default function ManualAddView({ onClose, onSave }: ManualAddViewProps) {
                                 ) : (
                                     <View style={styles.photoButtonsRow}>
                                         <TouchableOpacity style={styles.photoButton} onPress={takePhoto}>
-                                            <Ionicons name="camera-outline" size={24} color="#878787" />
+                                            <Ionicons name="camera-outline" size={24} color={Colors.textTertiary} />
                                             <Text style={styles.photoButtonText}>Camera</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity style={styles.photoButton} onPress={pickPhoto}>
-                                            <Ionicons name="images-outline" size={24} color="#878787" />
+                                            <Ionicons name="images-outline" size={24} color={Colors.textTertiary} />
                                             <Text style={styles.photoButtonText}>Gallery</Text>
                                         </TouchableOpacity>
                                     </View>
@@ -180,7 +177,7 @@ export default function ManualAddView({ onClose, onSave }: ManualAddViewProps) {
                                     value={name}
                                     onChangeText={setName}
                                     placeholder="e.g., Homemade Pasta"
-                                    placeholderTextColor="#878787"
+                                    placeholderTextColor={Colors.textTertiary}
                                     autoCapitalize="words"
                                 />
                             </View>
@@ -193,7 +190,7 @@ export default function ManualAddView({ onClose, onSave }: ManualAddViewProps) {
                                         value={carbs}
                                         onChangeText={setCarbs}
                                         placeholder="0"
-                                        placeholderTextColor="#878787"
+                                        placeholderTextColor={Colors.textTertiary}
                                         keyboardType="numeric"
                                     />
                                 </View>
@@ -204,7 +201,7 @@ export default function ManualAddView({ onClose, onSave }: ManualAddViewProps) {
                                         value={fibre}
                                         onChangeText={setFibre}
                                         placeholder="0"
-                                        placeholderTextColor="#878787"
+                                        placeholderTextColor={Colors.textTertiary}
                                         keyboardType="numeric"
                                     />
                                 </View>
@@ -218,7 +215,7 @@ export default function ManualAddView({ onClose, onSave }: ManualAddViewProps) {
                                         value={protein}
                                         onChangeText={setProtein}
                                         placeholder="0"
-                                        placeholderTextColor="#878787"
+                                        placeholderTextColor={Colors.textTertiary}
                                         keyboardType="numeric"
                                     />
                                 </View>
@@ -229,7 +226,7 @@ export default function ManualAddView({ onClose, onSave }: ManualAddViewProps) {
                                         value={fat}
                                         onChangeText={setFat}
                                         placeholder="0"
-                                        placeholderTextColor="#878787"
+                                        placeholderTextColor={Colors.textTertiary}
                                         keyboardType="numeric"
                                     />
                                 </View>
@@ -242,7 +239,7 @@ export default function ManualAddView({ onClose, onSave }: ManualAddViewProps) {
                                     value={calories}
                                     onChangeText={setCalories}
                                     placeholder="Auto-calculated"
-                                    placeholderTextColor="#878787"
+                                    placeholderTextColor={Colors.textTertiary}
                                     keyboardType="numeric"
                                 />
                             </View>
@@ -265,7 +262,7 @@ export default function ManualAddView({ onClose, onSave }: ManualAddViewProps) {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
     },
     innerContainer: {
         flex: 1,
@@ -291,7 +288,7 @@ const styles = StyleSheet.create({
         width: 48,
         height: 48,
         borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.buttonSecondary,
         justifyContent: 'center',
         alignItems: 'center',
         shadowColor: '#000',
@@ -306,7 +303,7 @@ const styles = StyleSheet.create({
         fontFamily: fonts.semiBold,
         fontSize: 18,
         letterSpacing: 1,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     formContainer: {
         padding: 24,
@@ -326,39 +323,39 @@ const styles = StyleSheet.create({
     label: {
         fontFamily: fonts.medium,
         fontSize: 14,
-        color: '#E7E8E9',
+        color: Colors.textSecondary,
         marginLeft: 4,
     },
     input: {
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 16,
         paddingHorizontal: 16,
         paddingVertical: 14,
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.05)',
+        borderColor: Colors.inputBorderSolid,
     },
     saveButton: {
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.buttonAction,
         borderRadius: 16,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 24,
-        shadowColor: '#3494D9',
+        shadowColor: Colors.buttonAction,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
     },
     saveButtonDisabled: {
-        backgroundColor: '#2A3036',
+        backgroundColor: Colors.buttonDisabled,
         shadowOpacity: 0,
     },
     saveButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.buttonActionText,
     },
     formScrollView: {
         flex: 1,
@@ -372,13 +369,13 @@ const styles = StyleSheet.create({
         width: 120,
         height: 120,
         borderRadius: 16,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.inputBackground,
     },
     removePhotoButton: {
         position: 'absolute',
         top: -8,
         right: -8,
-        backgroundColor: '#1a1f24',
+        backgroundColor: Colors.backgroundSolid,
         borderRadius: 12,
     },
     photoButtonsRow: {
@@ -387,19 +384,19 @@ const styles = StyleSheet.create({
     },
     photoButton: {
         flex: 1,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.inputBackground,
         borderRadius: 16,
         paddingVertical: 24,
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.05)',
+        borderColor: Colors.border,
         borderStyle: 'dashed',
     },
     photoButtonText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
 });

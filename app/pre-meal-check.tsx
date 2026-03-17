@@ -1,5 +1,6 @@
+import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
-import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
+import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import {
     addMealItems,
@@ -115,11 +116,6 @@ function AILoadingScreen() {
 
     return (
         <View style={loadingStyles.container}>
-            <LinearGradient
-                colors={['#111111', '#1A1B1C', '#111111']}
-                style={loadingStyles.gradient}
-            />
-
             {/* Mascot Image */}
             <Image
                 source={Images.mascots.cook}
@@ -134,19 +130,19 @@ function AILoadingScreen() {
             <View style={loadingStyles.dotsContainer}>
                 <Animated.View style={[loadingStyles.dot, getDotStyle(dot1Anim)]}>
                     <LinearGradient
-                        colors={['#4CAF50', '#8BC34A']}
+                        colors={[Colors.success, '#86EFAC']}
                         style={loadingStyles.dotGradient}
                     />
                 </Animated.View>
                 <Animated.View style={[loadingStyles.dot, getDotStyle(dot2Anim)]}>
                     <LinearGradient
-                        colors={['#3494D9', '#64B5F6']}
+                        colors={[Colors.primary, '#99F6E4']}
                         style={loadingStyles.dotGradient}
                     />
                 </Animated.View>
                 <Animated.View style={[loadingStyles.dot, getDotStyle(dot3Anim)]}>
                     <LinearGradient
-                        colors={['#FF9800', '#FFB74D']}
+                        colors={[Colors.warning, '#FFD6B3']}
                         style={loadingStyles.dotGradient}
                     />
                 </Animated.View>
@@ -160,16 +156,9 @@ function AILoadingScreen() {
 const loadingStyles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
+        backgroundColor: 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    gradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
     },
     mascot: {
         width: 180,
@@ -179,7 +168,7 @@ const loadingStyles = StyleSheet.create({
     thinkingText: {
         fontFamily: fonts.semiBold,
         fontSize: 20,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 24,
     },
     dotsContainer: {
@@ -202,7 +191,7 @@ const loadingStyles = StyleSheet.create({
     subText: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 8,
     },
 });
@@ -212,8 +201,6 @@ const loadingStyles = StyleSheet.create({
 export default function PreMealCheckScreen() {
     const params = useLocalSearchParams();
     const { user, profile } = useAuth();
-    const glucoseUnit = useGlucoseUnit();
-
     // Parse meal data from params
     const mealName = (params.mealName as string) || 'Meal';
     const mealTime = params.mealTime ? new Date(params.mealTime as string) : new Date();
@@ -246,8 +233,8 @@ export default function PreMealCheckScreen() {
 
     // API State
     const [loading, setLoading] = React.useState(true);
-    const [error, setError] = React.useState<string | null>(null);
-    const [result, setResult] = React.useState<PremealResult | null>(null);
+    const [, setError] = React.useState<string | null>(null);
+    const [, setResult] = React.useState<PremealResult | null>(null);
     const [drivers, setDrivers] = React.useState<PremealDriver[]>([]);
     const [tips, setTips] = React.useState<(PremealAdjustmentTip & { id: string; selected: boolean })[]>([]);
 
@@ -424,6 +411,7 @@ export default function PreMealCheckScreen() {
         }
 
         fetchAnalysis();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [profile, user?.id]); // Wait for profile to load before analysis
 
     const toggleTip = (id: string) => {
@@ -519,12 +507,6 @@ export default function PreMealCheckScreen() {
 
     return (
         <View style={styles.root}>
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.topGlow}
-            />
-
             <SafeAreaView edges={['top']} style={styles.safe}>
                 {/* Header */}
                 <View style={styles.header}>
@@ -535,7 +517,7 @@ export default function PreMealCheckScreen() {
                             pressed && styles.headerIconBtnPressed,
                         ]}
                     >
-                        <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
+                        <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
                     </Pressable>
                     <Text style={styles.headerTitle}>PRE MEAL CHECK</Text>
                     <View style={styles.headerIconBtnSpacer} />
@@ -556,7 +538,7 @@ export default function PreMealCheckScreen() {
                         <Image source={{ uri: imageUri }} style={styles.mealImage} />
                     ) : (
                         <View style={[styles.mealImage, styles.mealImagePlaceholder]}>
-                            <Ionicons name="restaurant-outline" size={40} color="#5A5D60" />
+                            <Ionicons name="restaurant-outline" size={40} color={Colors.textMuted} />
                         </View>
                     )}
 
@@ -633,12 +615,12 @@ export default function PreMealCheckScreen() {
                                 <View style={styles.tipHeader}>
                                     <View>
                                         <Text style={styles.tipTitle}>{tip.title}</Text>
-                                        <Text style={[styles.tipRisk, { color: '#1565C0' }]}>
+                                        <Text style={[styles.tipRisk, { color: Colors.primary }]}>
                                             {tip.benefit_level ? tip.benefit_level.toUpperCase() : 'MEDIUM'} IMPACT
                                         </Text>
                                     </View>
                                     <View style={[styles.tipCheckbox, tip.selected && styles.tipCheckboxSelected]}>
-                                        {tip.selected && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                                        {tip.selected && <Ionicons name="checkmark" size={14} color={Colors.buttonActionText} />}
                                     </View>
                                 </View>
                                 <Text style={styles.tipDescription}>{tip.detail}</Text>
@@ -670,14 +652,7 @@ export default function PreMealCheckScreen() {
 const styles = StyleSheet.create({
     root: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    topGlow: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
+        backgroundColor: 'transparent',
     },
     safe: {
         flex: 1,
@@ -693,7 +668,7 @@ const styles = StyleSheet.create({
         width: 48,
         height: 48,
         borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
+        backgroundColor: Colors.buttonSecondary,
         justifyContent: 'center',
         alignItems: 'center',
         shadowColor: '#000',
@@ -711,7 +686,7 @@ const styles = StyleSheet.create({
     headerTitle: {
         fontFamily: fonts.bold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         letterSpacing: 1,
     },
     content: {
@@ -721,13 +696,13 @@ const styles = StyleSheet.create({
     mealTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 22,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 8,
     },
     mealSubtitle: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 4,
     },
     mealImage: {
@@ -735,7 +710,7 @@ const styles = StyleSheet.create({
         height: 180,
         borderRadius: 16,
         marginTop: 16,
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
     },
     mealImagePlaceholder: {
         justifyContent: 'center',
@@ -743,8 +718,8 @@ const styles = StyleSheet.create({
     },
     macrosCard: {
         flexDirection: 'row',
-        backgroundColor: '#1A1B1C',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         padding: 16,
         marginTop: 16,
     },
@@ -754,19 +729,19 @@ const styles = StyleSheet.create({
     },
     macroDivider: {
         width: 1,
-        backgroundColor: '#3A3D40',
+        backgroundColor: Colors.border,
     },
     macroLabel: {
         fontFamily: fonts.medium,
         fontSize: 11,
-        color: '#878787',
+        color: Colors.textTertiary,
         letterSpacing: 0.5,
         marginBottom: 6,
     },
     macroValue: {
         fontFamily: fonts.semiBold,
         fontSize: 18,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     itemsSection: {
         marginTop: 20,
@@ -777,7 +752,7 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
         paddingVertical: 12,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(58, 61, 64, 0.5)',
+        borderBottomColor: Colors.border,
     },
     itemInfo: {
         flex: 1,
@@ -785,18 +760,18 @@ const styles = StyleSheet.create({
     itemName: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     itemBrand: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
     itemQuantity: {
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     dataSourceRow: {
         flexDirection: 'row',
@@ -807,21 +782,23 @@ const styles = StyleSheet.create({
     dataSourceLabel: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#5A5D60',
+        color: Colors.textTertiary,
     },
     dataSourceValue: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#5A5D60',
+        color: Colors.textTertiary,
     },
     predictionSection: {
         marginTop: 24,
     },
     predictionCard: {
-        backgroundColor: '#1A1B1C',
+        backgroundColor: 'rgba(240, 248, 249, 0.7)',
         borderRadius: 16,
         padding: 16,
         marginTop: 24,
+        borderWidth: 1,
+        borderColor: 'rgba(45, 212, 191, 0.10)',
     },
     riskHeader: {
         flexDirection: 'row',
@@ -832,7 +809,7 @@ const styles = StyleSheet.create({
     balancedLabel: {
         fontFamily: fonts.medium,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     mealResponseContainer: {
         flexDirection: 'row',
@@ -842,7 +819,7 @@ const styles = StyleSheet.create({
     mealResponseLabel: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#878787',
+        color: Colors.textSecondary,
     },
     chartHeader: {
         flexDirection: 'row',
@@ -851,7 +828,7 @@ const styles = StyleSheet.create({
         marginBottom: 4,
     },
     chartContainer: {
-        backgroundColor: '#FFFFFF',
+        backgroundColor: Colors.backgroundCard,
         borderRadius: 12,
         padding: 12,
         marginTop: 8,
@@ -859,12 +836,12 @@ const styles = StyleSheet.create({
     unitLabel: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     unitLabelLight: {
         fontFamily: fonts.regular,
         fontSize: 11,
-        color: '#666666',
+        color: Colors.textSecondary,
     },
     predictedLegend: {
         flexDirection: 'row',
@@ -875,23 +852,23 @@ const styles = StyleSheet.create({
         width: 8,
         height: 8,
         borderRadius: 4,
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
     },
     legendDotBlue: {
         width: 8,
         height: 8,
         borderRadius: 4,
-        backgroundColor: '#3494D9',
+        backgroundColor: Colors.primary,
     },
     legendText: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     legendTextLight: {
         fontFamily: fonts.regular,
         fontSize: 11,
-        color: '#666666',
+        color: Colors.textSecondary,
     },
     driversSection: {
         marginTop: 24,
@@ -899,7 +876,7 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 15,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 12,
     },
     driverRow: {
@@ -911,14 +888,14 @@ const styles = StyleSheet.create({
         width: 6,
         height: 6,
         borderRadius: 3,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: Colors.textPrimary,
         marginTop: 6,
         marginRight: 10,
     },
     driverText: {
         fontFamily: fonts.regular,
         fontSize: 13,
-        color: '#C4C4C4',
+        color: Colors.textSecondary,
         flex: 1,
         lineHeight: 18,
     },
@@ -926,12 +903,12 @@ const styles = StyleSheet.create({
         marginTop: 24,
     },
     tipCard: {
-        backgroundColor: '#1A1B1C',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         padding: 16,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: 'rgba(58, 61, 64, 0.5)',
+        borderColor: Colors.borderCard,
     },
     tipHeader: {
         flexDirection: 'row',
@@ -942,12 +919,12 @@ const styles = StyleSheet.create({
     tipTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 14,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     tipRisk: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#4CAF50',
+        color: Colors.success,
         marginTop: 2,
     },
     tipCheckbox: {
@@ -955,18 +932,18 @@ const styles = StyleSheet.create({
         height: 24,
         borderRadius: 12,
         borderWidth: 2,
-        borderColor: '#5A5D60',
+        borderColor: Colors.textTertiary,
         justifyContent: 'center',
         alignItems: 'center',
     },
     tipCheckboxSelected: {
-        backgroundColor: '#3494D9',
-        borderColor: '#3494D9',
+        backgroundColor: Colors.primary,
+        borderColor: Colors.primary,
     },
     tipDescription: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         lineHeight: 16,
     },
     insertTipButton: {
@@ -983,12 +960,12 @@ const styles = StyleSheet.create({
     insertTipText: {
         fontFamily: fonts.semiBold,
         fontSize: 13,
-        color: '#F5A623',
+        color: Colors.warning,
         letterSpacing: 0.5,
     },
     logButton: {
-        backgroundColor: '#26A861',
-        borderRadius: 12,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 20,
         paddingVertical: 16,
         alignItems: 'center',
         marginTop: 24,
@@ -997,7 +974,7 @@ const styles = StyleSheet.create({
     logButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.buttonActionText,
     },
     logButtonDisabled: {
         opacity: 0.6,
@@ -1005,7 +982,7 @@ const styles = StyleSheet.create({
     disclaimerText: {
         fontFamily: fonts.regular,
         fontSize: 11,
-        color: '#666666',
+        color: Colors.textTertiary,
         textAlign: 'center',
         marginTop: 20,
     },

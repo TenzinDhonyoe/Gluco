@@ -7,7 +7,7 @@
 import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, {
     cancelAnimation,
@@ -32,8 +32,8 @@ type BannerState = 'hidden' | 'syncing' | 'complete';
 export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
     const [bannerState, setBannerState] = useState<BannerState>('hidden');
     const [isVisible, setIsVisible] = useState(false);
-    const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
-    const completeTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const completeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const syncStartRef = useRef<number | null>(null);
     const wasSyncingRef = useRef(false);
     const MIN_SPIN_MS = 800;
@@ -48,42 +48,42 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
     const checkmarkOpacity = useSharedValue(0);
 
     // Start rotation animation
-    const startRotation = () => {
+    const startRotation = useCallback(() => {
         rotation.value = withRepeat(
             withTiming(1, { duration: ROTATION_MS, easing: Easing.linear }),
             -1,
             false
         );
-    };
+    }, [rotation]);
 
     // Show checkmark without stopping the rotation loop
-    const showCheckmark = () => {
+    const showCheckmark = useCallback(() => {
         syncIconOpacity.value = withTiming(0, { duration: 150 });
         checkmarkScale.value = withDelay(100, withSpring(1, { damping: 12, stiffness: 300 }));
         checkmarkOpacity.value = withDelay(100, withTiming(1, { duration: 150 }));
-    };
+    }, [syncIconOpacity, checkmarkScale, checkmarkOpacity]);
 
     // Reset icons for next sync
-    const resetIcons = () => {
+    const resetIcons = useCallback(() => {
         syncIconOpacity.value = 1;
         checkmarkScale.value = 0;
         checkmarkOpacity.value = 0;
-    };
+    }, [syncIconOpacity, checkmarkScale, checkmarkOpacity]);
 
     // Show banner with slide-in animation
-    const showBanner = () => {
+    const showBanner = useCallback(() => {
         setIsVisible(true);
         resetIcons();
         bannerOpacity.value = withSpring(1, { damping: 20, stiffness: 300 });
         bannerTranslateY.value = withSpring(0, { damping: 20, stiffness: 300 });
-    };
+    }, [resetIcons, bannerOpacity, bannerTranslateY]);
 
     const clearSyncStart = () => {
         syncStartRef.current = null;
     };
 
     // Hide banner with slide-out animation
-    const hideBanner = () => {
+    const hideBanner = useCallback(() => {
         bannerOpacity.value = withTiming(0, { duration: 250 });
         bannerTranslateY.value = withTiming(-50, { duration: 250 }, (finished) => {
             if (finished) {
@@ -92,7 +92,7 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
                 runOnJS(clearSyncStart)();
             }
         });
-    };
+    }, [bannerOpacity, bannerTranslateY]);
 
     // Handle sync state changes
     useEffect(() => {
@@ -149,12 +149,12 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
                 clearTimeout(completeTimerRef.current);
             }
         };
-    }, [isSyncing]);
+    }, [isSyncing, hideBanner, showBanner, showCheckmark]);
 
     useEffect(() => {
         startRotation();
         return () => cancelAnimation(rotation);
-    }, []);
+    }, [rotation, startRotation]);
 
     // Animated styles
     const bannerStyle = useAnimatedStyle(() => ({
@@ -177,24 +177,26 @@ export function SyncBanner({ isSyncing, topOffset = 0 }: SyncBannerProps) {
         return null;
     }
 
+    const pillContent = (
+        <>
+            <View style={styles.iconContainer}>
+                <Animated.View style={[styles.iconWrapper, syncIconStyle]}>
+                    <Ionicons name="sync-outline" size={18} color={Colors.textPrimary} />
+                </Animated.View>
+                <Animated.View style={[styles.iconWrapper, checkmarkStyle]}>
+                    <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
+                </Animated.View>
+            </View>
+            <Text style={styles.text}>
+                {bannerState === 'complete' ? 'Synced!' : 'Syncing data...'}
+            </Text>
+        </>
+    );
+
     return (
         <Animated.View style={[styles.container, { top: topOffset }, bannerStyle]}>
             <View style={styles.pill}>
-                <View style={styles.iconContainer}>
-                    {/* Sync icon (rotating) */}
-                    <Animated.View style={[styles.iconWrapper, syncIconStyle]}>
-                        <Ionicons name="sync-outline" size={18} color={Colors.textPrimary} />
-                    </Animated.View>
-
-                    {/* Checkmark icon (appears on completion) */}
-                    <Animated.View style={[styles.iconWrapper, checkmarkStyle]}>
-                        <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
-                    </Animated.View>
-                </View>
-
-                <Text style={styles.text}>
-                    {bannerState === 'complete' ? 'Synced!' : 'Syncing data...'}
-                </Text>
+                {pillContent}
             </View>
         </Animated.View>
     );
@@ -212,13 +214,18 @@ const styles = StyleSheet.create({
     pill: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(40, 42, 44, 0.95)',
+        backgroundColor: 'rgba(255, 255, 255, 0.97)',
         paddingHorizontal: 16,
         paddingVertical: 10,
         borderRadius: 24,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        borderColor: Colors.borderCard,
         gap: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 4,
     },
     iconContainer: {
         width: 20,

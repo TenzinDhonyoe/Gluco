@@ -1,3 +1,4 @@
+import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import * as Haptics from 'expo-haptics';
 import React from 'react';
@@ -50,7 +51,11 @@ export function Button({
         pressed && !isDisabled && styles.pressed,
       ]}
     >
-      {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.text}>{children}</Text>}
+      {loading ? (
+        <ActivityIndicator color={variant === 'primary' ? Colors.buttonActionText : Colors.textPrimary} />
+      ) : (
+        <Text style={[styles.text, variant !== 'primary' && styles.textDark]}>{children}</Text>
+      )}
     </Pressable>
   );
 }
@@ -73,7 +78,10 @@ const styles = StyleSheet.create({
   text: {
     fontFamily: fonts.medium,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: Colors.buttonActionText,
+  },
+  textDark: {
+    color: Colors.textPrimary,
   },
 });
 
@@ -84,18 +92,18 @@ const stylesBySize = StyleSheet.create({
 
 const stylesByVariant = StyleSheet.create({
   primary: {
-    backgroundColor: '#285E2A',
-    borderWidth: 1,
-    borderColor: '#448D47',
+    backgroundColor: Colors.buttonAction,
+    borderWidth: 0,
+    borderColor: 'transparent',
   },
   secondary: {
-    backgroundColor: 'rgba(63,66,67,0.25)',
+    backgroundColor: Colors.buttonSecondary,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: Colors.buttonSecondaryBorder,
   },
   ghost: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: Colors.borderMedium,
   },
 });

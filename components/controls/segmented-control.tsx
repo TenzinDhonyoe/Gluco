@@ -1,4 +1,3 @@
-import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,11 +17,30 @@ export type SegmentedOption<T extends string> = {
   value: T;
 };
 
+type SegmentedPalette = {
+  containerBg?: string;
+  containerBorder?: string;
+  sliderColors?: [string, string, string];
+  sliderBorder?: string;
+  inactiveText?: string;
+  activeText?: string;
+};
+
 type Props<T extends string> = {
   options: SegmentedOption<T>[];
   value: T;
   onChange: (value: T) => void;
   testID?: string;
+  palette?: SegmentedPalette;
+};
+
+const DEFAULT_SEGMENTED_PALETTE: Required<SegmentedPalette> = {
+  containerBg: 'rgba(118, 118, 128, 0.12)',
+  containerBorder: 'rgba(60, 60, 67, 0.06)',
+  sliderColors: ['rgba(255,255,255,1)', 'rgba(255,255,255,0.98)', 'rgba(255,255,255,1)'],
+  sliderBorder: 'rgba(0,0,0,0.04)',
+  inactiveText: '#8E8E93',
+  activeText: '#1C1C1E',
 };
 
 const SPRING_CONFIG = {
@@ -40,12 +58,16 @@ function SegmentButton<T extends string>({
   onPress,
   activeIndex,
   index,
+  inactiveTextColor,
+  activeTextColor,
 }: {
   option: SegmentedOption<T>;
   isActive: boolean;
   onPress: () => void;
   activeIndex: number;
   index: number;
+  inactiveTextColor: string;
+  activeTextColor: string;
 }) {
   const scale = useSharedValue(1);
   const pressed = useSharedValue(0);
@@ -55,10 +77,10 @@ function SegmentButton<T extends string>({
     const color = interpolateColor(
       isActive ? 1 : 0,
       [0, 1],
-      ['#878787', '#FFFFFF']
+      [inactiveTextColor, activeTextColor]
     );
     return { color };
-  }, [isActive]);
+  }, [isActive, inactiveTextColor, activeTextColor]);
 
   const containerAnimatedStyle = useAnimatedStyle(() => {
     return {
@@ -106,6 +128,7 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   testID,
+  palette,
 }: Props<T>) {
   const [containerWidth, setContainerWidth] = React.useState(0);
   const slideX = useSharedValue(0);
@@ -114,6 +137,10 @@ export function SegmentedControl<T extends string>({
 
   const activeIndex = options.findIndex(opt => opt.value === value);
   const itemWidth = containerWidth > 0 ? (containerWidth - 8) / options.length : 0;
+  const resolvedPalette = {
+    ...DEFAULT_SEGMENTED_PALETTE,
+    ...(palette || {}),
+  };
 
   // Animate slider position with liquid spring
   useEffect(() => {
@@ -163,7 +190,17 @@ export function SegmentedControl<T extends string>({
   }, [value, onChange, triggerHaptic]);
 
   return (
-    <View style={styles.container} testID={testID} onLayout={onLayout}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: resolvedPalette.containerBg,
+          borderColor: resolvedPalette.containerBorder,
+        },
+      ]}
+      testID={testID}
+      onLayout={onLayout}
+    >
       {/* Outer glow effect */}
 
 
@@ -172,12 +209,13 @@ export function SegmentedControl<T extends string>({
         <Animated.View
           style={[
             styles.sliderContainer,
+            { borderColor: resolvedPalette.sliderBorder },
             { width: itemWidth - 4 },
             sliderAnimatedStyle,
           ]}
         >
           <AnimatedLinearGradient
-            colors={['rgba(255,255,255,0.18)', 'rgba(255,255,255,0.08)', 'rgba(255,255,255,0.12)']}
+            colors={resolvedPalette.sliderColors}
             locations={[0, 0.5, 1]}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
@@ -197,6 +235,8 @@ export function SegmentedControl<T extends string>({
             onPress={() => handleChange(opt.value)}
             activeIndex={activeIndex}
             index={index}
+            inactiveTextColor={resolvedPalette.inactiveText}
+            activeTextColor={resolvedPalette.activeText}
           />
         );
       })}
@@ -207,12 +247,12 @@ export function SegmentedControl<T extends string>({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(30, 32, 34, 0.6)',
+    backgroundColor: DEFAULT_SEGMENTED_PALETTE.containerBg,
     borderRadius: 999,
     padding: 4,
     gap: 0,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: DEFAULT_SEGMENTED_PALETTE.containerBorder,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -223,9 +263,13 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 999,
     overflow: 'hidden',
-    // Glass border effect
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: DEFAULT_SEGMENTED_PALETTE.sliderBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   sliderGradient: {
     ...StyleSheet.absoluteFillObject,
@@ -245,11 +289,11 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: fonts.medium,
     fontSize: 13,
-    color: '#878787',
+    color: '#8E8E93',
     letterSpacing: 0.3,
   },
   labelActive: {
-    color: Colors.textPrimary,
+    color: '#1C1C1E',
     fontFamily: fonts.semiBold,
   },
 });

@@ -6,12 +6,12 @@ import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
     Alert,
-    ImageBackground,
     KeyboardAvoidingView,
     Linking,
     Platform,
@@ -34,6 +34,16 @@ export default function SignUpScreen() {
     const [isAppleLoading, setIsAppleLoading] = useState(false);
     const { signUp, signInWithApple } = useAuth();
 
+    const passwordRequirements = useMemo(() => [
+        { label: 'At least 8 characters', met: password.length >= 8 },
+        { label: 'One uppercase letter', met: /[A-Z]/.test(password) },
+        { label: 'One lowercase letter', met: /[a-z]/.test(password) },
+        { label: 'One number', met: /[0-9]/.test(password) },
+        { label: 'One special character (!@#$...)', met: /[^A-Za-z0-9]/.test(password) },
+    ], [password]);
+
+    const allRequirementsMet = passwordRequirements.every(r => r.met);
+
     const handleContinue = async () => {
         if (!agreeToTerms) return;
         if (!email.trim() || !password.trim()) {
@@ -41,8 +51,8 @@ export default function SignUpScreen() {
             return;
         }
 
-        if (password.trim().length < 6) {
-            Alert.alert('Error', 'Password must be at least 6 characters');
+        if (!allRequirementsMet) {
+            Alert.alert('Error', 'Password does not meet all requirements');
             return;
         }
 
@@ -53,18 +63,23 @@ export default function SignUpScreen() {
 
         setIsLoading(true);
         try {
-            const { error } = await signUp(email.trim(), password);
+            const { error, autoConfirmed } = await signUp(email.trim(), password);
 
             if (error) {
                 Alert.alert('Sign Up Error', error.message);
                 return;
             }
 
-            // Navigate to email confirmation screen
-            router.push({
-                pathname: '/confirm-email',
-                params: { email: email.trim() },
-            } as never);
+            if (autoConfirmed) {
+                // Email auto-confirmed (dev mode) — go straight to onboarding
+                router.replace('/onboarding-profile' as never);
+            } else {
+                // Navigate to email confirmation screen
+                router.push({
+                    pathname: '/confirm-email',
+                    params: { email: email.trim() },
+                } as never);
+            }
         } catch (err) {
             Alert.alert('Error', 'An unexpected error occurred. Please try again.');
             console.error('Sign up error:', err);
@@ -85,15 +100,19 @@ export default function SignUpScreen() {
 
         setIsAppleLoading(true);
         try {
-            const { error } = await signInWithApple();
+            const { error, onboardingComplete } = await signInWithApple();
 
             if (error) {
                 Alert.alert('Apple Sign-In Error', error.message);
                 return;
             }
 
-            // Navigate to index/onboarding
-            router.replace('/' as never);
+            // Navigate directly to the appropriate screen
+            if (onboardingComplete) {
+                router.replace('/(tabs)' as never);
+            } else {
+                router.replace('/onboarding-profile' as never);
+            }
         } catch (err) {
             Alert.alert('Error', 'An unexpected error occurred. Please try again.');
             console.error('Apple sign in error:', err);
@@ -111,18 +130,14 @@ export default function SignUpScreen() {
     };
 
     const handleSignIn = () => {
+        triggerHaptic();
         router.push('/signin');
     };
 
-    const isFormValid = agreeToTerms && email.trim().length > 0 && password.trim().length >= 6 && password === confirmPassword;
+    const isFormValid = agreeToTerms && email.trim().length > 0 && allRequirementsMet && password === confirmPassword;
 
     return (
         <View style={styles.container}>
-            <ImageBackground
-                source={require('../assets/images/backgrounds/background.png')}
-                style={styles.backgroundImage}
-                resizeMode="cover"
-            >
                 <SafeAreaView style={styles.safeArea}>
                     <KeyboardAvoidingView
                         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -176,17 +191,38 @@ export default function SignUpScreen() {
                                         right={(
                                             <TouchableOpacity
                                                 style={styles.eyeButton}
-                                                onPress={() => setShowPassword(!showPassword)}
+                                                onPress={() => { triggerHaptic(); setShowPassword(!showPassword); }}
                                             >
                                                 <Ionicons
                                                     name={showPassword ? "eye-off-outline" : "eye-outline"}
                                                     size={22}
-                                                    color="#878787"
+                                                    color={Colors.textTertiary}
                                                 />
                                             </TouchableOpacity>
                                         )}
                                     />
                                 </View>
+
+                                {/* Password Requirements */}
+                                {password.length > 0 && (
+                                    <View style={styles.requirementsContainer}>
+                                        {passwordRequirements.map((req) => (
+                                            <View key={req.label} style={styles.requirementRow}>
+                                                <Ionicons
+                                                    name={req.met ? 'checkmark-circle' : 'ellipse-outline'}
+                                                    size={16}
+                                                    color={req.met ? Colors.primary : Colors.textTertiary}
+                                                />
+                                                <Text style={[
+                                                    styles.requirementText,
+                                                    req.met && styles.requirementMet,
+                                                ]}>
+                                                    {req.label}
+                                                </Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
 
                                 {/* Confirm Password Input */}
                                 <View style={styles.inputGroup}>
@@ -200,12 +236,12 @@ export default function SignUpScreen() {
                                         right={(
                                             <TouchableOpacity
                                                 style={styles.eyeButton}
-                                                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                                                onPress={() => { triggerHaptic(); setShowConfirmPassword(!showConfirmPassword); }}
                                             >
                                                 <Ionicons
                                                     name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
                                                     size={22}
-                                                    color="#878787"
+                                                    color={Colors.textTertiary}
                                                 />
                                             </TouchableOpacity>
                                         )}
@@ -229,14 +265,14 @@ export default function SignUpScreen() {
                                         I agree to the{' '}
                                         <Text
                                             style={styles.legalLink}
-                                            onPress={() => Linking.openURL(LEGAL_URLS.privacyPolicy)}
+                                            onPress={() => { triggerHaptic(); Linking.openURL(LEGAL_URLS.privacyPolicy); }}
                                         >
                                             Privacy Policy
                                         </Text>
                                         {' & '}
                                         <Text
                                             style={styles.legalLink}
-                                            onPress={() => Linking.openURL(LEGAL_URLS.termsAndConditions)}
+                                            onPress={() => { triggerHaptic(); Linking.openURL(LEGAL_URLS.termsAndConditions); }}
                                         >
                                             Terms of Service
                                         </Text>
@@ -270,7 +306,7 @@ export default function SignUpScreen() {
                                             disabled={isAppleLoading}
                                         >
                                             <View style={styles.appleIconContainer}>
-                                                <Ionicons name="logo-apple" size={22} color="#FFFFFF" />
+                                                <Ionicons name="logo-apple" size={22} color={'#FFFFFF'} />
                                             </View>
                                             <Text style={styles.appleButtonText}>
                                                 {isAppleLoading ? 'Signing in...' : 'Sign up with Apple'}
@@ -290,7 +326,6 @@ export default function SignUpScreen() {
                         </ScrollView>
                     </KeyboardAvoidingView>
                 </SafeAreaView>
-            </ImageBackground>
         </View>
     );
 }
@@ -298,12 +333,7 @@ export default function SignUpScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
-    },
-    backgroundImage: {
-        flex: 1,
-        width: '100%',
-        height: '100%',
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -328,7 +358,7 @@ const styles = StyleSheet.create({
         fontFamily: fonts.medium, // Outfit Medium (500)
         fontSize: 16,
         lineHeight: 16 * 1.2, // 1.2 line-height
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 12,
     },
     headerText: {
@@ -356,6 +386,24 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    requirementsContainer: {
+        marginTop: -16,
+        marginBottom: 24,
+        gap: 6,
+    },
+    requirementRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    requirementText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textTertiary,
+    },
+    requirementMet: {
+        color: Colors.primary,
+    },
     agreementSection: {
         // Gap handled by individual component margins
     },
@@ -371,7 +419,7 @@ const styles = StyleSheet.create({
         height: 24,
         borderRadius: 12,
         borderWidth: 1.5,
-        borderColor: '#48484D',
+        borderColor: Colors.borderMedium,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 12,
@@ -409,7 +457,7 @@ const styles = StyleSheet.create({
         fontFamily: fonts.medium, // Outfit Medium (500)
         fontSize: 15,
         lineHeight: 15 * 0.95, // 0.95 line-height
-        color: Colors.textPrimary,
+        color: Colors.textSecondary,
         marginHorizontal: 8,
     },
     // Social icons (just icons, not full buttons)
@@ -437,7 +485,7 @@ const styles = StyleSheet.create({
         fontFamily: fonts.medium,
         fontSize: 16,
         lineHeight: 16 * 1.2,
-        color: Colors.textPrimary,
+        color: '#FFFFFF',
     },
     socialButtonDisabled: {
         opacity: 0.5,
@@ -448,14 +496,14 @@ const styles = StyleSheet.create({
         fontSize: 14,
         lineHeight: 14 * 1.2, // 1.2 line-height
         textAlign: 'center',
-        color: Colors.textPrimary,
+        color: Colors.textSecondary,
     },
     signInLink: {
-        color: '#0e9cff', // Blue link color from Figma
+        color: Colors.primary,
         textDecorationLine: 'underline',
     },
     legalLink: {
-        color: '#47aa4b', // Green link color
+        color: Colors.primary,
         textDecorationLine: 'underline',
     },
 });

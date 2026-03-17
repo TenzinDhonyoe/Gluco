@@ -1,8 +1,12 @@
+import { MealGlucoseChart } from '@/components/charts/MealGlucoseChart';
 import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
+import { useMealScoreDetail } from '@/hooks/useMealScores';
+import { getScoreColor, getScoreEmoji, type ScoreLabel } from '@/lib/mealScore';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import {
     type ActivityIntensity,
     type ActivityLog,
@@ -25,7 +29,6 @@ import {
 } from '@/lib/supabase';
 import { formatGlucoseWithUnit, parseGlucoseInput, getGlucoseInputPlaceholder } from '@/lib/utils/glucoseUnits';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -109,6 +112,14 @@ export default function LogDetailScreen() {
     const [editMealType, setEditMealType] = useState<MealType | null>(null);
     const [editMealNotes, setEditMealNotes] = useState('');
     const [mealTypeModalOpen, setMealTypeModalOpen] = useState(false);
+
+    // Meal score (only fetched for meal type)
+    const mealScoreDetail = useMealScoreDetail(
+        type === 'meal' ? id : undefined,
+        user?.id,
+        meal?.logged_at,
+        undefined, // tokens not needed for inline display
+    );
 
     // Glucose state
     const [glucoseLog, setGlucoseLog] = useState<GlucoseLog | null>(null);
@@ -207,7 +218,7 @@ export default function LogDetailScreen() {
         }
 
         fetchData();
-    }, [user, type, id]);
+    }, [user, type, id, isValidParams, initMealEditFields, initGlucoseEditFields, initActivityEditFields]);
 
     const handleToggleEdit = () => {
         if (isEditing) {
@@ -386,7 +397,7 @@ export default function LogDetailScreen() {
                                 onOpenChange={setMealTypeModalOpen}
                                 trigger={
                                     <Pressable
-                                        onPress={() => setMealTypeModalOpen(true)}
+                                        onPress={() => { triggerHaptic(); setMealTypeModalOpen(true); }}
                                         style={styles.selectShell}
                                     >
                                         <Text style={[styles.selectText, editMealType && styles.selectTextActive]}>
@@ -515,6 +526,58 @@ export default function LogDetailScreen() {
                         </View>
                     </View>
                 )}
+
+                {/* Glucose Response (if scored) */}
+                {mealScoreDetail.score && (() => {
+                    const sl = mealScoreDetail.score!.score_label as ScoreLabel;
+                    const sc = getScoreColor(sl);
+                    const labelWord = sl.charAt(0).toUpperCase() + sl.slice(1);
+                    return (
+                        <Pressable
+                            style={styles.formCard}
+                            onPress={() => router.push({ pathname: '/meal-score-detail' as any, params: { mealId: id! } })}
+                        >
+                            <Text style={styles.sectionTitle}>Glucose Response</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                                <Text style={{ fontFamily: fonts.bold, fontSize: 32, color: sc, marginRight: 12 }}>
+                                    {mealScoreDetail.score!.score}
+                                </Text>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ fontFamily: fonts.semiBold, fontSize: 14, color: Colors.textPrimary }}>
+                                        {labelWord} response {getScoreEmoji(sl)}
+                                    </Text>
+                                    <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: Colors.textTertiary, marginTop: 1 }}>
+                                        {mealScoreDetail.score!.glucose_reading_count} readings
+                                    </Text>
+                                </View>
+                            </View>
+                            {mealScoreDetail.glucoseReadings.length >= 2 && (
+                                <View style={{ marginBottom: 8, borderRadius: 10, overflow: 'hidden' }}>
+                                    <MealGlucoseChart
+                                        readings={mealScoreDetail.glucoseReadings.map(r => ({
+                                            value: r.value,
+                                            timestamp: r.timestamp.toISOString(),
+                                        }))}
+                                        scoreLabel={sl}
+                                        height={56}
+                                        showRangeBand={false}
+                                    />
+                                </View>
+                            )}
+                            {mealScoreDetail.score!.insight_text && (
+                                <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: Colors.textSecondary, lineHeight: 19, marginBottom: 8 }}>
+                                    {mealScoreDetail.score!.insight_text}
+                                </Text>
+                            )}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                                <Text style={{ fontFamily: fonts.medium, fontSize: 13, color: Colors.textTertiary }}>
+                                    View breakdown
+                                </Text>
+                                <Ionicons name="chevron-forward" size={13} color={Colors.textTertiary} />
+                            </View>
+                        </Pressable>
+                    );
+                })()}
             </>
         );
     };
@@ -557,7 +620,7 @@ export default function LogDetailScreen() {
                             onOpenChange={setContextModalOpen}
                             trigger={
                                 <Pressable
-                                    onPress={() => setContextModalOpen(true)}
+                                    onPress={() => { triggerHaptic(); setContextModalOpen(true); }}
                                     style={styles.selectShell}
                                 >
                                     <Text style={[styles.selectText, editGlucoseContext && styles.selectTextActive]}>
@@ -680,7 +743,7 @@ export default function LogDetailScreen() {
                             onOpenChange={setIntensityModalOpen}
                             trigger={
                                 <Pressable
-                                    onPress={() => setIntensityModalOpen(true)}
+                                    onPress={() => { triggerHaptic(); setIntensityModalOpen(true); }}
                                     style={styles.selectShell}
                                 >
                                     <Text style={[styles.selectText, editIntensity && styles.selectTextActive]}>
@@ -752,11 +815,10 @@ export default function LogDetailScreen() {
     if (!isValidParams && !isLoading) {
         return (
             <View style={styles.root}>
-                <LinearGradient colors={['#1a1f24', '#181c20', '#111111']} locations={[0, 0.3, 1]} style={styles.topGlow} />
                 <SafeAreaView edges={['top']} style={styles.safe}>
                     <View style={styles.header}>
                         <LiquidGlassIconButton size={44} onPress={() => router.back()}>
-                            <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                            <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
                         </LiquidGlassIconButton>
                         <Text style={styles.headerTitle}>ERROR</Text>
                         <View style={styles.headerSpacer} />
@@ -764,7 +826,7 @@ export default function LogDetailScreen() {
                     <View style={styles.emptyState}>
                         <Ionicons name="alert-circle-outline" size={48} color={Colors.textTertiary} />
                         <Text style={styles.emptyStateText}>Invalid log parameters</Text>
-                        <Pressable onPress={() => router.back()} style={styles.backLink}>
+                        <Pressable onPress={() => { triggerHaptic(); router.back(); }} style={styles.backLink}>
                             <Text style={styles.backLinkText}>Go back</Text>
                         </Pressable>
                     </View>
@@ -775,17 +837,11 @@ export default function LogDetailScreen() {
 
     return (
         <View style={styles.root}>
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.topGlow}
-            />
-
             <SafeAreaView edges={['top']} style={styles.safe}>
                 {/* Header */}
                 <View style={styles.header}>
                     <LiquidGlassIconButton size={44} onPress={() => router.back()}>
-                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
+                        <Ionicons name="chevron-back" size={22} color="#1C1C1E" />
                     </LiquidGlassIconButton>
 
                     <Text style={styles.headerTitle}>{getTitle()}</Text>
@@ -795,7 +851,7 @@ export default function LogDetailScreen() {
                             <Ionicons
                                 name={isEditing ? 'close' : 'pencil'}
                                 size={20}
-                                color="#E7E8E9"
+                                color="#1C1C1E"
                             />
                         </LiquidGlassIconButton>
                     ) : (
@@ -811,7 +867,7 @@ export default function LogDetailScreen() {
                     <View style={styles.emptyState}>
                         <Ionicons name="document-text-outline" size={48} color={Colors.textTertiary} />
                         <Text style={styles.emptyStateText}>Log not found</Text>
-                        <Pressable onPress={() => router.back()} style={styles.backLink}>
+                        <Pressable onPress={() => { triggerHaptic(); router.back(); }} style={styles.backLink}>
                             <Text style={styles.backLinkText}>Go back</Text>
                         </Pressable>
                     </View>
@@ -830,7 +886,7 @@ export default function LogDetailScreen() {
                         <View style={styles.bottomButtonContainer}>
                             {isEditing ? (
                                 <Pressable
-                                    onPress={handleSave}
+                                    onPress={() => { triggerHaptic('medium'); handleSave(); }}
                                     disabled={isSaving}
                                     style={({ pressed }) => [
                                         styles.saveButton,
@@ -846,7 +902,7 @@ export default function LogDetailScreen() {
                                 </Pressable>
                             ) : (
                                 <Pressable
-                                    onPress={handleDelete}
+                                    onPress={() => { triggerHaptic('medium'); handleDelete(); }}
                                     disabled={isDeleting}
                                     style={({ pressed }) => [
                                         styles.deleteButton,
@@ -875,14 +931,7 @@ export default function LogDetailScreen() {
 const styles = StyleSheet.create({
     root: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    topGlow: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 220,
+        backgroundColor: Colors.background,
     },
     safe: {
         flex: 1,
@@ -939,11 +988,13 @@ const styles = StyleSheet.create({
     },
     // Form card
     formCard: {
-        backgroundColor: 'rgba(63,66,67,0.25)',
+        backgroundColor: 'rgba(240, 248, 249, 0.7)',
         borderRadius: 16,
         paddingHorizontal: 16,
         paddingVertical: 20,
         gap: 24,
+        borderWidth: 1,
+        borderColor: 'rgba(45, 212, 191, 0.10)',
     },
     block: {
         gap: 10,
@@ -970,10 +1021,10 @@ const styles = StyleSheet.create({
     },
     // Input styles (match log-activity / log-glucose)
     inputShell: {
-        backgroundColor: '#1b1b1c',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
         paddingHorizontal: 16,
         paddingVertical: 14,
     },
@@ -984,10 +1035,10 @@ const styles = StyleSheet.create({
         padding: 0,
     },
     selectShell: {
-        backgroundColor: '#1b1b1c',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
         paddingHorizontal: 16,
         paddingVertical: 16,
         flexDirection: 'row',
@@ -997,7 +1048,7 @@ const styles = StyleSheet.create({
     selectText: {
         fontFamily: fonts.regular,
         fontSize: 16,
-        color: '#878787',
+        color: Colors.textTertiary,
     },
     selectTextActive: {
         color: Colors.textPrimary,
@@ -1009,10 +1060,10 @@ const styles = StyleSheet.create({
     },
     glucoseInputShell: {
         flex: 1,
-        backgroundColor: '#1b1b1c',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
         paddingHorizontal: 16,
         paddingVertical: 14,
     },
@@ -1023,10 +1074,10 @@ const styles = StyleSheet.create({
     },
     durationInputShell: {
         flex: 1,
-        backgroundColor: '#1b1b1c',
+        backgroundColor: Colors.inputBackgroundSolid,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: '#313135',
+        borderColor: Colors.inputBorderSolid,
         paddingHorizontal: 16,
         paddingVertical: 14,
     },
@@ -1059,7 +1110,7 @@ const styles = StyleSheet.create({
         width: '100%',
         height: 200,
         borderRadius: 16,
-        backgroundColor: '#1a1b1c',
+        backgroundColor: Colors.backgroundCard,
     },
     // Section title
     sectionTitle: {
@@ -1110,7 +1161,7 @@ const styles = StyleSheet.create({
     },
     itemDivider: {
         height: 1,
-        backgroundColor: 'rgba(255,255,255,0.06)',
+        backgroundColor: 'rgba(60, 60, 67, 0.08)',
         marginVertical: 12,
     },
     // Total macros grid
@@ -1141,13 +1192,13 @@ const styles = StyleSheet.create({
         right: 16,
     },
     saveButton: {
-        backgroundColor: '#285E2A',
+        backgroundColor: Colors.buttonSecondary,
         borderRadius: 12,
         paddingVertical: 16,
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 1,
-        borderColor: '#448D47',
+        borderColor: Colors.buttonSecondaryBorder,
     },
     saveButtonDisabled: {
         opacity: 0.5,
@@ -1177,6 +1228,6 @@ const styles = StyleSheet.create({
     deleteButtonText: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: '#FF3B30',
+        color: Colors.buttonDestructive,
     },
 });

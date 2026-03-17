@@ -25,7 +25,7 @@ export function ActiveExperimentWidget() {
     const [variants, setVariants] = useState<ExperimentVariant[]>([]);
     const [loading, setLoading] = useState(true);
 
-    const fetchActiveExperiment = async () => {
+    const fetchActiveExperiment = useCallback(async () => {
         if (!user) return;
         try {
             // Fetch active experiments
@@ -48,12 +48,12 @@ export function ActiveExperimentWidget() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [user]);
 
     useFocusEffect(
         useCallback(() => {
             fetchActiveExperiment();
-        }, [user])
+        }, [fetchActiveExperiment])
     );
 
     // Refresh when screen focuses? (Ideally handled by parent or query invalidation)

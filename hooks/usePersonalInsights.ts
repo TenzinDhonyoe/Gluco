@@ -8,7 +8,15 @@
  * - Fallback to rules-based insights
  */
 
-import { generateInsights, InsightData, PersonalInsight, TrackingMode } from '@/lib/insights';
+import {
+    generateInsights,
+    getInsightReadiness,
+    InsightData,
+    InsightGenerationOptions,
+    InsightReadiness,
+    PersonalInsight,
+    TrackingMode,
+} from '@/lib/insights';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -30,6 +38,7 @@ interface UsePersonalInsightsParams {
     enabled?: boolean;
     // Fallback data (only used if LLM fails)
     fallbackData?: InsightData;
+    generationOptions?: InsightGenerationOptions;
 }
 
 interface UsePersonalInsightsResult {
@@ -39,6 +48,7 @@ interface UsePersonalInsightsResult {
     loading: boolean;
     source: 'cache' | 'llm' | 'fallback' | 'none';
     dismissInsight: (id: string) => void;
+    insightReadiness: InsightReadiness;
 }
 
 export function usePersonalInsights({
@@ -47,6 +57,7 @@ export function usePersonalInsights({
     rangeKey,
     enabled = true,
     fallbackData,
+    generationOptions,
 }: UsePersonalInsightsParams): UsePersonalInsightsResult {
     const [insights, setInsights] = useState<PersonalInsight[]>([]);
     const [loading, setLoading] = useState(true);
@@ -60,14 +71,37 @@ export function usePersonalInsights({
     const lastKeyRef = useRef<string | null>(null);
     const mountedRef = useRef(true);
 
+    const experienceVariant = generationOptions?.experienceVariant ?? 'legacy';
+    const readinessLevel = generationOptions?.readinessLevel ?? 'medium';
+    const comBBarrier = generationOptions?.comBBarrier ?? 'unsure';
+    const showGlucoseAdvanced = generationOptions?.showGlucoseAdvanced ? '1' : '0';
+    const normalizedGenerationOptions = useMemo<InsightGenerationOptions>(() => ({
+        experienceVariant,
+        readinessLevel,
+        comBBarrier,
+        showGlucoseAdvanced: showGlucoseAdvanced === '1',
+    }), [experienceVariant, readinessLevel, comBBarrier, showGlucoseAdvanced]);
+
     // STABLE cache key - includes data counts so we regenerate when data loads
     const cacheKey = useMemo(() => {
         if (!userId) return null;
         // Include meal/glucose counts so key changes when data actually loads
         const mealCount = fallbackData?.totalMealsThisWeek ?? 0;
         const glucoseCount = fallbackData?.glucoseLogs?.length ?? 0;
-        return `insights:${CACHE_VERSION}:${userId}:${trackingMode}:${rangeKey}:m${mealCount}:g${glucoseCount}`;
-    }, [userId, trackingMode, rangeKey, fallbackData?.totalMealsThisWeek, fallbackData?.glucoseLogs?.length]);
+        const weightCount = fallbackData?.weightLogsCount ?? 0;
+        return `insights:${CACHE_VERSION}:${userId}:${trackingMode}:${rangeKey}:m${mealCount}:g${glucoseCount}:w${weightCount}:ev${experienceVariant}:r${readinessLevel}:b${comBBarrier}:ga${showGlucoseAdvanced}`;
+    }, [
+        userId,
+        trackingMode,
+        rangeKey,
+        fallbackData?.totalMealsThisWeek,
+        fallbackData?.glucoseLogs?.length,
+        fallbackData?.weightLogsCount,
+        experienceVariant,
+        readinessLevel,
+        comBBarrier,
+        showGlucoseAdvanced,
+    ]);
 
     // Stable fetch function
     const fetchInsights = useCallback(async (key: string) => {
@@ -100,7 +134,7 @@ export function usePersonalInsights({
             if (mountedRef.current) setLoading(true);
 
             if (fallbackData) {
-                const rulesInsights = generateInsights(fallbackData, trackingMode);
+                const rulesInsights = generateInsights(fallbackData, trackingMode, normalizedGenerationOptions);
 
                 if (rulesInsights.length > 0) {
                     // Write to cache
@@ -120,7 +154,7 @@ export function usePersonalInsights({
 
             // Fallback on error
             if (fallbackData && mountedRef.current) {
-                const rulesInsights = generateInsights(fallbackData, trackingMode);
+                const rulesInsights = generateInsights(fallbackData, trackingMode, normalizedGenerationOptions);
                 setInsights(rulesInsights);
                 setSource('fallback');
             }
@@ -128,7 +162,7 @@ export function usePersonalInsights({
             if (mountedRef.current) setLoading(false);
             inFlightRef.current = false;
         }
-    }, [trackingMode, rangeKey, fallbackData]);
+    }, [trackingMode, fallbackData, normalizedGenerationOptions]);
 
     // Effect with STABLE dependencies only
     useEffect(() => {
@@ -164,6 +198,12 @@ export function usePersonalInsights({
     // Secondary insights are the rest
     const secondaryInsights = activeInsights.slice(1);
 
+    // Insight readiness for new-user progress indicator
+    const insightReadiness = useMemo(() =>
+        getInsightReadiness(fallbackData ?? {}),
+        [fallbackData]
+    );
+
     return {
         insights: activeInsights,
         primaryInsight,
@@ -171,5 +211,6 @@ export function usePersonalInsights({
         loading,
         source,
         dismissInsight,
+        insightReadiness,
     };
 }

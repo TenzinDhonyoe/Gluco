@@ -4,7 +4,7 @@
 Schedule and handle local reminders for after-meal check-ins, and provide a screen for reviewing scheduled reminders.
 
 ## Entry Points
-- `app/onboarding-5.tsx` requests notification permissions as part of onboarding.
+- `app/onboarding-ai.tsx` sets `notifications_enabled` as part of onboarding completion.
 - `app/log-meal-review.tsx` schedules the post-meal reminder.
 - `app/notifications-list.tsx` lists pending notifications.
 
@@ -21,6 +21,6 @@ Schedule and handle local reminders for after-meal check-ins, and provide a scre
 ## Key Files
 - `app/notifications-list.tsx`
 - `app/notification-settings.tsx`
-- `app/onboarding-5.tsx`
+- `app/onboarding-ai.tsx`
 - `lib/notifications.ts`
 - `app/_layout.tsx`

@@ -493,6 +493,110 @@ Deno.serve(async (req) => {
             console.error('Failed to upsert calibration:', upsertError);
         }
 
+        // ============================================
+        // FOOD CATEGORY RESPONSE ANALYSIS
+        // ============================================
+        // Find top 5 meal tokens by average peak_delta
+        try {
+            const { data: reviewsWithTokens } = await supabase
+                .from('post_meal_reviews')
+                .select('meal_tokens, peak_delta')
+                .eq('user_id', userId)
+                .not('meal_tokens', 'is', null)
+                .not('peak_delta', 'is', null)
+                .order('created_at', { ascending: false })
+                .limit(100);
+
+            if (reviewsWithTokens && reviewsWithTokens.length >= 5) {
+                const tokenDeltas: Record<string, { sum: number; count: number }> = {};
+                for (const r of reviewsWithTokens) {
+                    const tokens: string[] = r.meal_tokens ?? [];
+                    const delta: number = r.peak_delta ?? 0;
+                    for (const token of tokens) {
+                        if (!tokenDeltas[token]) tokenDeltas[token] = { sum: 0, count: 0 };
+                        tokenDeltas[token].sum += delta;
+                        tokenDeltas[token].count += 1;
+                    }
+                }
+
+                const topResponseFoodCategories = Object.entries(tokenDeltas)
+                    .filter(([, v]) => v.count >= 2) // Require at least 2 observations
+                    .sort((a, b) => (b[1].sum / b[1].count) - (a[1].sum / a[1].count))
+                    .slice(0, 5)
+                    .map(([token]) => token);
+
+                if (topResponseFoodCategories.length > 0) {
+                    await supabase
+                        .from('user_calibration')
+                        .update({ top_response_food_categories: topResponseFoodCategories })
+                        .eq('user_id', userId);
+                }
+            }
+        } catch (err) {
+            console.warn('Failed to compute food category responses:', err);
+        }
+
+        // ============================================
+        // DAY-OF-WEEK GLUCOSE PATTERN ANALYSIS
+        // ============================================
+        try {
+            const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+            const { data: glucoseLogs } = await supabase
+                .from('glucose_logs')
+                .select('value, logged_at, context')
+                .eq('user_id', userId)
+                .gte('logged_at', thirtyDaysAgo)
+                .order('logged_at', { ascending: false });
+
+            if (glucoseLogs && glucoseLogs.length >= 7) {
+                const postMealLogs = glucoseLogs.filter((g: { context: string | null }) =>
+                    g.context === 'post_meal'
+                );
+                const fastingLogs = glucoseLogs.filter((g: { context: string | null }) =>
+                    g.context === 'fasting'
+                );
+
+                // Day-of-week grouping for post-meal logs
+                if (postMealLogs.length >= 5) {
+                    const dowAvg: Record<number, { sum: number; count: number }> = {};
+                    for (const g of postMealLogs) {
+                        const dow = new Date(g.logged_at).getDay();
+                        if (!dowAvg[dow]) dowAvg[dow] = { sum: 0, count: 0 };
+                        dowAvg[dow].sum += g.value;
+                        dowAvg[dow].count += 1;
+                    }
+
+                    const dowEntries = Object.entries(dowAvg)
+                        .filter(([, v]) => v.count >= 1)
+                        .map(([dow, v]) => ({ dow: Number(dow), avg: v.sum / v.count }))
+                        .sort((a, b) => a.avg - b.avg);
+
+                    const bestGlucoseDays = dowEntries.slice(0, 2).map(e => e.dow);
+                    const worstGlucoseDays = dowEntries.slice(-2).map(e => e.dow);
+
+                    // Compute overall averages
+                    const avgPostMealPeak = postMealLogs.length > 0
+                        ? Math.round((postMealLogs.reduce((s: number, g: { value: number }) => s + g.value, 0) / postMealLogs.length) * 10) / 10
+                        : null;
+                    const avgFastingGlucose = fastingLogs.length > 0
+                        ? Math.round((fastingLogs.reduce((s: number, g: { value: number }) => s + g.value, 0) / fastingLogs.length) * 10) / 10
+                        : null;
+
+                    await supabase
+                        .from('user_calibration')
+                        .update({
+                            best_glucose_days: bestGlucoseDays,
+                            worst_glucose_days: worstGlucoseDays,
+                            avg_post_meal_peak: avgPostMealPeak,
+                            avg_fasting_glucose: avgFastingGlucose,
+                        })
+                        .eq('user_id', userId);
+                }
+            }
+        } catch (err) {
+            console.warn('Failed to compute day-of-week glucose patterns:', err);
+        }
+
         // Generate meal tokens
         const mealTokens = buildMealTokens(
             review.meal_name || '',

@@ -1,23 +1,13 @@
-import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
-import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
+import { Colors } from '@/constants/Colors';
 import { fonts } from '@/hooks/useFonts';
 import {
-    getActiveMinutes,
-    getHRV,
-    getRestingHeartRate,
-    getSleepData,
-    getSteps,
-    initHealthKit,
     isHealthKitAvailable,
     requestHealthKitAuthorization
 } from '@/lib/healthkit';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    ActivityIndicator,
     Alert,
     Image,
     Platform,
@@ -27,24 +17,11 @@ import {
     Text,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function DataSourcesScreen() {
     // Toggle state for Apple Health integration
-    const [appleHealthEnabled, setAppleHealthEnabled] = useState(true);
+    const [appleHealthEnabled, setAppleHealthEnabled] = useState(false);
     const [isRequestingHealthAuth, setIsRequestingHealthAuth] = useState(false);
-    const [isRunningDiagnostics, setIsRunningDiagnostics] = useState(false);
-    const [diagnostics, setDiagnostics] = useState<{
-        isAvailable: boolean;
-        isAuthorized: boolean;
-        avgStepsPerDay: number | null;
-        avgActiveMinutes: number | null;
-        avgSleepHours: number | null;
-        avgRestingHR: number | null;
-        avgHRV: number | null;
-        error: string | null;
-    } | null>(null);
-
     // Load initial state
     React.useEffect(() => {
         let isMounted = true;
@@ -116,91 +93,9 @@ export default function DataSourcesScreen() {
         await AsyncStorage.setItem('apple_health_enabled', 'true');
     };
 
-    const handleBack = () => {
-        router.back();
-    };
-
-    const runDiagnostics = async () => {
-        if (isRunningDiagnostics) return;
-        setIsRunningDiagnostics(true);
-
-        const available = Platform.OS === 'ios' && isHealthKitAvailable();
-        if (!available) {
-            setDiagnostics({
-                isAvailable: false,
-                isAuthorized: false,
-                avgStepsPerDay: null,
-                avgActiveMinutes: null,
-                avgSleepHours: null,
-                avgRestingHR: null,
-                avgHRV: null,
-                error: 'HealthKit native module unavailable.',
-            });
-            setIsRunningDiagnostics(false);
-            return;
-        }
-
-        const authorized = await initHealthKit().catch(() => false);
-        if (!authorized) {
-            setDiagnostics({
-                isAvailable: true,
-                isAuthorized: false,
-                avgStepsPerDay: null,
-                avgActiveMinutes: null,
-                avgSleepHours: null,
-                avgRestingHR: null,
-                avgHRV: null,
-                error: 'HealthKit authorization failed or was denied.',
-            });
-            setIsRunningDiagnostics(false);
-            return;
-        }
-
-        const endDate = new Date();
-        const startDate = new Date();
-        startDate.setDate(endDate.getDate() - 7);
-
-        const [stepsData, sleepData, activeData, hrData, hrvData] = await Promise.all([
-            getSteps(startDate, endDate),
-            getSleepData(startDate, endDate),
-            getActiveMinutes(startDate, endDate),
-            getRestingHeartRate(startDate, endDate),
-            getHRV(startDate, endDate),
-        ]);
-
-        setDiagnostics({
-            isAvailable: true,
-            isAuthorized: true,
-            avgStepsPerDay: stepsData?.avgStepsPerDay ?? null,
-            avgActiveMinutes: activeData?.avgMinutesPerDay ?? null,
-            avgSleepHours: sleepData?.avgMinutesPerNight ? sleepData.avgMinutesPerNight / 60 : null,
-            avgRestingHR: hrData?.avgRestingHR ?? null,
-            avgHRV: hrvData?.avgHRV ?? null,
-            error: null,
-        });
-
-        setIsRunningDiagnostics(false);
-    };
-
     return (
         <View style={styles.container}>
-            {/* Background gradient */}
-            <LinearGradient
-                colors={['#1a1f24', '#181c20', '#111111']}
-                locations={[0, 0.3, 1]}
-                style={styles.backgroundGradient}
-            />
-
-            <SafeAreaView style={styles.safeArea} edges={['top']}>
-                {/* Header */}
-                <View style={styles.header}>
-                    <LiquidGlassIconButton size={44} onPress={handleBack}>
-                        <Ionicons name="chevron-back" size={22} color="#E7E8E9" />
-                    </LiquidGlassIconButton>
-                    <Text style={styles.headerTitle}>DATA SOURCES</Text>
-                    <View style={styles.headerSpacer} />
-                </View>
-
+            <View style={styles.safeArea}>
                 <ScrollView
                     style={styles.scrollView}
                     contentContainerStyle={styles.scrollContent}
@@ -227,8 +122,9 @@ export default function DataSourcesScreen() {
                                 value={appleHealthEnabled}
                                 onValueChange={handleToggle}
                                 disabled={isRequestingHealthAuth}
-                                trackColor={{ false: '#3A3D40', true: '#3494D9' }}
+                                trackColor={{ false: '#E5E5EA', true: Colors.primary }}
                                 thumbColor="#FFFFFF"
+                                ios_backgroundColor="#E5E5EA"
                             />
                         </View>
                     </View>
@@ -239,64 +135,14 @@ export default function DataSourcesScreen() {
                         <Text style={styles.sectionSubtitle}>(Manual Entry)</Text>
                     </View>
                     <View style={styles.infoCard}>
-                        <Ionicons name="finger-print-outline" size={24} color="#878787" />
+                        <Ionicons name="finger-print-outline" size={24} color={Colors.textSecondary} />
                         <Text style={styles.infoText}>
                             Log your glucose readings manually using the Log tab.
                         </Text>
                     </View>
 
-                    {/* HealthKit Diagnostics */}
-                    <Text style={styles.sectionTitle}>HEALTHKIT DIAGNOSTICS</Text>
-                    <View style={[styles.infoCard, styles.diagnosticsCard]}>
-                        <View style={styles.diagnosticsHeader}>
-                            <Ionicons name="pulse-outline" size={22} color="#878787" />
-                            <Text style={styles.diagnosticsTitle}>Quick check for TestFlight</Text>
-                        </View>
-                        <Text style={styles.infoText}>
-                            Runs a permission request and fetches a 7-day sample. Use this if Apple Health never prompts.
-                        </Text>
-                        <AnimatedPressable
-                            style={styles.diagnosticsButton}
-                            onPress={runDiagnostics}
-                            disabled={isRunningDiagnostics}
-                        >
-                            {isRunningDiagnostics ? (
-                                <ActivityIndicator color="#FFFFFF" />
-                            ) : (
-                                <Text style={styles.diagnosticsButtonText}>Run HealthKit Check</Text>
-                            )}
-                        </AnimatedPressable>
-                        {diagnostics && (
-                            <View style={styles.diagnosticsResults}>
-                                <Text style={styles.diagnosticsLine}>
-                                    Available: {diagnostics.isAvailable ? 'Yes' : 'No'}
-                                </Text>
-                                <Text style={styles.diagnosticsLine}>
-                                    Authorized: {diagnostics.isAuthorized ? 'Yes' : 'No'}
-                                </Text>
-                                <Text style={styles.diagnosticsLine}>
-                                    Steps avg: {diagnostics.avgStepsPerDay ?? '—'}
-                                </Text>
-                                <Text style={styles.diagnosticsLine}>
-                                    Activity avg: {diagnostics.avgActiveMinutes ?? '—'}
-                                </Text>
-                                <Text style={styles.diagnosticsLine}>
-                                    Sleep avg: {diagnostics.avgSleepHours ? diagnostics.avgSleepHours.toFixed(1) : '—'} hrs
-                                </Text>
-                                <Text style={styles.diagnosticsLine}>
-                                    Resting HR avg: {diagnostics.avgRestingHR ?? '—'}
-                                </Text>
-                                <Text style={styles.diagnosticsLine}>
-                                    HRV avg: {diagnostics.avgHRV ?? '—'}
-                                </Text>
-                                {diagnostics.error && (
-                                    <Text style={styles.diagnosticsError}>{diagnostics.error}</Text>
-                                )}
-                            </View>
-                        )}
-                    </View>
                 </ScrollView>
-            </SafeAreaView>
+            </View>
         </View>
     );
 }
@@ -304,46 +150,10 @@ export default function DataSourcesScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    backgroundGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 280,
+        backgroundColor: Colors.background,
     },
     safeArea: {
         flex: 1,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 16,
-    },
-    backButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 33,
-        backgroundColor: 'rgba(63, 66, 67, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.25,
-        shadowRadius: 2,
-        elevation: 2,
-    },
-    headerTitle: {
-        fontFamily: fonts.bold,
-        fontSize: 16,
-        color: '#FFFFFF',
-        letterSpacing: 2,
-    },
-    headerSpacer: {
-        width: 48,
     },
     scrollView: {
         flex: 1,
@@ -355,7 +165,7 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontFamily: fonts.bold,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         letterSpacing: 1,
         marginTop: 24,
         marginBottom: 12,
@@ -370,14 +180,14 @@ const styles = StyleSheet.create({
     sectionSubtitle: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         fontStyle: 'italic',
     },
     integrationCard: {
-        backgroundColor: '#1A1D1F',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#2A2D30',
+        borderColor: Colors.borderCard,
         overflow: 'hidden',
     },
     integrationRow: {
@@ -403,19 +213,19 @@ const styles = StyleSheet.create({
     integrationLabel: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     integrationDescription: {
         fontFamily: fonts.regular,
         fontSize: 12,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginTop: 2,
     },
     infoCard: {
-        backgroundColor: '#1A1D1F',
-        borderRadius: 12,
+        backgroundColor: Colors.backgroundCard,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: '#2A2D30',
+        borderColor: Colors.borderCard,
         padding: 16,
         flexDirection: 'row',
         alignItems: 'flex-start',
@@ -425,51 +235,7 @@ const styles = StyleSheet.create({
         flex: 1,
         fontFamily: fonts.regular,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         lineHeight: 20,
-    },
-    diagnosticsHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        marginBottom: 8,
-    },
-    diagnosticsTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#E7E8E9',
-    },
-    diagnosticsButton: {
-        marginTop: 12,
-        paddingVertical: 10,
-        borderRadius: 10,
-        backgroundColor: '#2A2D30',
-        alignItems: 'center',
-    },
-    diagnosticsButtonText: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: '#FFFFFF',
-    },
-    diagnosticsResults: {
-        marginTop: 12,
-        gap: 4,
-    },
-    diagnosticsLine: {
-        fontFamily: fonts.regular,
-        fontSize: 12,
-        color: '#B7B9BB',
-        flexWrap: 'wrap',
-    },
-    diagnosticsError: {
-        marginTop: 6,
-        fontFamily: fonts.regular,
-        fontSize: 12,
-        color: '#F44336',
-        flexWrap: 'wrap',
-    },
-    diagnosticsCard: {
-        flexDirection: 'column',
-        alignItems: 'stretch',
     },
 });

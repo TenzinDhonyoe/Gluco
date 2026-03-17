@@ -1,3 +1,4 @@
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { runLocalExperimentAnalysis } from '@/lib/experiment-analysis';
@@ -8,14 +9,13 @@ import {
     UserExperiment,
     VariantMetrics,
 } from '@/lib/supabase';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Dimensions,
     ScrollView,
     StyleSheet,
     Text,
@@ -23,8 +23,6 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function ExperimentResultsScreen() {
     const params = useLocalSearchParams();
@@ -41,11 +39,7 @@ export default function ExperimentResultsScreen() {
     } | null>(null);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        loadData();
-    }, [id, user]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         if (!id || typeof id !== 'string' || !user) return;
         try {
             const exp = await getUserExperiment(id);
@@ -72,11 +66,14 @@ export default function ExperimentResultsScreen() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [id, user]);
 
-    const handleSaveInsight = () => {
-        // TODO: Implement "Save to My Insights" logic (Phase 4)
-        Alert.alert('Insight Saved', 'This finding has been pinned to your dashboard for the week.');
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    const handleDone = () => {
+        triggerHaptic('medium');
         router.push('/(tabs)/' as any);
     };
 
@@ -103,10 +100,6 @@ export default function ExperimentResultsScreen() {
 
     return (
         <View style={styles.container}>
-            <LinearGradient
-                colors={['#1a1f24', '#111111']}
-                style={styles.background}
-            />
             <SafeAreaView style={styles.safeArea}>
                 <ScrollView contentContainerStyle={styles.content}>
 
@@ -172,11 +165,11 @@ export default function ExperimentResultsScreen() {
                         </View>
                     )}
 
-                    <TouchableOpacity style={styles.primaryButton} onPress={handleSaveInsight}>
-                        <Text style={styles.primaryButtonText}>Save this Insight</Text>
+                    <TouchableOpacity style={styles.primaryButton} onPress={handleDone}>
+                        <Text style={styles.primaryButtonText}>Done</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.secondaryButton} onPress={() => router.push('/experiments-list' as any)}>
+                    <TouchableOpacity style={styles.secondaryButton} onPress={() => { triggerHaptic(); router.push('/experiments-list' as any); }}>
                         <Text style={styles.secondaryButtonText}>Start New Experiment</Text>
                     </TouchableOpacity>
 
@@ -189,10 +182,7 @@ export default function ExperimentResultsScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#111111',
-    },
-    background: {
-        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'transparent',
     },
     safeArea: {
         flex: 1,
@@ -204,7 +194,7 @@ const styles = StyleSheet.create({
     eyebrow: {
         fontFamily: fonts.bold,
         fontSize: 12,
-        color: '#3494D9',
+        color: Colors.primary,
         letterSpacing: 1.5,
         textAlign: 'center',
         marginBottom: 8,
@@ -212,7 +202,7 @@ const styles = StyleSheet.create({
     title: {
         fontFamily: fonts.bold,
         fontSize: 28,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         textAlign: 'center',
         marginBottom: 32,
     },
@@ -222,7 +212,7 @@ const styles = StyleSheet.create({
         padding: 24,
         marginBottom: 32,
         borderWidth: 1,
-        borderColor: '#2A2D30',
+        borderColor: Colors.borderCard,
         alignItems: 'center',
     },
     cardHeader: {
@@ -234,7 +224,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: 100,
-        backgroundColor: '#2A2D30',
+        backgroundColor: Colors.borderCard,
     },
     badgeHigh: { backgroundColor: 'rgba(76, 175, 80, 0.2)' },
     badgeMod: { backgroundColor: 'rgba(255, 152, 0, 0.2)' },
@@ -251,7 +241,7 @@ const styles = StyleSheet.create({
     outcomeTitle: {
         fontFamily: fonts.bold,
         fontSize: 24,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginTop: 16,
         marginBottom: 12,
     },
@@ -265,14 +255,14 @@ const styles = StyleSheet.create({
     sectionHeader: {
         fontFamily: fonts.bold,
         fontSize: 14,
-        color: '#878787',
+        color: Colors.textTertiary,
         marginBottom: 16,
         marginLeft: 4,
     },
     actionCard: {
         flexDirection: 'row',
-        backgroundColor: '#1E1E1E',
-        borderRadius: 16,
+        backgroundColor: Colors.backgroundElevated,
+        borderRadius: 20,
         padding: 20,
         marginBottom: 24,
         gap: 16,
@@ -284,7 +274,7 @@ const styles = StyleSheet.create({
     actionTitle: {
         fontFamily: fonts.semiBold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
         marginBottom: 4,
     },
     actionDesc: {
@@ -293,12 +283,12 @@ const styles = StyleSheet.create({
         color: '#B0B3B5',
     },
     primaryButton: {
-        backgroundColor: '#3494D9',
-        borderRadius: 16,
+        backgroundColor: Colors.primary,
+        borderRadius: 20,
         paddingVertical: 18,
         alignItems: 'center',
         marginBottom: 16,
-        shadowColor: '#3494D9',
+        shadowColor: Colors.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
@@ -306,7 +296,7 @@ const styles = StyleSheet.create({
     primaryButtonText: {
         fontFamily: fonts.bold,
         fontSize: 16,
-        color: '#FFFFFF',
+        color: Colors.textPrimary,
     },
     secondaryButton: {
         paddingVertical: 16,
@@ -315,10 +305,10 @@ const styles = StyleSheet.create({
     secondaryButtonText: {
         fontFamily: fonts.medium,
         fontSize: 16,
-        color: '#3494D9',
+        color: Colors.primary,
     },
     errorText: {
-        color: '#F44336',
+        color: Colors.error,
         textAlign: 'center',
     },
 });
