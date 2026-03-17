@@ -187,3 +187,17 @@ All task tracking lives in `tasks/`.
 4. **Explain Changes**: High-level summary at each step.
 5. **Document Results**: Add review section to `tasks/todo.md`.
 6. **Capture Lessons**: Update `tasks/lessons.md` after any correction.
+
+## gstack
+
+Use the `/browse` skill from gstack for all web browsing. Never use `mcp__claude-in-chrome__*` tools.
+
+Available skills:
+- `/plan-ceo-review` — CEO-level plan review
+- `/plan-eng-review` — Engineering plan review
+- `/review` — Code review
+- `/ship` — Ship checklist
+- `/browse` — Headless browser for QA, testing, and web browsing
+- `/qa` — QA testing
+- `/setup-browser-cookies` — Configure browser cookies for authenticated testing
+- `/retro` — Retrospective
