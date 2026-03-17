@@ -159,6 +159,28 @@ function InsightProgressCard({ readiness }: { readiness: InsightReadiness }) {
 }
 
 // ============================================
+// CHAT CTA CARD (cold-start bridge)
+// ============================================
+
+function ChatCTACard() {
+    return (
+        <Pressable
+            style={styles.chatCtaCard}
+            onPress={() => router.push('/(tabs)/chat' as any)}
+        >
+            <View style={styles.chatCtaIconContainer}>
+                <Ionicons name="chatbubbles-outline" size={20} color={Colors.primary} />
+            </View>
+            <View style={styles.chatCtaContent}>
+                <Text style={styles.chatCtaTitle}>Not sure what to log next?</Text>
+                <Text style={styles.chatCtaSubtext}>Your coach knows your patterns</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="rgba(60, 60, 67, 0.4)" />
+        </Pressable>
+    );
+}
+
+// ============================================
 // EMPTY STATE
 // ============================================
 
@@ -217,12 +239,13 @@ export function PersonalInsightsCarousel({
         );
     }
 
-    // New-user progress indicator
+    // New-user progress indicator + chat CTA bridge
     if (insightReadiness && !insightReadiness.ready && !primaryInsight) {
         return (
             <View style={styles.container}>
                 <Text style={styles.sectionTitle}>BEST NEXT STEP</Text>
                 <InsightProgressCard readiness={insightReadiness} />
+                <ChatCTACard />
             </View>
         );
     }
@@ -551,6 +574,40 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: Colors.textSecondary,
         textAlign: 'center',
+    },
+    // Chat CTA Card (cold-start bridge)
+    chatCtaCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.70)',
+        borderRadius: 16,
+        padding: 14,
+        gap: 12,
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.5)',
+        marginTop: 10,
+    },
+    chatCtaIconContainer: {
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        backgroundColor: 'rgba(45, 212, 191, 0.1)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    chatCtaContent: {
+        flex: 1,
+    },
+    chatCtaTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 15,
+        color: '#1C1C1E',
+    },
+    chatCtaSubtext: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: '#8E8E93',
+        marginTop: 1,
     },
     // Disclaimer
     disclaimerText: {

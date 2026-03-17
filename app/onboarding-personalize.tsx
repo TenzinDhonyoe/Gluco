@@ -2,14 +2,15 @@ import { PAYWALL_ENABLED } from '@/app/index';
 import { FadeText } from '@/components/reacticx/organisms/fade-text';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
+import { BlurView } from 'expo-blur';
 import { fonts } from '@/hooks/useFonts';
-import { invokeOnboardingPlan } from '@/lib/supabase';
+import { getMeals, invokeOnboardingPlan } from '@/lib/supabase';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
     Easing,
     FadeIn,
@@ -157,8 +158,10 @@ export default function OnboardingPersonalizeScreen() {
     // Phase state
     const [phase, setPhase] = useState<'steps' | 'teaser'>('steps');
     const [planResult, setPlanResult] = useState<OnboardingPlanResult | null>(null);
+    const [showFirstMealPrompt, setShowFirstMealPrompt] = useState(false);
     const stepsAnimDone = useRef(false);
     const aiDone = useRef(false);
+    const hasCheckedMeals = useRef(false);
 
     const firstName = profile?.first_name?.trim() || null;
     const greeting = firstName ? `Creating your plan, ${firstName}...` : 'Creating your plan...';
@@ -347,8 +350,21 @@ export default function OnboardingPersonalizeScreen() {
 
                             <Pressable
                                 style={styles.continueButton}
-                                onPress={() => {
+                                onPress={async () => {
                                     triggerHaptic('medium');
+                                    // Check if user has any meals — show first-meal prompt if not
+                                    if (!hasCheckedMeals.current && profile?.id) {
+                                        hasCheckedMeals.current = true;
+                                        try {
+                                            const meals = await getMeals(profile.id, 1);
+                                            if (meals.length === 0) {
+                                                setShowFirstMealPrompt(true);
+                                                return;
+                                            }
+                                        } catch {
+                                            // If check fails, just continue normally
+                                        }
+                                    }
                                     navigate();
                                 }}
                             >
@@ -364,6 +380,59 @@ export default function OnboardingPersonalizeScreen() {
                     </View>
                 </View>
             </SafeAreaView>
+
+            {/* First-meal prompt modal */}
+            <Modal
+                visible={showFirstMealPrompt}
+                transparent
+                animationType="fade"
+                onRequestClose={() => {
+                    setShowFirstMealPrompt(false);
+                    navigate();
+                }}
+            >
+                <Pressable
+                    style={styles.modalBackdrop}
+                    onPress={() => {
+                        setShowFirstMealPrompt(false);
+                        navigate();
+                    }}
+                >
+                    <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
+                        <BlurView intensity={80} tint="light" style={StyleSheet.absoluteFill} />
+                        <View style={styles.modalHandle} />
+                        <Ionicons name="camera-outline" size={36} color={Colors.primary} style={{ marginBottom: 12 }} />
+                        <Text style={styles.modalTitle}>Ready to log your first meal?</Text>
+                        <Text style={styles.modalSubtext}>
+                            Snap a photo and see what AI can tell you about your food
+                        </Text>
+                        <Pressable
+                            style={styles.modalPrimaryButton}
+                            onPress={() => {
+                                triggerHaptic('medium');
+                                setShowFirstMealPrompt(false);
+                                router.push('/meal-scanner' as never);
+                                // Brief delay before replacing this screen with paywall/home.
+                                // The scanner opens on top; replace happens underneath so when
+                                // the user returns from scanner they land on paywall/home.
+                                setTimeout(() => navigate(), 500);
+                            }}
+                        >
+                            <Ionicons name="camera" size={18} color="#fff" />
+                            <Text style={styles.modalPrimaryButtonText}>Take a photo</Text>
+                        </Pressable>
+                        <Pressable
+                            style={styles.modalSkipButton}
+                            onPress={() => {
+                                setShowFirstMealPrompt(false);
+                                navigate();
+                            }}
+                        >
+                            <Text style={styles.modalSkipText}>Skip for now</Text>
+                        </Pressable>
+                    </Pressable>
+                </Pressable>
+            </Modal>
         </View>
     );
 }
@@ -476,7 +545,7 @@ const styles = StyleSheet.create({
         color: Colors.primary,
     },
     continueButton: {
-        backgroundColor: Colors.primary,
+        backgroundColor: Colors.buttonAction,
         borderRadius: 16,
         paddingVertical: 16,
         alignItems: 'center',
@@ -485,7 +554,71 @@ const styles = StyleSheet.create({
     continueButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 17,
-        color: '#fff',
+        color: Colors.buttonActionText,
+    },
+
+    // First-meal prompt modal
+    modalBackdrop: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.4)',
+        justifyContent: 'flex-end',
+    },
+    modalSheet: {
+        backgroundColor: Colors.backgroundCardGlass,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingHorizontal: 24,
+        paddingTop: 12,
+        paddingBottom: 40,
+        alignItems: 'center',
+        overflow: 'hidden',
+    },
+    modalHandle: {
+        width: 36,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: 'rgba(0, 0, 0, 0.15)',
+        marginBottom: 20,
+    },
+    modalTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 20,
+        color: Colors.textPrimary,
+        textAlign: 'center',
+        marginBottom: 8,
+    },
+    modalSubtext: {
+        fontFamily: fonts.regular,
+        fontSize: 15,
+        color: Colors.textSecondary,
+        textAlign: 'center',
+        lineHeight: 22,
+        marginBottom: 24,
+        paddingHorizontal: 12,
+    },
+    modalPrimaryButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        backgroundColor: Colors.buttonAction,
+        borderRadius: 16,
+        paddingVertical: 16,
+        width: '100%',
+        marginBottom: 12,
+    },
+    modalPrimaryButtonText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 17,
+        color: Colors.buttonActionText,
+    },
+    modalSkipButton: {
+        paddingVertical: 12,
+    },
+    modalSkipText: {
+        fontFamily: fonts.medium,
+        fontSize: 15,
+        color: Colors.textSecondary,
     },
 
     // Progress bar
