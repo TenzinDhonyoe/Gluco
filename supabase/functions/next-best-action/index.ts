@@ -8,6 +8,7 @@ import { callGenAI } from '../_shared/genai.ts';
 import { containsBannedTerms } from '../_shared/safety.ts';
 import { buildUserContext, type UserContextObject } from '../_shared/user-context.ts';
 import { assemblePrompt } from '../_shared/coaching-prompt.ts';
+import { sanitizeForPrompt } from '../_shared/sanitize-prompt.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -332,7 +333,7 @@ serve(async (req) => {
         // Program awareness
         let programInstruction = '';
         if (ctx.active_pathway) {
-            programInstruction = `\nThe user is enrolled in "${ctx.active_pathway.title}" (day ${ctx.active_pathway.day_number}/${ctx.active_pathway.total_days}). Bias toward actions that complement this program.`;
+            programInstruction = `\nThe user is enrolled in "${sanitizeForPrompt(ctx.active_pathway.title, 100)}" (day ${ctx.active_pathway.day_number}/${ctx.active_pathway.total_days}). Bias toward actions that complement this program.`;
         }
 
         // Day-of-week glucose pattern awareness

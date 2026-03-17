@@ -71,7 +71,12 @@ async function scoreSingleMeal(
     if (!result.sufficient) return;
 
     // Build meal tokens for similarity matching
-    const items = await getMealItems(meal.id);
+    let items: { display_name: string }[] = [];
+    try {
+        items = await getMealItems(meal.id);
+    } catch (err) {
+        console.warn(`Failed to fetch meal items for ${meal.id}:`, err);
+    }
     const mealTokens = buildMealTokens(
         meal.name,
         items.map(i => i.display_name),

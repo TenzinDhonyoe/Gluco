@@ -7,6 +7,7 @@ import { isAiEnabled } from '../_shared/ai.ts';
 import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { containsBannedTerms } from '../_shared/safety.ts';
 import { callGenAI } from '../_shared/genai.ts';
+import { sanitizeForPrompt, sanitizeArrayForPrompt } from '../_shared/sanitize-prompt.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -63,7 +64,7 @@ const BARRIER_LABELS: Record<string, string> = {
 function getGoalBasedFallback(profile: ProfileData): OnboardingPlanResult {
     const goalKey = profile.goals?.[0] || 'eat_healthier';
     const goalLabel = GOAL_LABELS[goalKey] || goalKey.replace(/_/g, ' ');
-    const firstName = profile.first_name?.trim() || '';
+    const firstName = sanitizeForPrompt(profile.first_name, 50);
     const nameClause = firstName ? `, ${firstName}` : '';
     const trackingLabel = profile.tracking_mode ? (TRACKING_LABELS[profile.tracking_mode] || 'meal tracking') : 'meal tracking';
     const coachingLabel = profile.coaching_style ? (COACHING_LABELS[profile.coaching_style] || 'balanced') : 'balanced';
@@ -88,13 +89,13 @@ async function generatePlanWithGemini(profile: ProfileData): Promise<OnboardingP
     const trackingLabel = profile.tracking_mode ? (TRACKING_LABELS[profile.tracking_mode] || 'meal tracking') : 'meal tracking';
     const coachingLabel = profile.coaching_style ? (COACHING_LABELS[profile.coaching_style] || 'balanced') : 'balanced';
     const barrierLabel = profile.com_b_barrier ? (BARRIER_LABELS[profile.com_b_barrier] || 'getting started') : null;
-    const firstName = profile.first_name?.trim() || '';
+    const firstName = sanitizeForPrompt(profile.first_name, 50);
 
     const dietaryInfo = profile.dietary_preferences?.length
-        ? `Dietary preferences: ${profile.dietary_preferences.join(', ')}.`
+        ? `Dietary preferences: ${sanitizeArrayForPrompt(profile.dietary_preferences, 10, 100).join(', ')}.`
         : '';
     const culturalInfo = profile.cultural_food_context
-        ? `Cultural food context: ${profile.cultural_food_context}.`
+        ? `Cultural food context: ${sanitizeForPrompt(profile.cultural_food_context, 200)}.`
         : '';
     const barrierInfo = barrierLabel
         ? `Their main challenge is ${barrierLabel}.`

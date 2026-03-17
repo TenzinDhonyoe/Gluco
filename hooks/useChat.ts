@@ -86,6 +86,8 @@ const SUGGESTED_PROMPTS: SuggestedPrompt[] = [
 // Helpers
 // ============================================
 
+const SEND_COOLDOWN_MS = 3000;
+
 let idCounter = 0;
 function generateId(): string {
     idCounter += 1;
@@ -137,6 +139,8 @@ export function useChat(
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const initialized = useRef(false);
+    const isSendingRef = useRef(false);
+    const lastSendTimestamp = useRef(0);
 
     // Cached block context with 60s TTL
     const blockCtxCache = useRef<{ ctx: ChatBlockContext; ts: number } | null>(null);
@@ -204,117 +208,127 @@ export function useChat(
         async (text: string) => {
             if (!userId || !text.trim() || !aiEnabled) return;
 
+            // Prevent double-send and enforce cooldown
+            if (isSendingRef.current) return;
+            const now = Date.now();
+            if (now - lastSendTimestamp.current < SEND_COOLDOWN_MS) return;
+            isSendingRef.current = true;
+            lastSendTimestamp.current = now;
+
             const trimmed = text.trim();
 
-            // Ensure a session exists (create on first message)
-            let currentSession = sessionRef.current;
-            if (!currentSession) {
-                currentSession = await createChatSession(userId);
-                if (currentSession) {
-                    setSession(currentSession);
-                }
-            }
-
-            // Add user message optimistically
-            const userMsg: ChatMessage = {
-                id: generateId(),
-                role: 'user',
-                content: trimmed,
-                timestamp: Date.now(),
-                status: 'sent',
-            };
-            setMessages(prev => [...prev, userMsg]);
-            setIsTyping(true);
-            setError(null);
-
-            // Persist user message to DB
-            let savedUserMsgId: string | null = null;
-            if (currentSession) {
-                const saved = await saveChatMessage(
-                    currentSession.id,
-                    userId,
-                    'user',
-                    trimmed
-                );
-                savedUserMsgId = saved?.id ?? null;
-            }
-
-            // Build conversation history (last 20 turns, excluding welcome and errors)
-            const relevant = messagesRef.current.filter(
-                m => m.id !== 'welcome' && m.status !== 'error'
-            );
-            const history: Array<{ role: 'user' | 'model'; content: string }> = relevant
-                .slice(-19)
-                .map(m => ({
-                    role: m.role === 'user' ? ('user' as const) : ('model' as const),
-                    content: m.content,
-                }));
-            // Add current message
-            history.push({ role: 'user', content: trimmed });
-
             try {
-                const response = await sendChatMessage({
-                    user_id: userId,
-                    message: trimmed,
-                    conversation_history: history,
-                    local_hour: new Date().getHours(),
-                    session_id: currentSession?.id,
-                });
-
-                if (response?.reply) {
-                    const aiMsg: ChatMessage = {
-                        id: generateId(),
-                        role: 'assistant',
-                        content: response.reply,
-                        timestamp: Date.now(),
-                        status: 'sent',
-                    };
-
-                    // Attach blocks: server-returned blocks take priority,
-                    // fall back to client-side keyword matching
-                    if (response.blocks && response.blocks.length > 0) {
-                        aiMsg.blocks = response.blocks;
-                    } else {
-                        try {
-                            const ctx = await getOrRefreshBlockContext(userId);
-                            const clientBlocks = attachBlocksClient(response.reply, ctx);
-                            if (clientBlocks.length > 0) {
-                                aiMsg.blocks = clientBlocks;
-                            }
-                        } catch {
-                            // Blocks are non-critical — never break chat
-                        }
-                    }
-
-                    setMessages(prev => [...prev, aiMsg]);
-
-                    // Persist AI response to DB
+                // Ensure a session exists (create on first message)
+                let currentSession = sessionRef.current;
+                if (!currentSession) {
+                    currentSession = await createChatSession(userId);
                     if (currentSession) {
-                        saveChatMessage(
-                            currentSession.id,
-                            userId,
-                            'assistant',
-                            response.reply,
-                            'sent',
-                            aiMsg.blocks
-                        );
+                        setSession(currentSession);
                     }
-                } else {
-                    throw new Error('No response');
                 }
-            } catch {
-                setError('Could not get a response. Please try again.');
-                setMessages(prev =>
-                    prev.map(m =>
-                        m.id === userMsg.id ? { ...m, status: 'error' as const } : m
-                    )
+
+                // Add user message optimistically
+                const userMsg: ChatMessage = {
+                    id: generateId(),
+                    role: 'user',
+                    content: trimmed,
+                    timestamp: Date.now(),
+                    status: 'sent',
+                };
+                setMessages(prev => [...prev, userMsg]);
+                setIsTyping(true);
+                setError(null);
+
+                // Persist user message to DB
+                let savedUserMsgId: string | null = null;
+                if (currentSession) {
+                    const saved = await saveChatMessage(
+                        currentSession.id,
+                        userId,
+                        'user',
+                        trimmed
+                    );
+                    savedUserMsgId = saved?.id ?? null;
+                }
+
+                // Build conversation history (last 20 turns, excluding welcome and errors)
+                const relevant = messagesRef.current.filter(
+                    m => m.id !== 'welcome' && m.status !== 'error'
                 );
-                // Update status in DB
-                if (savedUserMsgId) {
-                    updateChatMessageStatus(savedUserMsgId, 'error', userId);
+                const history: Array<{ role: 'user' | 'model'; content: string }> = relevant
+                    .slice(-19)
+                    .map(m => ({
+                        role: m.role === 'user' ? ('user' as const) : ('model' as const),
+                        content: m.content,
+                    }));
+                // Add current message
+                history.push({ role: 'user', content: trimmed });
+
+                try {
+                    const response = await sendChatMessage({
+                        user_id: userId,
+                        message: trimmed,
+                        conversation_history: history,
+                        local_hour: new Date().getHours(),
+                        session_id: currentSession?.id,
+                    });
+
+                    if (response?.reply) {
+                        const aiMsg: ChatMessage = {
+                            id: generateId(),
+                            role: 'assistant',
+                            content: response.reply,
+                            timestamp: Date.now(),
+                            status: 'sent',
+                        };
+
+                        // Attach blocks: server-returned blocks take priority,
+                        // fall back to client-side keyword matching
+                        if (response.blocks && response.blocks.length > 0) {
+                            aiMsg.blocks = response.blocks;
+                        } else {
+                            try {
+                                const ctx = await getOrRefreshBlockContext(userId);
+                                const clientBlocks = attachBlocksClient(response.reply, ctx);
+                                if (clientBlocks.length > 0) {
+                                    aiMsg.blocks = clientBlocks;
+                                }
+                            } catch {
+                                // Blocks are non-critical — never break chat
+                            }
+                        }
+
+                        setMessages(prev => [...prev, aiMsg]);
+
+                        // Persist AI response to DB
+                        if (currentSession) {
+                            saveChatMessage(
+                                currentSession.id,
+                                userId,
+                                'assistant',
+                                response.reply,
+                                'sent',
+                                aiMsg.blocks
+                            );
+                        }
+                    } else {
+                        throw new Error('No response');
+                    }
+                } catch {
+                    setError('Could not get a response. Please try again.');
+                    setMessages(prev =>
+                        prev.map(m =>
+                            m.id === userMsg.id ? { ...m, status: 'error' as const } : m
+                        )
+                    );
+                    // Update status in DB
+                    if (savedUserMsgId) {
+                        updateChatMessageStatus(savedUserMsgId, 'error', userId);
+                    }
                 }
             } finally {
                 setIsTyping(false);
+                isSendingRef.current = false;
             }
         },
         [userId, aiEnabled]

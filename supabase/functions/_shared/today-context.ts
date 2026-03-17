@@ -3,6 +3,7 @@
 // Designed to run in parallel with buildUserContext().
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { sanitizeForPrompt } from './sanitize-prompt.ts';
 
 // ============================================
 // Types
@@ -305,10 +306,10 @@ export function serializeTodayContextForPrompt(ctx: TodayContextObject): string 
             if (meal.fiber_g !== null) nutritionParts.push(`${Math.round(meal.fiber_g)}g fiber`);
 
             const nutrition = nutritionParts.length > 0 ? ` — ${nutritionParts.join(', ')}` : '';
-            lines.push(`- ${type} (${time}): "${meal.name}"${nutrition}`);
+            lines.push(`- ${type} (${time}): "${sanitizeForPrompt(meal.name, 150)}"${nutrition}`);
 
             if (meal.items.length > 0) {
-                const itemNames = meal.items.map(i => `${i.display_name} (${i.quantity}${i.unit})`).join(', ');
+                const itemNames = meal.items.map(i => `${sanitizeForPrompt(i.display_name, 100)} (${i.quantity}${i.unit})`).join(', ');
                 lines.push(`  Items: ${itemNames}`);
             }
         }
@@ -320,7 +321,7 @@ export function serializeTodayContextForPrompt(ctx: TodayContextObject): string 
     if (ctx.checkins.length > 0) {
         lines.push(`\n### Check-ins`);
         for (const c of ctx.checkins) {
-            const type = c.meal_type ? capitalize(c.meal_type) : c.meal_name;
+            const type = c.meal_type ? capitalize(c.meal_type) : sanitizeForPrompt(c.meal_name, 100);
             const parts: string[] = [];
             if (c.energy) parts.push(`Energy ${c.energy}`);
             if (c.fullness) parts.push(`Fullness ${c.fullness}`);
@@ -330,7 +331,7 @@ export function serializeTodayContextForPrompt(ctx: TodayContextObject): string 
             else if (c.movement_after === false) parts.push(`Walked after: no`);
 
             lines.push(`- ${type}: ${parts.join(', ')}`);
-            if (c.notes) lines.push(`  Notes: "${c.notes}"`);
+            if (c.notes) lines.push(`  Notes: "${sanitizeForPrompt(c.notes, 200)}"`);
         }
     }
 
@@ -351,7 +352,7 @@ export function serializeTodayContextForPrompt(ctx: TodayContextObject): string 
             const duration = a.duration_minutes ? `${a.duration_minutes} min` : '';
             const intensity = a.intensity ? ` (${a.intensity})` : '';
             const time = formatTime(a.logged_at);
-            lines.push(`- ${a.activity_name}: ${duration}${intensity} at ${time}`);
+            lines.push(`- ${sanitizeForPrompt(a.activity_name, 100)}: ${duration}${intensity} at ${time}`);
         }
     }
 

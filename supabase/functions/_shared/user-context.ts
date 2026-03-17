@@ -2,6 +2,7 @@
 // Builds a unified user context object sent with every AI personalization call.
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { sanitizeForPrompt, sanitizeArrayForPrompt } from './sanitize-prompt.ts';
 
 // ============================================
 // Types
@@ -550,21 +551,21 @@ export function serializeContextForPrompt(ctx: UserContextObject): string {
     const lines: string[] = [];
 
     lines.push(`## User Profile`);
-    if (ctx.first_name) lines.push(`Name: ${ctx.first_name}`);
+    if (ctx.first_name) lines.push(`Name: ${sanitizeForPrompt(ctx.first_name, 50)}`);
     lines.push(`Journey: ${ctx.journey_stage} (day ${ctx.days_since_signup})`);
     lines.push(`Tone: ${ctx.tone_mode}`);
     if (ctx.days_since_last_session > 1) lines.push(`Days since last session: ${ctx.days_since_last_session}`);
     lines.push(`Tracking mode: ${ctx.tracking_mode}`);
-    if (ctx.com_b_barrier) lines.push(`COM-B barrier: ${ctx.com_b_barrier}`);
-    if (ctx.readiness_level) lines.push(`Readiness: ${ctx.readiness_level}`);
-    if (ctx.coaching_style) lines.push(`Coaching style: ${ctx.coaching_style}`);
-    if (ctx.primary_habit) lines.push(`Primary habit: ${ctx.primary_habit}`);
-    if (ctx.prompt_window) lines.push(`Preferred prompt window: ${ctx.prompt_window}`);
+    if (ctx.com_b_barrier) lines.push(`COM-B barrier: ${sanitizeForPrompt(ctx.com_b_barrier, 50)}`);
+    if (ctx.readiness_level) lines.push(`Readiness: ${sanitizeForPrompt(ctx.readiness_level, 50)}`);
+    if (ctx.coaching_style) lines.push(`Coaching style: ${sanitizeForPrompt(ctx.coaching_style, 50)}`);
+    if (ctx.primary_habit) lines.push(`Primary habit: ${sanitizeForPrompt(ctx.primary_habit, 100)}`);
+    if (ctx.prompt_window) lines.push(`Preferred prompt window: ${sanitizeForPrompt(ctx.prompt_window, 50)}`);
 
     if (ctx.dietary_preferences.length > 0) {
         lines.push(`\n## Dietary Preferences`);
-        lines.push(`Preferences: ${ctx.dietary_preferences.join(', ')}`);
-        if (ctx.cultural_food_context) lines.push(`Cultural context: ${ctx.cultural_food_context}`);
+        lines.push(`Preferences: ${sanitizeArrayForPrompt(ctx.dietary_preferences, 10, 100).join(', ')}`);
+        if (ctx.cultural_food_context) lines.push(`Cultural context: ${sanitizeForPrompt(ctx.cultural_food_context, 200)}`);
     }
 
     lines.push(`\n## 7-Day Patterns`);
@@ -604,7 +605,7 @@ export function serializeContextForPrompt(ctx: UserContextObject): string {
 
     if (ctx.top_response_food_categories.length > 0) {
         lines.push(`\n## Food Response Patterns`);
-        lines.push(`Top response foods: ${ctx.top_response_food_categories.join(', ')}`);
+        lines.push(`Top response foods: ${sanitizeArrayForPrompt(ctx.top_response_food_categories, 10, 100).join(', ')}`);
         if (ctx.best_glucose_days.length > 0) {
             const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
             lines.push(`Best glucose days: ${ctx.best_glucose_days.map(d => dayNames[d]).join(', ')}`);
@@ -617,7 +618,7 @@ export function serializeContextForPrompt(ctx: UserContextObject): string {
 
     if (ctx.active_pathway) {
         lines.push(`\n## Active Program`);
-        lines.push(`${ctx.active_pathway.title}: day ${ctx.active_pathway.day_number}/${ctx.active_pathway.total_days}`);
+        lines.push(`${sanitizeForPrompt(ctx.active_pathway.title, 100)}: day ${ctx.active_pathway.day_number}/${ctx.active_pathway.total_days}`);
     }
 
     lines.push(`\n## Engagement`);
