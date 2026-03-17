@@ -3,6 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { GoogleGenAI } from 'npm:@google/genai@1.38.0';
 import { requireUser } from '../_shared/auth.ts';
 import { enforceNutrientLimits, NUTRIENT_LIMITS } from '../_shared/nutrition-validation.ts';
+import { buildGeminiUsageTelemetry, summarizeModalityTokens } from '../_shared/genai-telemetry.ts';
 // Note: AI enabled check removed - label scanning is available to all users
 
 /**
@@ -243,6 +244,22 @@ Deno.serve(async (req) => {
                     responseMimeType: 'application/json',
                 },
             });
+            const usageTelemetry = buildGeminiUsageTelemetry(response, model);
+            if (usageTelemetry) {
+                const modalitySummary = summarizeModalityTokens(usageTelemetry.usage);
+                console.log(JSON.stringify({
+                    timestamp: new Date().toISOString(),
+                    level: 'INFO',
+                    message: 'Gemini label parse usage',
+                    model,
+                    promptTokenCount: usageTelemetry.usage.prompt_token_count,
+                    outputTokenCount: usageTelemetry.usage.output_token_count,
+                    totalTokenCount: usageTelemetry.usage.total_token_count,
+                    promptTextTokens: modalitySummary.prompt_text_tokens,
+                    promptImageTokens: modalitySummary.prompt_image_tokens,
+                    estimatedCostUsd: usageTelemetry.estimated_cost.total_cost_usd,
+                }));
+            }
 
             textContent = response.text || '';
         } catch (error) {

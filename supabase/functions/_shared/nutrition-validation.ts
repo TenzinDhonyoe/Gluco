@@ -283,6 +283,33 @@ export const COMMON_FOOD_REFERENCES: Record<string, { min: number; max: number }
     'apple': { min: 70, max: 130 },
     'banana': { min: 90, max: 140 },
     'orange': { min: 50, max: 100 },
+    'papaya': { min: 30, max: 200 },
+    'mango': { min: 50, max: 200 },
+    'pineapple': { min: 40, max: 200 },
+    'watermelon': { min: 30, max: 200 },
+    'guava': { min: 25, max: 120 },
+    'kiwi': { min: 35, max: 90 },
+    'grapes': { min: 50, max: 200 },
+    'strawberry': { min: 5, max: 60 },
+    'blueberry': { min: 30, max: 130 },
+
+    // Dairy & Protein
+    'yogurt': { min: 80, max: 300 },
+    'cheese': { min: 50, max: 250 },
+    'milk': { min: 80, max: 200 },
+    'egg': { min: 60, max: 100 },
+
+    // Breakfast
+    'toast': { min: 60, max: 200 },
+    'oatmeal': { min: 100, max: 350 },
+    'cereal': { min: 100, max: 300 },
+
+    // Indian foods
+    'roti': { min: 70, max: 140 },
+    'chapati': { min: 70, max: 140 },
+    'dosa': { min: 100, max: 250 },
+    'idli': { min: 30, max: 80 },
+    'dal': { min: 100, max: 300 },
 
     // Meals
     'sandwich': { min: 200, max: 700 },
