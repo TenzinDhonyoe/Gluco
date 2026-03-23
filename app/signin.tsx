@@ -11,6 +11,7 @@ import { RESET_PASSWORD_REDIRECT_URI } from '@/lib/deeplinks';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { navigateToApp } from '@/lib/navigation';
 import React, { useState } from 'react';
 import {
     Alert,
@@ -49,7 +50,7 @@ export default function SignInScreen() {
 
             // Navigate directly to the appropriate screen
             if (onboardingComplete) {
-                router.replace('/(tabs)' as never);
+                navigateToApp();
             } else {
                 router.replace('/onboarding-profile' as never);
             }
@@ -78,7 +79,7 @@ export default function SignInScreen() {
 
             // Navigate directly to the appropriate screen
             if (onboardingComplete) {
-                router.replace('/(tabs)' as never);
+                navigateToApp();
             } else {
                 router.replace('/onboarding-profile' as never);
             }

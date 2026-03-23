@@ -7,6 +7,7 @@ import { fonts } from '@/hooks/useFonts';
 import { COMBBarrier, createUserAction, ReadinessLevel, updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { navigateToApp } from '@/lib/navigation';
 import React, { useMemo, useState } from 'react';
 import {
     ActivityIndicator,
@@ -122,7 +123,7 @@ export default function FrameworkResetScreen() {
                 window_end: windowEnd,
             });
 
-            router.replace('/(tabs)' as never);
+            navigateToApp();
         } catch (error) {
             console.error('Error completing framework reset:', error);
             Alert.alert('Could not save setup', 'Please try again.');

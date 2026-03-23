@@ -5,7 +5,7 @@ import { fonts } from '@/hooks/useFonts';
 import { supabase } from '@/lib/supabase';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
+import { navigateToApp } from '@/lib/navigation';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -48,7 +48,7 @@ export default function PaywallScreen() {
 
     const markSeenAndNavigate = async () => {
         await AsyncStorage.setItem(PAYWALL_SEEN_KEY, 'true');
-        router.replace('/(tabs)');
+        navigateToApp();
     };
 
     const handleSignOut = async () => {
@@ -56,7 +56,7 @@ export default function PaywallScreen() {
         try {
             await supabase.auth.signOut();
             await AsyncStorage.removeItem(PAYWALL_SEEN_KEY);
-            router.replace('/');
+            navigateToApp('/');
         } catch (error) {
             Alert.alert('Sign Out Error', String(error));
         }
@@ -89,7 +89,7 @@ export default function PaywallScreen() {
             await AsyncStorage.clear();
             try { await Purchases.logOut(); } catch { /* may not be logged in */ }
             await supabase.auth.signOut();
-            router.replace('/');
+            navigateToApp('/');
         } catch (error) {
             Alert.alert('Reset Error', String(error));
         }

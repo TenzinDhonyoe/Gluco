@@ -8,6 +8,7 @@ import { deleteUserData, exportUserData, getUserProfile, resetUserLearning, supa
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
+import { navigateToApp } from '@/lib/navigation';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -226,7 +227,7 @@ export default function AccountPrivacyScreen() {
                                             await signOut();
 
                                             // Navigate to welcome screen
-                                            router.replace('/');
+                                            navigateToApp('/');
 
                                             Alert.alert('Account Deleted', 'Your account and all data have been deleted.');
                                         } catch {

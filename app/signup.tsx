@@ -9,6 +9,7 @@ import { fonts } from '@/hooks/useFonts';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { navigateToApp } from '@/lib/navigation';
 import React, { useMemo, useState } from 'react';
 import {
     Alert,
@@ -109,7 +110,7 @@ export default function SignUpScreen() {
 
             // Navigate directly to the appropriate screen
             if (onboardingComplete) {
-                router.replace('/(tabs)' as never);
+                navigateToApp();
             } else {
                 router.replace('/onboarding-profile' as never);
             }

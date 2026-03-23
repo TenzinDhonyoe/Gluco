@@ -9,6 +9,7 @@ import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
+import { navigateToApp } from '@/lib/navigation';
 import React, { useEffect, useRef, useState } from 'react';
 import { BackHandler, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
@@ -177,9 +178,9 @@ export default function OnboardingPersonalizeScreen() {
         if (navigated.current) return;
         navigated.current = true;
         if (PAYWALL_ENABLED) {
-            router.replace('/paywall' as never);
+            navigateToApp('/paywall');
         } else {
-            router.replace('/(tabs)' as never);
+            navigateToApp();
         }
     };
 

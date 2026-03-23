@@ -170,7 +170,7 @@ export default function RootLayout() {
                 <Stack.Screen name="pre-meal-check" options={{ headerShown: false }} />
                 <Stack.Screen name="scan-label" options={{ headerShown: false }} />
                 <Stack.Screen name="meal-scanner" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
-                <Stack.Screen name="(tabs)" options={{ headerShown: false, title: '', headerBackTitle: ' ' }} />
+                <Stack.Screen name="(tabs)" options={{ headerShown: false, title: '', headerBackTitle: ' ', gestureEnabled: false }} />
 
                 {/* Logging screens — complex custom headers kept */}
                 <Stack.Screen name="log-meal" options={{ title: 'Log Meal', animation: 'ios_from_right' }} />

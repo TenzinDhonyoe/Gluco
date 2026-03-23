@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { navigateToApp } from '@/lib/navigation';
 import React from 'react';
 import { Alert, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import Purchases from 'react-native-purchases';
@@ -32,7 +33,7 @@ export default function SettingsScreen() {
                     style: 'destructive',
                     onPress: async () => {
                         await signOut();
-                        router.replace('/');
+                        navigateToApp('/');
                     },
                 },
             ]
