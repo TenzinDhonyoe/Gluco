@@ -2,7 +2,7 @@
 // Edge Function for looking up food by barcode using Open Food Facts
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { requireUser } from '../_shared/auth.ts';
 
 const corsHeaders = {

@@ -7,6 +7,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { detectFoodItemsFromBase64, FoodDetectionResult, TwoStepDebug, validatePhotoUrl } from '../_shared/gemini-structured.ts';
 import {
     cacheImageAnalysis,
@@ -514,6 +515,10 @@ serve(async (req) => {
             log('WARN', 'User ID mismatch', { requestId });
             return mismatch;
         }
+
+        // Rate limit check
+        const rateLimitResponse = await checkRateLimit(supabase, user.id, 'meals-from-photo', corsHeaders);
+        if (rateLimitResponse) return rateLimitResponse;
 
         // Run analysis
         const result = await analyzePhoto(photo_url, meal_type, followup_responses);

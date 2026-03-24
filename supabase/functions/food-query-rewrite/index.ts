@@ -3,6 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireAiEnabled } from '../_shared/ai.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { callGenAI } from '../_shared/genai.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 /**
  * Food Query Rewrite Edge Function
@@ -10,8 +11,9 @@ import { callGenAI } from '../_shared/genai.ts';
  */
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 interface RewriteRequest {
@@ -85,6 +87,10 @@ Deno.serve(async (req) => {
 
         const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
         if (errorResponse) return errorResponse;
+
+        // Rate limit check
+        const rateLimitResponse = await checkRateLimit(supabase, user.id, 'food-query-rewrite', corsHeaders);
+        if (rateLimitResponse) return rateLimitResponse;
 
         const aiBlocked = await requireAiEnabled(supabase, user.id, corsHeaders);
         if (aiBlocked) return aiBlocked;

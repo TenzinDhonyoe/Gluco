@@ -6,10 +6,12 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { isAiEnabled } from '../_shared/ai.ts';
 import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 // ============================================
@@ -364,6 +366,10 @@ serve(async (req) => {
 
         const mismatch = requireMatchingUserId(requestedUserId, user.id, corsHeaders);
         if (mismatch) return mismatch;
+
+        // Rate limit check
+        const rateLimitResponse = await checkRateLimit(supabase, user.id, 'personal-insights', corsHeaders);
+        if (rateLimitResponse) return rateLimitResponse;
 
         const userId = user.id;
         const aiEnabled = await isAiEnabled(supabase, userId);

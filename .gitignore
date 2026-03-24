@@ -65,6 +65,7 @@ supabase/.branches/
 .codex/
 .cursor/
 .gemini/
+.gstack/
 
 # Secrets (never commit these)
 *.secret

@@ -5,12 +5,14 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { GoogleGenAI } from 'npm:@google/genai@1.38.0';
 import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { enforceNutrientLimits } from '../_shared/nutrition-validation.ts';
 import { buildGeminiUsageTelemetry, summarizeModalityTokens } from '../_shared/genai-telemetry.ts';
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 // ============================================
@@ -755,6 +757,10 @@ serve(async (req) => {
             log('WARN', 'User ID mismatch', { requestId });
             return mismatch;
         }
+
+        // Rate limit check
+        const rateLimitResponse = await checkRateLimit(supabase, user.id, 'meal-photo-analyze', corsHeaders);
+        if (rateLimitResponse) return rateLimitResponse;
 
         const userId = user.id;
 

@@ -8,10 +8,12 @@ import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { containsBannedTerms } from '../_shared/safety.ts';
 import { callGenAI } from '../_shared/genai.ts';
 import { sanitizeForPrompt, sanitizeArrayForPrompt } from '../_shared/sanitize-prompt.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 interface OnboardingPlanResult {
@@ -189,6 +191,10 @@ serve(async (req) => {
 
         const mismatch = requireMatchingUserId(requestedUserId, user!.id, corsHeaders);
         if (mismatch) return mismatch;
+
+        // Rate limit check
+        const rateLimitResponse = await checkRateLimit(supabase, user!.id, 'generate-onboarding-plan', corsHeaders);
+        if (rateLimitResponse) return rateLimitResponse;
 
         const userId = user!.id;
 

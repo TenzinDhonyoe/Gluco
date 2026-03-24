@@ -4,6 +4,7 @@ import { GoogleGenAI } from 'npm:@google/genai@1.38.0';
 import { requireUser } from '../_shared/auth.ts';
 import { enforceNutrientLimits, NUTRIENT_LIMITS } from '../_shared/nutrition-validation.ts';
 import { buildGeminiUsageTelemetry, summarizeModalityTokens } from '../_shared/genai-telemetry.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 // Note: AI enabled check removed - label scanning is available to all users
 
 /**
@@ -12,8 +13,9 @@ import { buildGeminiUsageTelemetry, summarizeModalityTokens } from '../_shared/g
  */
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 interface LabelParseRequest {
@@ -210,6 +212,10 @@ Deno.serve(async (req) => {
 
         const { user, errorResponse } = await requireUser(req, supabase, corsHeaders);
         if (errorResponse) return errorResponse;
+
+        // Rate limit check
+        const rateLimitResponse = await checkRateLimit(supabase, user.id, 'label-parse', corsHeaders);
+        if (rateLimitResponse) return rateLimitResponse;
 
         // Note: AI enabled check removed - label scanning is available to all users
 

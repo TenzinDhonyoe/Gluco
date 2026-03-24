@@ -9,10 +9,12 @@ import { containsBannedTerms } from '../_shared/safety.ts';
 import { buildUserContext } from '../_shared/user-context.ts';
 import { assemblePrompt } from '../_shared/coaching-prompt.ts';
 import { sanitizeForPrompt } from '../_shared/sanitize-prompt.ts';
+import { checkRateLimit } from '../_shared/rate-limit.ts';
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
@@ -206,6 +208,10 @@ serve(async (req) => {
         if (errorResponse) return errorResponse;
         const mismatch = requireMatchingUserId(user_id, user!.id, corsHeaders);
         if (mismatch) return mismatch;
+
+        // Rate limit check
+        const rateLimitResponse = await checkRateLimit(supabase, user!.id, 'weekly-review', corsHeaders);
+        if (rateLimitResponse) return rateLimitResponse;
 
         const now = new Date();
         const weekStart = getWeekStart(now);

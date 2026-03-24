@@ -6,8 +6,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { requireUser } from '../_shared/auth.ts';
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 async function deleteMealPhotos(supabase: ReturnType<typeof createClient>, userId: string): Promise<void> {
