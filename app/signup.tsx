@@ -33,6 +33,7 @@ export default function SignUpScreen() {
     const [agreeToTerms, setAgreeToTerms] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isAppleLoading, setIsAppleLoading] = useState(false);
+    const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
     const { signUp, signInWithApple } = useAuth();
 
     const passwordRequirements = useMemo(() => [
@@ -46,19 +47,8 @@ export default function SignUpScreen() {
     const allRequirementsMet = passwordRequirements.every(r => r.met);
 
     const handleContinue = async () => {
-        if (!agreeToTerms) return;
-        if (!email.trim() || !password.trim()) {
-            Alert.alert('Error', 'Please enter both email and password');
-            return;
-        }
-
-        if (!allRequirementsMet) {
-            Alert.alert('Error', 'Password does not meet all requirements');
-            return;
-        }
-
-        if (password !== confirmPassword) {
-            Alert.alert('Error', 'Passwords do not match');
+        setHasAttemptedSubmit(true);
+        if (!agreeToTerms || !email.trim() || !password.trim() || !allRequirementsMet || password !== confirmPassword) {
             return;
         }
 
@@ -136,6 +126,10 @@ export default function SignUpScreen() {
     };
 
     const isFormValid = agreeToTerms && email.trim().length > 0 && allRequirementsMet && password === confirmPassword;
+    const showEmailError = hasAttemptedSubmit && !email.trim();
+    const showPasswordError = hasAttemptedSubmit && !password.trim();
+    const showMismatchError = hasAttemptedSubmit && confirmPassword.length > 0 && password !== confirmPassword;
+    const showTermsError = hasAttemptedSubmit && !agreeToTerms;
 
     return (
         <View style={styles.container}>
@@ -178,6 +172,9 @@ export default function SignUpScreen() {
                                         autoCapitalize="none"
                                         autoCorrect={false}
                                     />
+                                    {showEmailError && (
+                                        <Text style={styles.errorText}>Email is required</Text>
+                                    )}
                                 </View>
 
                                 {/* Password Input */}
@@ -247,6 +244,9 @@ export default function SignUpScreen() {
                                             </TouchableOpacity>
                                         )}
                                     />
+                                    {showMismatchError && (
+                                        <Text style={styles.errorText}>Passwords do not match</Text>
+                                    )}
                                 </View>
                             </View>
 
@@ -279,11 +279,14 @@ export default function SignUpScreen() {
                                         </Text>
                                     </Text>
                                 </AnimatedPressable>
+                                {showTermsError && (
+                                    <Text style={styles.errorText}>Please accept the Terms of Service and Privacy Policy</Text>
+                                )}
 
                                 {/* Continue Button */}
                                 <Button
                                     onPress={handleContinue}
-                                    disabled={!isFormValid}
+                                    disabled={isLoading}
                                     loading={isLoading}
                                     style={styles.continueButton}
                                 >
@@ -435,6 +438,12 @@ const styles = StyleSheet.create({
         lineHeight: 14 * 0.95, // 0.95 line-height
         color: Colors.textPrimary,
         flex: 1,
+    },
+    errorText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: '#E53935',
+        marginTop: 6,
     },
     // Continue Button
     continueButton: {

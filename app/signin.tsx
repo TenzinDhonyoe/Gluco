@@ -31,11 +31,12 @@ export default function SignInScreen() {
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isAppleLoading, setIsAppleLoading] = useState(false);
+    const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
     const { signIn, signInWithApple } = useAuth();
 
     const handleContinue = async () => {
+        setHasAttemptedSubmit(true);
         if (!email.trim() || !password.trim()) {
-            Alert.alert('Error', 'Please enter both email and password');
             return;
         }
 
@@ -103,11 +104,21 @@ export default function SignInScreen() {
         router.push('/signup');
     };
 
+    const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
     const handleForgotPassword = () => {
         if (!email.trim()) {
             Alert.alert(
                 'Enter Email',
                 'Please enter your email address first, then tap Forgot Password.'
+            );
+            return;
+        }
+
+        if (!isValidEmail(email.trim())) {
+            Alert.alert(
+                'Invalid Email',
+                'Please enter a valid email address.'
             );
             return;
         }
@@ -140,6 +151,8 @@ export default function SignInScreen() {
     };
 
     const isFormValid = email.trim().length > 0 && password.trim().length > 0;
+    const showEmailError = hasAttemptedSubmit && !email.trim();
+    const showPasswordError = hasAttemptedSubmit && !password.trim();
 
     return (
         <View style={styles.container}>
@@ -174,12 +187,15 @@ export default function SignInScreen() {
                                     <Text style={styles.inputLabel}>Email</Text>
                                     <Input
                                         value={email}
-                                        onChangeText={setEmail}
+                                        onChangeText={(text) => { setEmail(text); if (hasAttemptedSubmit && text.trim()) setHasAttemptedSubmit(false); }}
                                         placeholder="Email"
                                         keyboardType="email-address"
                                         autoCapitalize="none"
                                         autoCorrect={false}
                                     />
+                                    {showEmailError && (
+                                        <Text style={styles.errorText}>Email is required</Text>
+                                    )}
                                 </View>
 
                                 {/* Password Input */}
@@ -187,7 +203,7 @@ export default function SignInScreen() {
                                     <Text style={styles.inputLabel}>Password</Text>
                                     <Input
                                         value={password}
-                                        onChangeText={setPassword}
+                                        onChangeText={(text) => { setPassword(text); if (hasAttemptedSubmit && text.trim()) setHasAttemptedSubmit(false); }}
                                         placeholder="Password"
                                         secureTextEntry={!showPassword}
                                         autoCapitalize="none"
@@ -204,6 +220,9 @@ export default function SignInScreen() {
                                             </TouchableOpacity>
                                         )}
                                     />
+                                    {showPasswordError && (
+                                        <Text style={styles.errorText}>Password is required</Text>
+                                    )}
                                 </View>
                             </View>
 
@@ -218,7 +237,7 @@ export default function SignInScreen() {
                             {/* Continue Button */}
                             <Button
                                 onPress={handleContinue}
-                                disabled={!isFormValid}
+                                disabled={isLoading}
                                 loading={isLoading}
                                 variant="primary"
                                 style={styles.continueButton}
@@ -315,6 +334,12 @@ const styles = StyleSheet.create({
         padding: 0,
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    errorText: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: '#E53935',
+        marginTop: 6,
     },
     continueButton: {
         marginBottom: 18,
