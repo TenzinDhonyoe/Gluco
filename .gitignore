@@ -66,6 +66,7 @@ supabase/.branches/
 .cursor/
 .gemini/
 .gstack/
+.revyl/
 
 # Secrets (never commit these)
 *.secret
