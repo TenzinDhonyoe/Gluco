@@ -189,7 +189,7 @@ export default function RootLayout() {
                 <Stack.Screen name="account-privacy" options={{ title: 'Account & Privacy' }} />
                 <Stack.Screen name="meal-checkin" options={{ headerShown: false }} />
                 <Stack.Screen name="daily-checkin" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
-                <Stack.Screen name="notifications-list" options={{ title: 'Notifications' }} />
+                <Stack.Screen name="notifications-list" options={{ title: 'Meal Check-ins' }} />
                 <Stack.Screen name="experiments-list" options={{ title: 'My Experiments' }} />
                 <Stack.Screen name="experiment-detail" options={{ title: 'Experiment' }} />
                 <Stack.Screen name="check-exercise-impact" options={{ headerShown: false }} />

@@ -1,5 +1,5 @@
 /**
- * Notifications List Screen
+ * Meal Check-ins Screen
  * Shows list of recent meals with check-in status
  */
 
@@ -134,10 +134,10 @@ export default function NotificationsListScreen() {
 
     const renderEmpty = () => (
         <View style={styles.emptyContainer}>
-            <Ionicons name="notifications-off-outline" size={64} color={Colors.textTertiary} />
-            <Text style={styles.emptyTitle}>No Recent Meals</Text>
+            <Ionicons name="restaurant-outline" size={64} color={Colors.textTertiary} />
+            <Text style={styles.emptyTitle}>No Meals to Check In</Text>
             <Text style={styles.emptySubtitle}>
-                Log meals to see them here and add check-ins
+                After logging a meal, check in here to track how it made you feel
             </Text>
         </View>
     );
