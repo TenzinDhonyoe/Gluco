@@ -29,7 +29,7 @@ interface UseSleepDataReturn {
  * Always fetches 90d of data to avoid refetching on range changes
  * Returns average hours per night, authorization status, and loading state
  */
-export function useSleepData(_range: RangeKey): UseSleepDataReturn {
+export function useSleepData(_range: RangeKey, skip = false): UseSleepDataReturn {
     // Initialize with safe default values to prevent crashes
     const [data, setData] = useState<SleepData | null>({
         avgHoursPerNight: 0,
@@ -38,10 +38,16 @@ export function useSleepData(_range: RangeKey): UseSleepDataReturn {
         isAuthorized: false,
         isAvailable: Platform.OS === 'ios',
     });
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(!skip);
     const [error, setError] = useState<Error | null>(null);
 
     const fetchSleepData = useCallback(async () => {
+        // Skip HealthKit initialization when not needed (e.g. meals-only mode)
+        if (skip) {
+            setIsLoading(false);
+            return;
+        }
+
         setIsLoading(true);
         setError(null);
 
@@ -124,7 +130,7 @@ export function useSleepData(_range: RangeKey): UseSleepDataReturn {
         } finally {
             setIsLoading(false);
         }
-    }, []); // No dependencies - always fetch max range on focus
+    }, [skip]); // Re-create when skip changes
 
     // Fetch on mount and screen focus - useFocusEffect runs on mount AND when screen gains focus
     // No need for separate useEffect which was causing double HealthKit calls

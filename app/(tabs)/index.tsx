@@ -1512,7 +1512,9 @@ function TodayScreenInner() {
     const [isRefreshing, setIsRefreshing] = useState(false);
 
     // Fetch sleep data from HealthKit (always fetches 90d, doesn't refetch on range change)
-    const { data: sleepData, refetch: refetchSleep } = useSleepData(selectedRange);
+    // Skip HealthKit initialization for non-wearable tracking modes to avoid unnecessary permission prompts
+    const skipHealthKit = profile?.tracking_mode === 'meals_only' || profile?.tracking_mode === 'manual_glucose_optional';
+    const { data: sleepData, refetch: refetchSleep } = useSleepData(selectedRange, skipHealthKit);
     const {
         latestWeightKg,
         delta7dKg,
