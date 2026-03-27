@@ -331,6 +331,7 @@ const styles = StyleSheet.create({
     energyEmoji: {
         fontSize: 28,
         marginBottom: 4,
+        fontFamily: Platform.OS === 'ios' ? 'System' : undefined,
     },
     energyLabel: {
         fontSize: 11,
