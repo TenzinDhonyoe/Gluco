@@ -1526,7 +1526,7 @@ function TodayScreenInner() {
     // Fetch daily context (steps, active minutes) from HealthKit
     // Always use 90d range to avoid refetching when user switches timeframes
     const maxDateRange = useMemo(() => getDateRange('90d'), []);
-    const dailyContext = useDailyContext(user?.id, maxDateRange.startDate, maxDateRange.endDate);
+    const dailyContext = useDailyContext(user?.id, maxDateRange.startDate, maxDateRange.endDate, skipHealthKit);
 
     // Fetch metabolic weekly scores - invoke edge function to compute & store, then fetch
     const fetchWeeklyScores = useCallback(async () => {

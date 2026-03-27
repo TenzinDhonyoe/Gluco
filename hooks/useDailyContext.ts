@@ -68,7 +68,8 @@ const defaultStats: DailyContextStats = {
 export function useDailyContext(
     userId: string | undefined,
     startDate: Date,
-    endDate: Date
+    endDate: Date,
+    skipHealthKit = false
 ): DailyContextStats & { sync: () => Promise<void> } {
     const [stats, setStats] = useState<DailyContextStats>(defaultStats);
     const isFocused = useIsFocused();
@@ -134,7 +135,7 @@ export function useDailyContext(
     // Sync HealthKit data to database
     // force=true bypasses the dedup guard (used for pull-to-refresh)
     const syncHealthKitData = useCallback(async (force = false) => {
-        if (!userId || Platform.OS !== 'ios' || syncInProgress.current) {
+        if (!userId || Platform.OS !== 'ios' || syncInProgress.current || skipHealthKit) {
             return;
         }
 
@@ -233,7 +234,7 @@ export function useDailyContext(
         } finally {
             syncInProgress.current = false;
         }
-    }, [userId, startDateStr, endDateStr, loadFromDatabase]);
+    }, [userId, startDateStr, endDateStr, skipHealthKit, loadFromDatabase]);
 
     // Check availability on mount
     useEffect(() => {
