@@ -64,8 +64,8 @@ const BARRIER_LABELS: Record<string, string> = {
 };
 
 function getGoalBasedFallback(profile: ProfileData): OnboardingPlanResult {
-    const goalKey = profile.goals?.[0] || 'eat_healthier';
-    const goalLabel = GOAL_LABELS[goalKey] || goalKey.replace(/_/g, ' ');
+    const goalKey = profile.goals?.[0] || 'eating healthier';
+    const goalLabel = GOAL_LABELS[goalKey] || goalKey.toLowerCase();
     const firstName = sanitizeForPrompt(profile.first_name, 50);
     const nameClause = firstName ? `, ${firstName}` : '';
     const trackingLabel = profile.tracking_mode ? (TRACKING_LABELS[profile.tracking_mode] || 'meal tracking') : 'meal tracking';
@@ -86,8 +86,8 @@ function getGoalBasedFallback(profile: ProfileData): OnboardingPlanResult {
 }
 
 async function generatePlanWithGemini(profile: ProfileData): Promise<OnboardingPlanResult | null> {
-    const goalKey = profile.goals?.[0] || 'eat_healthier';
-    const goalLabel = GOAL_LABELS[goalKey] || goalKey.replace(/_/g, ' ');
+    const goalKey = profile.goals?.[0] || 'eating healthier';
+    const goalLabel = GOAL_LABELS[goalKey] || goalKey.toLowerCase();
     const trackingLabel = profile.tracking_mode ? (TRACKING_LABELS[profile.tracking_mode] || 'meal tracking') : 'meal tracking';
     const coachingLabel = profile.coaching_style ? (COACHING_LABELS[profile.coaching_style] || 'balanced') : 'balanced';
     const barrierLabel = profile.com_b_barrier ? (BARRIER_LABELS[profile.com_b_barrier] || 'getting started') : null;

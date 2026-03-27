@@ -61,7 +61,7 @@ function getSteps(profile: {
     dietary_preferences?: string[];
     ai_enabled?: boolean;
 }) {
-    const goalText = profile.goals?.length ? profile.goals[0].toLowerCase().replace(/_/g, ' ') : null;
+    const goalText = profile.goals?.length ? profile.goals[0].toLowerCase() : null;
     const trackingLabel = profile.tracking_mode ? TRACKING_LABELS[profile.tracking_mode] : null;
     const coachingLabel = profile.coaching_style ? COACHING_LABELS[profile.coaching_style] : null;
     const hasDietary = profile.dietary_preferences && profile.dietary_preferences.length > 0;
@@ -85,8 +85,8 @@ function getLocalFallback(profile: {
     tracking_mode?: TrackingMode;
     coaching_style?: CoachingStyle | null;
 }): OnboardingPlanResult {
-    const goalKey = profile.goals?.[0] || 'eat_healthier';
-    const goalLabel = goalKey.replace(/_/g, ' ');
+    const goalKey = profile.goals?.[0] || 'eating healthier';
+    const goalLabel = goalKey.toLowerCase();
     const firstName = profile.first_name?.trim() || '';
     const nameClause = firstName ? `, ${firstName}` : '';
     const trackingLabel = profile.tracking_mode ? (TRACKING_LABELS[profile.tracking_mode] || 'meal tracking') : 'meal tracking';
