@@ -78,10 +78,14 @@ export interface AnalyzedFoodItem {
     portion: PortionInfo;
     detection_confidence: number;
 
-    // Nutrition from FatSecret/USDA
+    // Nutrition from FatSecret/USDA (scaled to detected portion)
     nutrition: NutritionData | null;
+    // Per-100g nutrition for client-side recalculation when user edits portion
+    nutrition_per_100g?: NutritionData | null;
     nutrition_source: NutritionSource;
     nutrition_confidence: number;
+    // Detected portion in grams (for portion editing)
+    detected_grams?: number;
 
     // Weight estimation from two-step process
     weight_estimate?: {
@@ -203,6 +207,15 @@ export interface SelectedItemFromAnalysis {
     sugar_g: number | null;
     sodium_mg: number | null;
     quantity: number;
+    // Per-100g nutrition for client-side portion recalculation
+    per_100g?: {
+        calories_kcal: number | null;
+        carbs_g: number | null;
+        protein_g: number | null;
+        fat_g: number | null;
+    };
+    // Detected portion in grams
+    detected_grams?: number;
 }
 
 /**
@@ -224,6 +237,13 @@ export function toSelectedItem(item: AnalyzedFoodItem): SelectedItemFromAnalysis
         sugar_g: item.nutrition?.sugar_g ?? null,
         sodium_mg: item.nutrition?.sodium_mg ?? null,
         quantity: item.portion.estimate_type === 'none' ? 1 : (item.portion.value ?? 1),
+        per_100g: item.nutrition_per_100g ? {
+            calories_kcal: item.nutrition_per_100g.calories,
+            carbs_g: item.nutrition_per_100g.carbs_g,
+            protein_g: item.nutrition_per_100g.protein_g,
+            fat_g: item.nutrition_per_100g.fat_g,
+        } : undefined,
+        detected_grams: item.detected_grams,
     };
 }
 

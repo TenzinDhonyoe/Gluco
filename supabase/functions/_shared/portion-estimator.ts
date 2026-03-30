@@ -359,6 +359,124 @@ export const PORTION_REFERENCES: Record<string, { typical_g: number; range_g: [n
     'coffee_cup': { typical_g: 240, range_g: [180, 350] },
     'smoothie': { typical_g: 350, range_g: [250, 500] },
     'juice': { typical_g: 240, range_g: [150, 350] },
+
+    // === EXPANDED: Additional common foods (USDA FNDDS top consumption) ===
+
+    // More proteins
+    'turkey': { typical_g: 150, range_g: [80, 250] },
+    'lamb': { typical_g: 150, range_g: [80, 250] },
+    'pork_chop': { typical_g: 170, range_g: [100, 280] },
+    'pork': { typical_g: 150, range_g: [80, 250] },
+    'chicken_thigh': { typical_g: 130, range_g: [80, 200] },
+    'chicken_wing': { typical_g: 50, range_g: [30, 80] },
+    'chicken_drumstick': { typical_g: 80, range_g: [50, 120] },
+    'chicken_tender': { typical_g: 40, range_g: [25, 60] },
+    'meatball': { typical_g: 30, range_g: [15, 50] },
+    'hot_dog': { typical_g: 50, range_g: [35, 80] },
+    'ham': { typical_g: 60, range_g: [30, 120] },
+    'tuna': { typical_g: 140, range_g: [80, 200] },
+    'crab': { typical_g: 100, range_g: [50, 180] },
+    'lobster': { typical_g: 150, range_g: [100, 250] },
+    'clam': { typical_g: 100, range_g: [50, 200] },
+    'scallop': { typical_g: 80, range_g: [40, 150] },
+    'tempeh': { typical_g: 100, range_g: [60, 170] },
+    'seitan': { typical_g: 100, range_g: [60, 170] },
+    'lentils': { typical_g: 200, range_g: [100, 350] },
+    'chickpeas': { typical_g: 160, range_g: [80, 250] },
+    'black_beans': { typical_g: 170, range_g: [80, 300] },
+    'edamame': { typical_g: 120, range_g: [60, 200] },
+
+    // More grains & starches
+    'quinoa': { typical_g: 185, range_g: [100, 300] },
+    'couscous': { typical_g: 160, range_g: [80, 250] },
+    'bagel': { typical_g: 100, range_g: [70, 130] },
+    'croissant': { typical_g: 60, range_g: [40, 90] },
+    'waffle': { typical_g: 75, range_g: [50, 120] },
+    'english_muffin': { typical_g: 60, range_g: [45, 80] },
+    'pita': { typical_g: 60, range_g: [40, 90] },
+    'biscuit': { typical_g: 60, range_g: [35, 100] },
+    'cornbread': { typical_g: 65, range_g: [40, 100] },
+    'cracker': { typical_g: 15, range_g: [5, 30] },
+    'wrap': { typical_g: 70, range_g: [40, 110] },
+    'fried_rice': { typical_g: 250, range_g: [150, 400] },
+    'risotto': { typical_g: 250, range_g: [150, 400] },
+    'polenta': { typical_g: 200, range_g: [120, 300] },
+
+    // More vegetables
+    'bell_pepper': { typical_g: 120, range_g: [80, 200] },
+    'cucumber': { typical_g: 100, range_g: [50, 200] },
+    'onion': { typical_g: 110, range_g: [50, 200] },
+    'mushroom': { typical_g: 70, range_g: [30, 150] },
+    'zucchini': { typical_g: 130, range_g: [70, 220] },
+    'eggplant': { typical_g: 150, range_g: [80, 250] },
+    'green_beans': { typical_g: 100, range_g: [50, 180] },
+    'asparagus': { typical_g: 100, range_g: [50, 170] },
+    'cauliflower': { typical_g: 130, range_g: [70, 220] },
+    'kale': { typical_g: 70, range_g: [30, 130] },
+    'cabbage': { typical_g: 100, range_g: [50, 200] },
+    'lettuce': { typical_g: 50, range_g: [20, 100] },
+    'celery': { typical_g: 50, range_g: [20, 100] },
+    'peas': { typical_g: 80, range_g: [40, 150] },
+    'artichoke': { typical_g: 120, range_g: [80, 180] },
+    'beet': { typical_g: 80, range_g: [50, 150] },
+
+    // More prepared meals
+    'fried_chicken': { typical_g: 150, range_g: [80, 250] },
+    'chicken_nugget': { typical_g: 20, range_g: [12, 30] },
+    'mac_and_cheese': { typical_g: 250, range_g: [150, 400] },
+    'lasagna': { typical_g: 300, range_g: [200, 450] },
+    'pad_thai': { typical_g: 300, range_g: [200, 450] },
+    'ramen': { typical_g: 400, range_g: [250, 550] },
+    'pho': { typical_g: 400, range_g: [250, 550] },
+    'biryani': { typical_g: 300, range_g: [200, 450] },
+    'fried_egg': { typical_g: 50, range_g: [40, 65] },
+    'scrambled_egg': { typical_g: 120, range_g: [60, 200] },
+    'omelette': { typical_g: 150, range_g: [80, 250] },
+    'quiche': { typical_g: 130, range_g: [80, 200] },
+    'stir_fry': { typical_g: 250, range_g: [150, 400] },
+    'casserole': { typical_g: 300, range_g: [200, 450] },
+    'pot_pie': { typical_g: 250, range_g: [180, 350] },
+    'meatloaf': { typical_g: 170, range_g: [100, 280] },
+    'fish_and_chips': { typical_g: 300, range_g: [200, 450] },
+    'gyro': { typical_g: 250, range_g: [180, 350] },
+    'falafel': { typical_g: 35, range_g: [20, 55] },
+    'hummus': { typical_g: 60, range_g: [30, 120] },
+    'guacamole': { typical_g: 60, range_g: [30, 120] },
+    'salsa': { typical_g: 40, range_g: [20, 80] },
+    'spring_roll': { typical_g: 70, range_g: [40, 120] },
+    'egg_roll': { typical_g: 80, range_g: [50, 130] },
+
+    // More dairy
+    'cottage_cheese': { typical_g: 120, range_g: [60, 200] },
+    'cream_cheese': { typical_g: 30, range_g: [15, 60] },
+    'mozzarella': { typical_g: 30, range_g: [15, 60] },
+    'parmesan': { typical_g: 10, range_g: [5, 25] },
+    'whipped_cream': { typical_g: 15, range_g: [8, 30] },
+
+    // More snacks & desserts
+    'popcorn': { typical_g: 30, range_g: [15, 60] },
+    'pretzel': { typical_g: 30, range_g: [15, 60] },
+    'trail_mix': { typical_g: 40, range_g: [20, 80] },
+    'energy_bar': { typical_g: 50, range_g: [30, 70] },
+    'pie': { typical_g: 130, range_g: [80, 200] },
+    'cheesecake': { typical_g: 120, range_g: [80, 180] },
+    'pudding': { typical_g: 150, range_g: [80, 230] },
+    'jelly': { typical_g: 130, range_g: [70, 200] },
+    'candy_bar': { typical_g: 50, range_g: [30, 80] },
+    'peanut_butter': { typical_g: 32, range_g: [15, 60] },
+    'jam': { typical_g: 20, range_g: [10, 40] },
+    'honey': { typical_g: 21, range_g: [10, 40] },
+    'maple_syrup': { typical_g: 20, range_g: [10, 40] },
+
+    // More beverages
+    'tea': { typical_g: 240, range_g: [180, 350] },
+    'latte': { typical_g: 350, range_g: [240, 480] },
+    'cappuccino': { typical_g: 180, range_g: [120, 250] },
+    'hot_chocolate': { typical_g: 240, range_g: [180, 350] },
+    'protein_shake': { typical_g: 350, range_g: [240, 500] },
+    'soda': { typical_g: 355, range_g: [240, 500] },
+    'beer': { typical_g: 355, range_g: [240, 500] },
+    'wine': { typical_g: 150, range_g: [100, 200] },
 };
 
 /**
@@ -440,4 +558,63 @@ export function validatePortionEstimate(
     }
 
     return { isValid: true };
+}
+
+/**
+ * Clamp a gram value to a food-specific range if available,
+ * otherwise use generic bounds [1, 5000].
+ */
+export function clampToFoodRange(
+    foodName: string,
+    category: string,
+    grams: number
+): { clamped: number; wasClamped: boolean; range?: [number, number] } {
+    const nameLower = foodName.toLowerCase();
+
+    // Try food-specific range first
+    for (const [key, ref] of Object.entries(PORTION_REFERENCES)) {
+        if (nameLower.includes(key.replace('_', ' ')) || key.replace('_', ' ').includes(nameLower)) {
+            const [min, max] = ref.range_g;
+            const clamped = Math.max(min, Math.min(max, grams));
+            return {
+                clamped,
+                wasClamped: clamped !== grams,
+                range: ref.range_g,
+            };
+        }
+    }
+
+    // Generic bounds
+    const clamped = Math.max(1, Math.min(5000, grams));
+    return { clamped, wasClamped: clamped !== grams };
+}
+
+/**
+ * Get food-specific Small/Medium/Large gram presets.
+ * Returns presets based on portion reference ranges, or category defaults.
+ */
+export function getFoodSizePresets(
+    foodName: string,
+    category: string
+): { small_g: number; medium_g: number; large_g: number } {
+    const nameLower = foodName.toLowerCase();
+
+    for (const [key, ref] of Object.entries(PORTION_REFERENCES)) {
+        if (nameLower.includes(key.replace('_', ' ')) || key.replace('_', ' ').includes(nameLower)) {
+            const [min, max] = ref.range_g;
+            return {
+                small_g: Math.round(min + (ref.typical_g - min) * 0.3),
+                medium_g: ref.typical_g,
+                large_g: Math.round(ref.typical_g + (max - ref.typical_g) * 0.6),
+            };
+        }
+    }
+
+    // Category-based defaults
+    const defaultWeight = CATEGORY_DEFAULT_WEIGHTS[category] || 150;
+    return {
+        small_g: Math.round(defaultWeight * 0.6),
+        medium_g: defaultWeight,
+        large_g: Math.round(defaultWeight * 1.5),
+    };
 }

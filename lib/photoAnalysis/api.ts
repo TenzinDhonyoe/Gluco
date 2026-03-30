@@ -1,7 +1,7 @@
 // lib/photoAnalysis/api.ts
 // API client for the new meals-from-photo endpoint
 
-import { supabase, ensureSignedMealPhotoUrl } from '../supabase';
+import { invokeWithRetry, ensureSignedMealPhotoUrl } from '../supabase';
 import {
     FollowupResponse,
     MealsFromPhotoError,
@@ -52,34 +52,32 @@ export async function analyzeMealPhoto(
 
         console.log('[meals-from-photo] Got signed URL, invoking edge function...');
 
-        // Call the new endpoint
-        const { data, error } = await supabase.functions.invoke('meals-from-photo', {
-            body: {
-                user_id: userId,
-                photo_url: photoUrl,
-                meal_type: options.mealType,
-                device_depth_payload: options.depthPayload,
-                followup_responses: options.followupResponses,
-            },
+        // Use invokeWithRetry for automatic network/5xx retry (project convention)
+        const data = await invokeWithRetry<MealsFromPhotoResponse>('meals-from-photo', {
+            user_id: userId,
+            photo_url: photoUrl,
+            meal_type: options.mealType,
+            device_depth_payload: options.depthPayload,
+            followup_responses: options.followupResponses,
         });
 
-        if (error) {
-            console.error('[meals-from-photo] Edge function error:', error);
+        if (!data) {
+            console.error('[meals-from-photo] Edge function returned no data after retries');
             return {
                 success: false,
                 error: {
                     error: 'API call failed',
-                    message: error.message || 'Unknown error calling analysis endpoint',
+                    message: 'No response from analysis endpoint after retries',
                 },
             };
         }
 
         // Check for error response from the function
-        if (data?.error) {
-            console.error('[meals-from-photo] Server returned error:', data.error);
+        if ((data as any).error) {
+            console.error('[meals-from-photo] Server returned error:', (data as any).error);
             return {
                 success: false,
-                error: data as MealsFromPhotoError,
+                error: data as unknown as MealsFromPhotoError,
             };
         }
 
@@ -223,14 +221,14 @@ export async function analyzeMealPhotoWithRetry(
  */
 export async function isNewEndpointAvailable(): Promise<boolean> {
     try {
-        // Simple health check - call with invalid data, expect 400 not 404
-        const { error } = await supabase.functions.invoke('meals-from-photo', {
-            body: { user_id: 'test', photo_url: 'test' },
-        });
+        // Simple health check - invokeWithRetry returns null on failure
+        const result = await invokeWithRetry<unknown>('meals-from-photo', {
+            user_id: 'test',
+            photo_url: 'test',
+        }, 1); // single attempt, no retries for health check
 
-        // 401 (unauthorized) or 400 (bad request) means endpoint exists
-        // 404 means it doesn't exist yet
-        return !error?.message?.includes('404');
+        // Any non-null response means endpoint exists (even error responses)
+        return result !== null;
     } catch {
         return false;
     }

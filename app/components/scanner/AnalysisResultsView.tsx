@@ -26,6 +26,7 @@ import {
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     View
 } from 'react-native';
 import Animated, {
@@ -79,6 +80,8 @@ interface AnalysisResultsViewProps {
     photoQualityWarning?: string;
     /** Whether a save is currently in progress */
     isSaving?: boolean;
+    /** Callback when items are updated (e.g., portion changes) */
+    onItemsChange?: (items: SelectedItem[]) => void;
 }
 
 // Format serving size for display
@@ -202,6 +205,7 @@ export default function AnalysisResultsView({
     followupComponent,
     photoQualityWarning,
     isSaving = false,
+    onItemsChange,
 }: AnalysisResultsViewProps) {
     const insets = useSafeAreaInsets();
     const { user } = useAuth();
@@ -211,6 +215,45 @@ export default function AnalysisResultsView({
     const [suggestionActions, setSuggestionActions] = useState<Record<string, SuggestionAction>>({});
     const [showMoreOptions, setShowMoreOptions] = useState(false);
     const currentScrollY = useRef(0);
+
+    // Portion editing state
+    const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
+    const [editingGrams, setEditingGrams] = useState<string>('');
+
+    const handlePortionTap = useCallback((index: number) => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        const item = items[index];
+        const currentGrams = (item as any).detected_grams || item.serving_size || 100;
+        if (editingItemIndex === index) {
+            setEditingItemIndex(null);
+        } else {
+            setEditingItemIndex(index);
+            setEditingGrams(String(Math.round(currentGrams)));
+        }
+    }, [items, editingItemIndex]);
+
+    const applyPortionChange = useCallback((index: number, newGrams: number) => {
+        const item = items[index];
+        const per100g = (item as any).per_100g;
+
+        if (!per100g || newGrams <= 0) return;
+
+        const updatedItems = [...items];
+        const multiplier = newGrams / 100;
+        updatedItems[index] = {
+            ...item,
+            calories_kcal: per100g.calories_kcal != null ? Math.round(per100g.calories_kcal * multiplier) : null,
+            carbs_g: per100g.carbs_g != null ? Math.round(per100g.carbs_g * multiplier * 10) / 10 : null,
+            protein_g: per100g.protein_g != null ? Math.round(per100g.protein_g * multiplier * 10) / 10 : null,
+            fat_g: per100g.fat_g != null ? Math.round(per100g.fat_g * multiplier * 10) / 10 : null,
+            serving_size: newGrams,
+            detected_grams: newGrams,
+        } as any;
+
+        onItemsChange?.(updatedItems);
+        setEditingItemIndex(null);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }, [items, onItemsChange]);
 
     // Scroll down a bit when more options is expanded
     const handleMoreOptionsPress = useCallback(() => {
@@ -484,17 +527,86 @@ export default function AnalysisResultsView({
                         </View>
                     </View>
 
-                    {/* Food Items List */}
+                    {/* Food Items List — tap to edit portion */}
                     <View style={styles.itemsSection}>
-                        {items.map((item, index) => (
-                            <View key={index} style={styles.foodItem}>
-                                <View style={styles.foodItemLeft}>
-                                    <Text style={styles.foodItemName}>{item.display_name}</Text>
-                                    <Text style={styles.foodItemBrand}>{item.brand || 'Generic'}</Text>
+                        {items.map((item, index) => {
+                            const hasPerGData = !!(item as any).per_100g;
+                            const detectedGrams = (item as any).detected_grams || item.serving_size;
+                            const isEditing = editingItemIndex === index;
+
+                            return (
+                                <View key={index}>
+                                    <Pressable
+                                        style={[styles.foodItem, isEditing && styles.foodItemEditing]}
+                                        onPress={() => hasPerGData && handlePortionTap(index)}
+                                    >
+                                        <View style={styles.foodItemLeft}>
+                                            <Text style={styles.foodItemName}>{item.display_name}</Text>
+                                            <Text style={styles.foodItemBrand}>{item.brand || 'Generic'}</Text>
+                                        </View>
+                                        <View style={styles.foodItemRight}>
+                                            {detectedGrams ? (
+                                                <Text style={[styles.foodItemServing, hasPerGData && styles.foodItemServingEditable]}>
+                                                    {Math.round(detectedGrams)}g
+                                                    {hasPerGData ? ' ✎' : ''}
+                                                </Text>
+                                            ) : (
+                                                <Text style={styles.foodItemServing}>{formatServing(item)}</Text>
+                                            )}
+                                        </View>
+                                    </Pressable>
+
+                                    {isEditing && (
+                                        <Animated.View entering={FadeInDown.duration(200)} style={styles.portionEditor}>
+                                            <View style={styles.portionEditorRow}>
+                                                <TextInput
+                                                    style={styles.portionInput}
+                                                    value={editingGrams}
+                                                    onChangeText={setEditingGrams}
+                                                    keyboardType="numeric"
+                                                    selectTextOnFocus
+                                                    autoFocus
+                                                    placeholder="grams"
+                                                    placeholderTextColor="rgba(255,255,255,0.3)"
+                                                />
+                                                <Text style={styles.portionUnit}>g</Text>
+                                                <Pressable
+                                                    style={styles.portionApplyBtn}
+                                                    onPress={() => {
+                                                        const g = parseInt(editingGrams, 10);
+                                                        if (g > 0) applyPortionChange(index, g);
+                                                    }}
+                                                >
+                                                    <Ionicons name="checkmark-circle" size={28} color={Colors.buttonPrimary} />
+                                                </Pressable>
+                                            </View>
+                                            <View style={styles.portionPresetsRow}>
+                                                {['S', 'M', 'L'].map((label) => {
+                                                    const presetGrams = label === 'S'
+                                                        ? Math.round((detectedGrams || 100) * 0.6)
+                                                        : label === 'M'
+                                                        ? Math.round(detectedGrams || 100)
+                                                        : Math.round((detectedGrams || 100) * 1.5);
+                                                    return (
+                                                        <Pressable
+                                                            key={label}
+                                                            style={styles.portionPresetBtn}
+                                                            onPress={() => {
+                                                                setEditingGrams(String(presetGrams));
+                                                                applyPortionChange(index, presetGrams);
+                                                            }}
+                                                        >
+                                                            <Text style={styles.portionPresetLabel}>{label}</Text>
+                                                            <Text style={styles.portionPresetGrams}>{presetGrams}g</Text>
+                                                        </Pressable>
+                                                    );
+                                                })}
+                                            </View>
+                                        </Animated.View>
+                                    )}
                                 </View>
-                                <Text style={styles.foodItemServing}>{formatServing(item)}</Text>
-                            </View>
-                        ))}
+                            );
+                        })}
                     </View>
 
                     {/* Followup Questions (if any) */}
@@ -911,10 +1023,77 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: Colors.textSecondary,
     },
+    foodItemRight: {
+        alignItems: 'flex-end' as const,
+    },
     foodItemServing: {
         fontFamily: fonts.regular,
         fontSize: 15,
         color: Colors.textSecondary,
+    },
+    foodItemServingEditable: {
+        color: Colors.buttonPrimary,
+    },
+    foodItemEditing: {
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderRadius: 8,
+    },
+    portionEditor: {
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        marginBottom: 8,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderRadius: 10,
+        marginHorizontal: 4,
+    },
+    portionEditorRow: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        gap: 8,
+    },
+    portionInput: {
+        flex: 1,
+        fontFamily: fonts.medium,
+        fontSize: 18,
+        color: Colors.textPrimary,
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        textAlign: 'center' as const,
+    },
+    portionUnit: {
+        fontFamily: fonts.regular,
+        fontSize: 16,
+        color: Colors.textSecondary,
+    },
+    portionApplyBtn: {
+        padding: 4,
+    },
+    portionPresetsRow: {
+        flexDirection: 'row' as const,
+        justifyContent: 'center' as const,
+        gap: 12,
+        marginTop: 10,
+    },
+    portionPresetBtn: {
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderRadius: 8,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        alignItems: 'center' as const,
+        minWidth: 60,
+    },
+    portionPresetLabel: {
+        fontFamily: fonts.semiBold,
+        fontSize: 14,
+        color: Colors.textPrimary,
+    },
+    portionPresetGrams: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: Colors.textSecondary,
+        marginTop: 2,
     },
     loadingContainer: {
         alignItems: 'center',
@@ -1193,7 +1372,7 @@ const styles = StyleSheet.create({
         right: 0,
         paddingHorizontal: 20,
         paddingTop: 16,
-        backgroundColor: 'transparent',
+        backgroundColor: Colors.backgroundCardGlass,
         borderTopWidth: 1,
         borderTopColor: Colors.border,
     },

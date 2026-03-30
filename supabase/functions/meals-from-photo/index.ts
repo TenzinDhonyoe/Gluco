@@ -21,7 +21,7 @@ import {
     lookupNutritionBatch,
     NutritionLookupResult,
 } from '../_shared/nutrition-lookup.ts';
-import { convertToGrams, DeviceDepthPayload } from '../_shared/portion-estimator.ts';
+import { convertToGrams, clampToFoodRange, getFoodSizePresets, DeviceDepthPayload } from '../_shared/portion-estimator.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
@@ -64,8 +64,18 @@ interface AnalyzedItem {
     };
     detection_confidence: number;
 
-    // From FatSecret/USDA
+    // From FatSecret/USDA (scaled to detected portion)
     nutrition: {
+        calories: number | null;
+        carbs_g: number | null;
+        protein_g: number | null;
+        fat_g: number | null;
+        fibre_g: number | null;
+        sugar_g: number | null;
+        sodium_mg: number | null;
+    } | null;
+    // Per-100g nutrition for client-side recalculation
+    nutrition_per_100g?: {
         calories: number | null;
         carbs_g: number | null;
         protein_g: number | null;
@@ -76,6 +86,8 @@ interface AnalyzedItem {
     } | null;
     nutrition_source: 'fatsecret' | 'usda_fdc' | 'fallback_estimate';
     nutrition_confidence: number;
+    // Detected portion in grams for portion editing
+    detected_grams?: number;
 
     // Weight estimation from two-step process
     weight_estimate?: {
@@ -190,24 +202,27 @@ function applyFollowupResponses(
         const portionAnswer = responseMap.get(portionKey);
 
         if (portionAnswer) {
-            const multipliers: Record<string, number> = {
-                'Small': 0.7,
-                'Medium': 1.0,
-                'Large': 1.5,
+            // Use food-specific S/M/L gram presets instead of flat multipliers
+            const sizePresets = getFoodSizePresets(item.name, item.category);
+            const sizeMap: Record<string, number> = {
+                'Small': sizePresets.small_g,
+                'Medium': sizePresets.medium_g,
+                'Large': sizePresets.large_g,
             };
 
-            if (typeof portionAnswer === 'string' && multipliers[portionAnswer]) {
-                const multiplier = multipliers[portionAnswer];
-                const clampedValue = item.portion.value
-                    ? Math.max(1, Math.min(5000, item.portion.value * multiplier))
-                    : null;
+            if (typeof portionAnswer === 'string' && sizeMap[portionAnswer]) {
+                const targetGrams = sizeMap[portionAnswer];
+                const currentGrams = item.detected_grams || item.portion.value || sizePresets.medium_g;
+                const multiplier = targetGrams / currentGrams;
+
                 return {
                     ...item,
                     portion: {
                         ...item.portion,
-                        value: clampedValue,
-                        confidence: 0.9, // User confirmed
+                        value: targetGrams,
+                        confidence: 0.9,
                     },
+                    detected_grams: targetGrams,
                     nutrition: item.nutrition ? {
                         calories: item.nutrition.calories ? Math.round(item.nutrition.calories * multiplier) : null,
                         carbs_g: item.nutrition.carbs_g ? Math.round(item.nutrition.carbs_g * multiplier * 10) / 10 : null,
@@ -219,16 +234,18 @@ function applyFollowupResponses(
                     } : null,
                 };
             } else if (typeof portionAnswer === 'number') {
-                // User entered specific grams — clamp to sane bounds
+                // User entered specific grams — clamp to food-specific range
+                const { clamped } = clampToFoodRange(item.name, item.category, portionAnswer);
                 return {
                     ...item,
                     portion: {
                         ...item.portion,
                         estimate_type: 'weight_g' as const,
-                        value: Math.max(1, Math.min(5000, portionAnswer)),
+                        value: clamped,
                         unit: 'g' as const,
                         confidence: 0.95,
                     },
+                    detected_grams: clamped,
                 };
             }
         }
@@ -259,9 +276,13 @@ function detectionToLookupItem(
         portion.confidence = Math.min(portion.confidence, 0.5);
     }
 
-    // Clamp portion value to sane bounds (1g–5000g)
+    // Clamp portion to food-specific range if available, otherwise generic bounds
     if (portion.value !== null) {
-        portion.value = Math.max(1, Math.min(5000, portion.value));
+        const { clamped, wasClamped } = clampToFoodRange(item.name, item.category, portion.value);
+        if (wasClamped) {
+            console.log(`Portion clamped: "${item.name}" ${portion.value}g → ${clamped}g`);
+        }
+        portion.value = clamped;
     }
 
     return {
@@ -292,8 +313,10 @@ function nutritionResultToAnalyzedItem(
         portion: result.portion,
         detection_confidence: result.detection_confidence,
         nutrition: result.nutrition,
+        nutrition_per_100g: result.nutrition_per_100g,
         nutrition_source: result.nutrition_source,
         nutrition_confidence: result.nutrition_confidence,
+        detected_grams: result.detected_grams,
         weight_estimate: weightEstimate,
         matched_food_name: result.matched_food_name,
         matched_food_brand: result.matched_food_brand,
@@ -434,7 +457,8 @@ async function analyzePhoto(
         };
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        log('ERROR', 'Photo analysis failed', { error: errorMessage });
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        log('ERROR', 'Photo analysis failed', { error: errorMessage, stack: errorStack });
 
         return {
             status: 'failed',

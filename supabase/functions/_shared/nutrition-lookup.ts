@@ -72,6 +72,19 @@ export interface NutritionLookupResult {
     nutrition_source: 'fatsecret' | 'usda_fdc' | 'fallback_estimate';
     nutrition_confidence: number;
 
+    // Per-100g nutrition (before portion scaling) for client-side recalculation
+    nutrition_per_100g?: {
+        calories: number | null;
+        carbs_g: number | null;
+        protein_g: number | null;
+        fat_g: number | null;
+        fibre_g: number | null;
+        sugar_g: number | null;
+        sodium_mg: number | null;
+    } | null;
+    // Detected portion in grams
+    detected_grams?: number;
+
     // Matched food details
     matched_food_name?: string;
     matched_food_brand?: string;
@@ -350,9 +363,32 @@ function scaleNutritionToPortionSize(
     // 6. Update serving_description
     const servingDescription = `${detectedGrams}g (scaled from per ${servingGrams}g)`;
 
+    // 7. Compute per-100g nutrition for client-side recalculation
+    const per100gMultiplier = 100 / servingGrams;
+    const to100g = (v: number | null): number | null => {
+        if (v === null) return null;
+        return Math.round(v * per100gMultiplier * 10) / 10;
+    };
+    const to100gRound = (v: number | null): number | null => {
+        if (v === null) return null;
+        return Math.round(v * per100gMultiplier);
+    };
+
+    const nutritionPer100g = {
+        calories: to100gRound(result.nutrition.calories),
+        carbs_g: to100g(result.nutrition.carbs_g),
+        protein_g: to100g(result.nutrition.protein_g),
+        fat_g: to100g(result.nutrition.fat_g),
+        fibre_g: to100g(result.nutrition.fibre_g),
+        sugar_g: to100g(result.nutrition.sugar_g),
+        sodium_mg: to100gRound(result.nutrition.sodium_mg),
+    };
+
     return {
         ...result,
         nutrition: scaledNutrition,
+        nutrition_per_100g: nutritionPer100g,
+        detected_grams: detectedGrams,
         portion: scaledPortion,
         serving_description: servingDescription,
     };

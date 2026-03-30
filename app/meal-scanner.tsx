@@ -533,22 +533,14 @@ export default function MealScannerScreen() {
                 // Analysis returned but no items detected - offer options
                 Alert.alert(
                     'No Food Detected',
-                    'Could not identify food items in this photo. Try taking a clearer picture with better lighting, or add items manually.',
+                    'Could not identify food items in this photo. Try again or add items manually.',
                     [
+                        { text: 'Retry', onPress: () => analyzeImage(imageUri) },
                         {
                             text: 'Retake Photo', onPress: () => {
                                 setScannerState('ready');
                                 setAnalysisStep(null);
                                 setCapturedImageUri(null);
-                            }
-                        },
-                        {
-                            text: 'Search Database',
-                            onPress: () => {
-                                setScannerState('ready');
-                                setAnalysisStep(null);
-                                setCapturedImageUri(null);
-                                setScanMode('food_database');
                             }
                         },
                         {
@@ -1094,6 +1086,9 @@ export default function MealScannerScreen() {
                         onClose={handleAnalysisClose}
                         macroOverrides={macroOverrides}
                         isSaving={isSaving}
+                        onItemsChange={(updatedItems) => {
+                            setAnalysisResult(prev => prev ? { ...prev, items: updatedItems as SelectedMealItem[] } : null);
+                        }}
                         followupComponent={pendingFollowups.length > 0 ? (
                             <FollowupQuestionView
                                 questions={pendingFollowups}

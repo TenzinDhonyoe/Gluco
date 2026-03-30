@@ -125,9 +125,25 @@ For each item, show your dimensional reasoning:
 1. Estimate volume in mL based on the dimensions (height × area, using plate as reference)
 2. Apply food-type density: proteins ~1.1g/mL, grains/rice ~0.9g/mL, vegetables ~0.6g/mL, liquids ~1.0g/mL, mixed dishes ~0.9g/mL
 3. Convert volume to grams
-4. Provide three estimates: { min_grams, best_grams, max_grams }
+4. Cross-check against typical serving sizes for that food:
+   - A single apple is typically 120-250g
+   - A chicken breast is typically 100-250g
+   - A cup of cooked rice is typically 150-250g
+   - A single egg is 40-65g
+   - A slice of bread is 20-45g
+   - A bowl of soup is 200-500g
+   - A serving of pasta is 100-350g
+   If your estimate falls far outside these ranges for a similar food, re-examine your reasoning.
+5. Provide three estimates: { min_grams, best_grams, max_grams }
 
-CRITICAL: Most AI models systematically underestimate portions. If anything, bias slightly high rather than low.
+GUARDRAILS:
+- A single piece of fruit cannot exceed 500g
+- A single egg cannot exceed 65g
+- A single slice of bread cannot exceed 50g
+- A chicken breast cannot exceed 300g
+- If your best_grams is more than 2x a typical serving for that food, flag it in your reasoning
+
+CRITICAL: Most AI models systematically underestimate portions. If anything, bias slightly high rather than low. But do not exceed the guardrails above.
 
 Food analysis from Step 1:
 {step1_output}

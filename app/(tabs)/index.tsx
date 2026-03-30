@@ -2462,22 +2462,7 @@ function TodayScreenInner() {
                             </View>
                         )}
 
-                        {/* Advanced Glucose — unchanged, conditional */}
-                        {canShowAdvancedGlucose && (
-                            <Animated.View
-                                style={{
-                                    opacity: behaviorAdvancedReveal,
-                                    transform: [{ translateY: behaviorAdvancedTranslateIn }],
-                                }}
-                            >
-                                <BehaviorAdvancedGlucoseCard
-                                    expanded={advancedGlucoseExpanded}
-                                    onToggle={() => setAdvancedGlucoseExpanded(prev => !prev)}
-                                    avgGlucose={advancedGlucoseSummary.avg}
-                                    timeInZone={advancedGlucoseSummary.inTarget}
-                                />
-                            </Animated.View>
-                        )}
+                        {/* Advanced Glucose section removed */}
                     </>
                 ) : (
                     <>
