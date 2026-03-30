@@ -325,10 +325,13 @@ function computeWeightsWithExclusion(
     const excludedMetrics: ExcludedMetric[] = [];
     const metricsUsed: (CoreMetric | 'hrv')[] = [];
 
-    // Base weights
-    let wRHR = metricDays.rhr >= 3 ? 0.35 : 0;
-    let wSteps = metricDays.steps >= 3 ? 0.30 : 0;
-    let wSleep = metricDays.sleep >= 3 ? 0.15 : 0;
+    // Base weights — evidence-based reweighting:
+    // Sleep increased from 0.15→0.25 (UK Biobank: sleep regularity is strongest mortality predictor)
+    // RHR decreased from 0.35→0.30, Steps from 0.30→0.25 to compensate
+    // Sources: SLEEP Oxford (doi:10.1093/sleep/zsad253), PMC9289978, PMC8166682
+    let wRHR = metricDays.rhr >= 3 ? 0.30 : 0;
+    let wSteps = metricDays.steps >= 3 ? 0.25 : 0;
+    let wSleep = metricDays.sleep >= 3 ? 0.25 : 0;
     let wHRV = hasHRV && metricDays.hrv >= 3 ? 0.10 : 0;
     let wContext = hasContext ? 0.10 : 0;
 
@@ -629,7 +632,10 @@ export function calculateMetabolicScore(
         if (baselineRhr.stats) {
             rhrBad = baselineBadness(weeklyRHR - baselineRhr.stats.median, baselineRhr.stats.iqr, false);
         } else {
-            rhrBad = clamp01((weeklyRHR - 50) / (85 - 50)) * absoluteFallbackPenalty;
+            // RHR 50-80 bpm: Meta-analysis 10 bpm increase = 6% higher CV mortality (RR 1.06)
+            // Copenhagen City Heart Study: RHR 65 vs 80 bpm = 4.6 years life expectancy diff
+            // Sources: PMC8166682, PMC4754196
+            rhrBad = clamp01((weeklyRHR - 50) / (80 - 50)) * absoluteFallbackPenalty;
         }
     }
 
@@ -638,7 +644,10 @@ export function calculateMetabolicScore(
         if (baselineSteps.stats) {
             stepsBad = baselineBadness(weeklySteps - baselineSteps.stats.median, baselineSteps.stats.iqr, true);
         } else {
-            stepsBad = clamp01(1 - (weeklySteps - 3000) / (12000 - 3000)) * absoluteFallbackPenalty;
+            // Steps 2000-10000: Lancet 2025 meta-analysis: 7000 steps = 47% lower mortality vs 2000
+            // 1000-step increment = 15% mortality reduction, benefits plateau above 10000
+            // Sources: Lancet Public Health (doi:10.1016/S2468-2667(25)00164-1), PMC9289978
+            stepsBad = clamp01(1 - (weeklySteps - 2000) / (10000 - 2000)) * absoluteFallbackPenalty;
         }
     }
 
@@ -647,15 +656,22 @@ export function calculateMetabolicScore(
         if (baselineSleep.stats) {
             sleepDurationBad = baselineBadnessAbs(Math.abs(weeklySleep - baselineSleep.stats.median), baselineSleep.stats.iqr);
         } else {
-            sleepDurationBad = clamp01(Math.abs(weeklySleep - 7.5) / 2.5) * absoluteFallbackPenalty;
+            // Sleep 7.0h target ±2.0h: JAHA meta-analysis U-shaped curve, nadir at 7h
+            // RR per 1h below 7h = 1.06, per 1h above 7h = 1.13
+            // Sources: JAHA (doi:10.1161/JAHA.117.005947), Nature Scientific Reports (doi:10.1038/srep21480)
+            sleepDurationBad = clamp01(Math.abs(weeklySleep - 7.0) / 2.0) * absoluteFallbackPenalty;
         }
     }
 
     const sleepRegularityBad = sleepStd !== null ? clamp01(sleepStd / 1.5) : null;
     let sleepBad: number | null = null;
+    // Sleep composite: 60% duration + 40% regularity
+    // UK Biobank (n=60,977): sleep regularity is a stronger mortality predictor than duration
+    // Most regular quintile = 20-48% lower all-cause mortality vs least regular
+    // Sources: SLEEP Oxford (doi:10.1093/sleep/zsad253), PMC10782501
     if (sleepDurationBad !== null) {
         sleepBad = sleepRegularityBad !== null
-            ? 0.7 * sleepDurationBad + 0.3 * sleepRegularityBad
+            ? 0.6 * sleepDurationBad + 0.4 * sleepRegularityBad
             : sleepDurationBad;
     }
 
@@ -664,7 +680,10 @@ export function calculateMetabolicScore(
         if (baselineHrv.stats) {
             hrvBad = baselineBadness(weeklyHRV - baselineHrv.stats.median, baselineHrv.stats.iqr, true);
         } else {
-            hrvBad = clamp01(1 - (weeklyHRV - 20) / (80 - 20)) * absoluteFallbackPenalty;
+            // HRV (RMSSD) 15-70 ms: Lifelines cohort median RMSSD 65ms (age 20) to 16ms (age 75+)
+            // Low 24h SDNN <50ms linked to higher all-cause mortality
+            // Sources: PMC5624990, PMC7734556
+            hrvBad = clamp01(1 - (weeklyHRV - 15) / (70 - 15)) * absoluteFallbackPenalty;
         }
     }
 

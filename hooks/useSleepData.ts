@@ -30,14 +30,8 @@ interface UseSleepDataReturn {
  * Returns average hours per night, authorization status, and loading state
  */
 export function useSleepData(_range: RangeKey, skip = false): UseSleepDataReturn {
-    // Initialize with safe default values to prevent crashes
-    const [data, setData] = useState<SleepData | null>({
-        avgHoursPerNight: 0,
-        totalNights: 0,
-        totalHours: 0,
-        isAuthorized: false,
-        isAvailable: Platform.OS === 'ios',
-    });
+    // Initialize as null — data is populated after HealthKit fetch
+    const [data, setData] = useState<SleepData | null>(null);
     const [isLoading, setIsLoading] = useState(!skip);
     const [error, setError] = useState<Error | null>(null);
 
