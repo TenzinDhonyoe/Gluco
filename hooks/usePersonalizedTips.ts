@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_KEY_PREFIX = 'personalized_tips';
 
 interface CacheEntry {

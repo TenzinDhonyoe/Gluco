@@ -8,6 +8,7 @@ import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { enforceNutrientLimits } from '../_shared/nutrition-validation.ts';
 import { buildGeminiUsageTelemetry, summarizeModalityTokens } from '../_shared/genai-telemetry.ts';
+import { categorizeGeminiError } from '../_shared/gemini-structured.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
@@ -682,9 +683,11 @@ async function analyzePhotoWithGemini(
     } catch (error) {
         const processingTimeMs = Date.now() - startTime;
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const { category: errorCategory, message: safeErrorMessage } = categorizeGeminiError(error);
 
         log('ERROR', 'Photo analysis failed', {
             error: errorMessage,
+            error_category: errorCategory,
             processingTimeMs,
             imageSize
         });
@@ -694,6 +697,8 @@ async function analyzePhotoWithGemini(
             disclaimer: 'Could not analyze photo. Try taking a clearer picture or add items manually.',
             items: [],
             totals: { calories_kcal: null, carbs_g: null, protein_g: null, fat_g: null, fibre_g: null },
+            error_category: errorCategory,
+            error_message: safeErrorMessage,
             debug: {
                 model: Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL,
                 processingTimeMs,
@@ -705,6 +710,7 @@ async function analyzePhotoWithGemini(
                 promptImageTokens,
                 estimatedCostUsd,
                 error: errorMessage,
+                error_category: errorCategory,
                 rawResponse: rawResponseText,
             }
         };

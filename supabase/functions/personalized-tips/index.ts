@@ -8,6 +8,8 @@ import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { sanitizeText } from '../_shared/safety.ts';
 import { callGenAI } from '../_shared/genai.ts';
+import { buildUserContext, serializeContextForPrompt, type UserContextObject } from '../_shared/user-context.ts';
+import { hashContent } from '../_shared/hash.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
@@ -87,7 +89,8 @@ interface PersonalizedTip {
     metric?: string;
 }
 
-interface CheckinStats {
+// Check-in breakdowns (not provided by buildUserContext at this granularity)
+interface CheckinBreakdowns {
     totalCheckins: number;
     energyBreakdown: { low: number; steady: number; high: number };
     fullnessBreakdown: { low: number; okay: number; high: number };
@@ -97,90 +100,16 @@ interface CheckinStats {
     commonPatterns: string[];
 }
 
-interface UserStats {
-    glucose: {
-        avgLevel: number | null;
-        inRangePct: number | null;
-        highReadingsCount: number;
-        totalReadings: number;
-    };
-    meal: {
-        avgFibrePerDay: number | null;
-        totalMeals: number;
-        mealNamesLogged: string[];
-    };
-    activity: {
-        totalMinutes: number;
-        sessionCount: number;
-        activeDays: number;
-    };
-    checkins: CheckinStats;
-}
-
-async function fetchUserStats(supabase: any, userId: string): Promise<UserStats> {
+async function fetchCheckinBreakdowns(supabase: any, userId: string): Promise<CheckinBreakdowns> {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const startDate = sevenDaysAgo.toISOString();
 
-    // Fetch glucose logs
-    const { data: glucoseLogs } = await supabase
-        .from('glucose_logs')
-        .select('glucose_level, logged_at')
-        .eq('user_id', userId)
-        .gte('logged_at', startDate)
-        .order('logged_at', { ascending: false });
-
-    // Fetch meals
-    const { data: meals } = await supabase
-        .from('meals')
-        .select('id, name, logged_at')
-        .eq('user_id', userId)
-        .gte('logged_at', startDate);
-
-    // Fetch meal items for fibre calculation
-    let totalFibre = 0;
-    if (meals && meals.length > 0) {
-        const mealIds = meals.map((m: any) => m.id);
-        const { data: mealItems } = await supabase
-            .from('meal_items')
-            .select('quantity, nutrients')
-            .in('meal_id', mealIds);
-
-        (mealItems || []).forEach((item: any) => {
-            const fibreG = item.nutrients?.fibre_g ?? 0;
-            const quantity = item.quantity ?? 1;
-            totalFibre += fibreG * quantity;
-        });
-    }
-
-    // Fetch activity logs
-    const { data: activityLogs } = await supabase
-        .from('activity_logs')
-        .select('duration_minutes, logged_at')
-        .eq('user_id', userId)
-        .gte('logged_at', startDate);
-
-    // Fetch meal check-ins from the last 7 days
     const { data: mealCheckins } = await supabase
         .from('meal_checkins')
-        .select('energy, fullness, cravings, mood, movement_after, notes, created_at')
+        .select('energy, fullness, cravings, mood, movement_after, created_at')
         .eq('user_id', userId)
-        .gte('created_at', startDate);
+        .gte('created_at', sevenDaysAgo.toISOString());
 
-    // Calculate glucose stats
-    const glucoseReadings = glucoseLogs || [];
-    const inRangeReadings = glucoseReadings.filter((l: any) => l.glucose_level >= 3.9 && l.glucose_level <= 10.0);
-    const highReadings = glucoseReadings.filter((l: any) => l.glucose_level > 10.0);
-    const avgGlucose = glucoseReadings.length > 0
-        ? glucoseReadings.reduce((sum: number, l: any) => sum + l.glucose_level, 0) / glucoseReadings.length
-        : null;
-
-    // Calculate activity stats
-    const activities = activityLogs || [];
-    const totalMinutes = activities.reduce((sum: number, a: any) => sum + a.duration_minutes, 0);
-    const uniqueDays = new Set(activities.map((a: any) => new Date(a.logged_at).toDateString())).size;
-
-    // Calculate check-in stats
     const checkins = mealCheckins || [];
     const energyBreakdown = { low: 0, steady: 0, high: 0 };
     const fullnessBreakdown = { low: 0, okay: 0, high: 0 };
@@ -231,66 +160,102 @@ async function fetchUserStats(supabase: any, userId: string): Promise<UserStats>
     }
 
     return {
+        totalCheckins: checkins.length,
+        energyBreakdown,
+        fullnessBreakdown,
+        cravingsBreakdown,
+        moodBreakdown,
+        movementAfterPct: movementTotal > 0 ? Math.round((movementCount / movementTotal) * 100) : null,
+        commonPatterns,
+    };
+}
+
+/**
+ * Build a check-in summary string for the prompt
+ */
+function buildCheckinSummary(checkins: CheckinBreakdowns): string {
+    if (checkins.totalCheckins === 0) {
+        return '- Post-Meal Check-ins: No check-ins recorded this week';
+    }
+
+    let summary = `\n## Post-Meal Check-ins (${checkins.totalCheckins} this week)`;
+    summary += `\nEnergy after meals: ${checkins.energyBreakdown.low} low, ${checkins.energyBreakdown.steady} steady, ${checkins.energyBreakdown.high} high`;
+    summary += `\nFullness: ${checkins.fullnessBreakdown.low} still hungry, ${checkins.fullnessBreakdown.okay} just right, ${checkins.fullnessBreakdown.high} very full`;
+    summary += `\nCravings: ${checkins.cravingsBreakdown.low} none, ${checkins.cravingsBreakdown.medium} some, ${checkins.cravingsBreakdown.high} strong`;
+    summary += `\nMood after eating: ${checkins.moodBreakdown.low} low, ${checkins.moodBreakdown.okay} okay, ${checkins.moodBreakdown.good} good`;
+    summary += `\nMoved after eating: ${checkins.movementAfterPct ?? 0}% of meals`;
+    if (checkins.commonPatterns.length > 0) {
+        summary += `\nPatterns noticed: ${checkins.commonPatterns.join('; ')}`;
+    }
+
+    return summary;
+}
+
+/**
+ * Derive a backwards-compatible stats object from UserContextObject
+ */
+function deriveStats(ctx: UserContextObject) {
+    return {
         glucose: {
-            avgLevel: avgGlucose ? Math.round(avgGlucose * 10) / 10 : null,
-            inRangePct: glucoseReadings.length > 0 ? Math.round((inRangeReadings.length / glucoseReadings.length) * 100) : null,
-            highReadingsCount: highReadings.length,
-            totalReadings: glucoseReadings.length,
+            avgLevel: ctx.glucose?.avg_fasting ?? null,
+            inRangePct: ctx.patterns.time_in_zone_pct,
+            highReadingsCount: 0,
+            totalReadings: ctx.patterns.glucose_logs_count,
         },
         meal: {
-            avgFibrePerDay: meals && meals.length > 0 ? Math.round((totalFibre / 7) * 10) / 10 : null,
-            totalMeals: meals?.length || 0,
-            mealNamesLogged: (meals || []).slice(0, 5).map((m: any) => m.name),
+            avgFibrePerDay: ctx.patterns.avg_fibre_g_per_day,
+            totalMeals: ctx.patterns.meals_logged,
+            mealNamesLogged: [] as string[],
         },
         activity: {
-            totalMinutes,
-            sessionCount: activities.length,
-            activeDays: uniqueDays,
-        },
-        checkins: {
-            totalCheckins: checkins.length,
-            energyBreakdown,
-            fullnessBreakdown,
-            cravingsBreakdown,
-            moodBreakdown,
-            movementAfterPct: movementTotal > 0 ? Math.round((movementCount / movementTotal) * 100) : null,
-            commonPatterns,
+            totalMinutes: (ctx.patterns.avg_active_minutes ?? 0) * 7,
+            sessionCount: 0,
+            activeDays: 0,
         },
     };
 }
 
-async function generateTipsWithGemini(stats: UserStats): Promise<PersonalizedTip[]> {
-    // Build check-in summary for the prompt
-    const checkinSummary = stats.checkins.totalCheckins > 0
-        ? `
-- Post-Meal Check-ins (${stats.checkins.totalCheckins} this week):
-  * Energy after meals: ${stats.checkins.energyBreakdown.low} low, ${stats.checkins.energyBreakdown.steady} steady, ${stats.checkins.energyBreakdown.high} high
-  * Fullness: ${stats.checkins.fullnessBreakdown.low} still hungry, ${stats.checkins.fullnessBreakdown.okay} just right, ${stats.checkins.fullnessBreakdown.high} very full
-  * Cravings: ${stats.checkins.cravingsBreakdown.low} none, ${stats.checkins.cravingsBreakdown.medium} some, ${stats.checkins.cravingsBreakdown.high} strong
-  * Mood after eating: ${stats.checkins.moodBreakdown.low} low, ${stats.checkins.moodBreakdown.okay} okay, ${stats.checkins.moodBreakdown.good} good
-  * Moved after eating: ${stats.checkins.movementAfterPct ?? 0}% of meals
-  ${stats.checkins.commonPatterns.length > 0 ? `* Patterns noticed: ${stats.checkins.commonPatterns.join('; ')}` : ''}`
-        : '- Post-Meal Check-ins: No check-ins recorded this week';
+async function generateTipsWithGemini(
+    ctx: UserContextObject,
+    checkins: CheckinBreakdowns,
+): Promise<PersonalizedTip[]> {
+    const serializedContext = serializeContextForPrompt(ctx);
+    const checkinSummary = buildCheckinSummary(checkins);
 
-    const prompt = `You are a wellness coach helping someone understand their eating patterns and energy levels. Based on their week's data, generate 3 personalized tips (one for glucose patterns if tracked, one for meals/how they feel after eating, one for activity).
+    // Dedup: avoid repeating recent tip topics
+    const recentTopics = ctx.recent_ai_categories;
+    const dedupInstruction = recentTopics.length > 0
+        ? `\nAvoid these recently suggested topics/angles: ${recentTopics.join(', ')}. Try different advice or a fresh perspective.`
+        : '';
 
-IMPORTANT:
+    const isMealsOnly = ctx.tracking_mode === 'meals_only';
+    const glucoseSlotInstruction = isMealsOnly
+        ? 'The user does not track glucose. For the "glucose" category tip, generate a general wellness tip instead (sleep, stress management, hydration, or recovery). Do NOT mention glucose tracking.'
+        : 'For the "glucose" category tip, reference their glucose patterns and trends.';
+
+    const prompt = `You are a wellness coach helping someone understand their eating patterns and energy levels. Based on their profile and this week's data, generate 3 personalized tips.
+
+IMPORTANT RULES:
 - Use behavioral, wellness-focused language
 - Do NOT imply diagnosis, detection, or prediction of any disease
 - Avoid clinical terminology
-- PAY SPECIAL ATTENTION to their post-meal check-in data - this tells you how they actually FEEL after eating
+- Reference the user's specific goals and primary habit by name when available
+- If they have dietary preferences or cultural food context, ground meal suggestions in their food culture (e.g., suggest dal or lentils for fiber if South Asian context, suggest Mediterranean-style meals if Mediterranean context)
+- Match coaching style: light = brief encouraging nudge, balanced = moderate guidance, structured = specific actionable steps with detail
 - If they report low energy or mood after meals, suggest ways to improve (meal composition, timing, walking after)
 - If they have strong cravings, suggest balanced meals with protein and fiber
+- If sleep data shows poor sleep, incorporate sleep-related tips
+- If they're on an active wellness plan, align tips with that plan's focus
+- Use their first name naturally if available (e.g., "Based on your week, Sarah...")
+${glucoseSlotInstruction}${dedupInstruction}
 
-USER'S WEEK DATA:
-- Glucose: ${stats.glucose.totalReadings} readings, avg ${stats.glucose.avgLevel ?? 'N/A'} mmol/L, ${stats.glucose.inRangePct ?? 0}% in range, ${stats.glucose.highReadingsCount} high readings
-- Meals: ${stats.meal.totalMeals} meals logged, avg fibre ${stats.meal.avgFibrePerDay ?? 0} g/day
-- Activity: ${stats.activity.totalMinutes} minutes total, ${stats.activity.sessionCount} sessions, ${stats.activity.activeDays} active days
+${serializedContext}
+
 ${checkinSummary}
 
-For each tip, provide:
+Generate exactly 3 tips (one per category: glucose, meal, activity). For each tip, provide:
 1. A short title (2-4 words)
-2. A personalized description (1-2 sentences referencing their actual data, especially how they feel after meals)
+2. A personalized description (1-2 sentences referencing their actual data, goals, and how they feel after meals)
 3. A topic_tag from this list: fiber, protein, carbs, sugar, hydration, meal_timing, portion_control, mindful_eating, walking, activity, exercise, energy, sleep, cravings, hunger, glucose, wellness, general
 
 Return ONLY valid JSON in this exact format:
@@ -302,6 +267,8 @@ Return ONLY valid JSON in this exact format:
   ]
 }`;
 
+    const stats = deriveStats(ctx);
+
     try {
         const text = await callGenAI(prompt, {
             temperature: 0.4,
@@ -310,7 +277,7 @@ Return ONLY valid JSON in this exact format:
         });
 
         if (!text) {
-            return generateFallbackTips(stats);
+            return generateFallbackTips(ctx, checkins);
         }
 
         const parsed = JSON.parse(text);
@@ -319,7 +286,6 @@ Return ONLY valid JSON in this exact format:
             category: tip.category,
             title: tip.title,
             description: tip.description,
-            // Map topic_tag to verified URL instead of using AI-generated URL
             articleUrl: getArticleUrl(tip.topic_tag || tip.articleUrl),
             metric: tip.category === 'glucose' ? `${stats.glucose.avgLevel ?? '--'} mmol/L avg` :
                 tip.category === 'meal' ? `${stats.meal.avgFibrePerDay ?? 0} g/day fibre` :
@@ -327,40 +293,70 @@ Return ONLY valid JSON in this exact format:
         }));
     } catch (error) {
         console.error('Vertex AI call failed:', error);
-        return generateFallbackTips(stats);
+        return generateFallbackTips(ctx, checkins);
     }
 }
 
-function generateFallbackTips(stats: UserStats): PersonalizedTip[] {
+function generateFallbackTips(ctx: UserContextObject, checkins: CheckinBreakdowns): PersonalizedTip[] {
     const tips: PersonalizedTip[] = [];
+    const isMealsOnly = ctx.tracking_mode === 'meals_only';
 
-    // Glucose tip
-    tips.push({
-        id: '1',
-        category: 'glucose',
-        title: 'Track Your Trends',
-        description: stats.glucose.totalReadings > 0
-            ? `You logged ${stats.glucose.totalReadings} readings this week with ${stats.glucose.inRangePct}% in range.`
-            : 'Start logging your glucose to see personalized insights.',
-        articleUrl: 'https://www.healthline.com/nutrition/blood-sugar-after-eating',
-        metric: stats.glucose.avgLevel ? `${stats.glucose.avgLevel} mmol/L avg` : undefined,
-    });
+    // Glucose tip (or wellness tip for meals_only users)
+    if (isMealsOnly) {
+        // General wellness tip for users who don't track glucose
+        const sleepHours = ctx.patterns.avg_sleep_hours;
+        if (sleepHours !== null && sleepHours < 7) {
+            tips.push({
+                id: '1',
+                category: 'glucose',
+                title: 'Improve Your Sleep',
+                description: `You're averaging ${sleepHours} hours of sleep. Aim for 7-9 hours to support your energy and wellness goals.`,
+                articleUrl: ARTICLE_LIBRARY['sleep'],
+                metric: `${sleepHours}h avg sleep`,
+            });
+        } else {
+            tips.push({
+                id: '1',
+                category: 'glucose',
+                title: 'Stay Hydrated',
+                description: ctx.primary_habit
+                    ? `While working on "${ctx.primary_habit}", staying hydrated helps with energy and focus.`
+                    : 'Drinking enough water throughout the day supports energy and digestion.',
+                articleUrl: ARTICLE_LIBRARY['hydration'],
+            });
+        }
+    } else {
+        tips.push({
+            id: '1',
+            category: 'glucose',
+            title: 'Track Your Trends',
+            description: ctx.patterns.glucose_logs_count > 0
+                ? `You logged ${ctx.patterns.glucose_logs_count} readings this week${ctx.patterns.time_in_zone_pct !== null ? ` with ${ctx.patterns.time_in_zone_pct}% in range` : ''}.`
+                : ctx.primary_habit
+                    ? `Start logging your glucose to support your habit of "${ctx.primary_habit}".`
+                    : 'Start logging your glucose to see personalized insights.',
+            articleUrl: ARTICLE_LIBRARY['glucose'],
+            metric: ctx.glucose?.avg_fasting ? `${ctx.glucose.avg_fasting} mmol/L avg` : undefined,
+        });
+    }
 
-    // Meal tip - personalized based on check-in data
+    // Meal tip — personalized based on check-in data and profile
     let mealTip: PersonalizedTip;
-    const checkins = stats.checkins;
 
     if (checkins.totalCheckins >= 3) {
         const totalEnergy = checkins.energyBreakdown.low + checkins.energyBreakdown.steady + checkins.energyBreakdown.high;
         const totalCravings = checkins.cravingsBreakdown.low + checkins.cravingsBreakdown.medium + checkins.cravingsBreakdown.high;
 
         if (totalEnergy > 0 && checkins.energyBreakdown.low / totalEnergy > 0.4) {
+            const culturalHint = ctx.cultural_food_context
+                ? ` Try adding more protein-rich foods from your ${ctx.cultural_food_context} food traditions.`
+                : '';
             mealTip = {
                 id: '2',
                 category: 'meal',
                 title: 'Boost Your Energy',
-                description: `You reported low energy after ${checkins.energyBreakdown.low} meals. Try adding more protein and fiber to sustain your energy.`,
-                articleUrl: 'https://www.healthline.com/nutrition/how-to-boost-energy',
+                description: `You reported low energy after ${checkins.energyBreakdown.low} meals. Try adding more protein and fiber to sustain your energy.${culturalHint}`,
+                articleUrl: ARTICLE_LIBRARY['energy'],
                 metric: `${checkins.energyBreakdown.low} low energy meals`,
             };
         } else if (totalCravings > 0 && checkins.cravingsBreakdown.high / totalCravings > 0.3) {
@@ -369,7 +365,7 @@ function generateFallbackTips(stats: UserStats): PersonalizedTip[] {
                 category: 'meal',
                 title: 'Manage Cravings',
                 description: `Strong cravings after ${checkins.cravingsBreakdown.high} meals this week. Balanced meals with protein can help.`,
-                articleUrl: 'https://www.healthline.com/nutrition/how-to-stop-food-cravings',
+                articleUrl: ARTICLE_LIBRARY['cravings'],
                 metric: `${checkins.cravingsBreakdown.high} meals with cravings`,
             };
         } else if (checkins.movementAfterPct !== null && checkins.movementAfterPct < 30) {
@@ -378,7 +374,7 @@ function generateFallbackTips(stats: UserStats): PersonalizedTip[] {
                 category: 'meal',
                 title: 'Walk After Eating',
                 description: `You moved after only ${checkins.movementAfterPct}% of meals. A short walk can help with digestion and energy.`,
-                articleUrl: 'https://www.healthline.com/nutrition/walking-after-eating',
+                articleUrl: ARTICLE_LIBRARY['walking'],
                 metric: `${checkins.movementAfterPct}% post-meal walks`,
             };
         } else {
@@ -387,35 +383,62 @@ function generateFallbackTips(stats: UserStats): PersonalizedTip[] {
                 category: 'meal',
                 title: 'Great Meal Habits',
                 description: `You've completed ${checkins.totalCheckins} check-ins. Keep tracking how you feel after meals!`,
-                articleUrl: 'https://www.healthline.com/nutrition/mindful-eating-guide',
+                articleUrl: ARTICLE_LIBRARY['mindful_eating'],
                 metric: `${checkins.totalCheckins} check-ins`,
             };
         }
     } else {
-        mealTip = {
-            id: '2',
-            category: 'meal',
-            title: stats.meal.avgFibrePerDay !== null ? 'Boost Your Fibre' : 'Track How You Feel',
-            description: stats.meal.avgFibrePerDay !== null
-                ? `Your fibre intake is ${stats.meal.avgFibrePerDay} g/day. Aim for 25g+ daily.`
-                : 'Check in after meals to get personalized tips based on how you feel.',
-            articleUrl: 'https://www.healthline.com/nutrition/fiber-and-blood-sugar',
-            metric: stats.meal.avgFibrePerDay ? `${stats.meal.avgFibrePerDay} g/day` : undefined,
-        };
+        // Few or no check-ins — use profile data
+        const fibre = ctx.patterns.avg_fibre_g_per_day;
+        if (fibre !== null && fibre > 0) {
+            const dietaryContext = ctx.dietary_preferences && ctx.dietary_preferences.length > 0
+                ? ` Great options for your ${ctx.dietary_preferences[0].toLowerCase()} diet include beans, lentils, and whole grains.`
+                : '';
+            mealTip = {
+                id: '2',
+                category: 'meal',
+                title: 'Boost Your Fibre',
+                description: `Your fibre intake is ${fibre} g/day. Aim for 25g+ daily.${dietaryContext}`,
+                articleUrl: ARTICLE_LIBRARY['fiber'],
+                metric: `${fibre} g/day`,
+            };
+        } else {
+            mealTip = {
+                id: '2',
+                category: 'meal',
+                title: 'Track How You Feel',
+                description: 'Check in after meals to get personalized tips based on how you feel.',
+                articleUrl: ARTICLE_LIBRARY['mindful_eating'],
+            };
+        }
     }
     tips.push(mealTip);
 
-    // Activity tip
-    tips.push({
-        id: '3',
-        category: 'activity',
-        title: 'Stay Active',
-        description: stats.activity.totalMinutes > 0
-            ? `Great work! You've logged ${stats.activity.totalMinutes} minutes across ${stats.activity.activeDays} days.`
-            : 'A 10-min walk after meals can help keep energy steady.',
-        articleUrl: 'https://www.healthline.com/nutrition/walking-after-eating',
-        metric: `${stats.activity.totalMinutes} min`,
-    });
+    // Activity tip — reference primary habit if available
+    const totalMinutes = (ctx.patterns.avg_active_minutes ?? 0) * 7;
+    if (ctx.primary_habit) {
+        tips.push({
+            id: '3',
+            category: 'activity',
+            title: 'Keep It Going',
+            description: totalMinutes > 0
+                ? `You've been active for ${totalMinutes} minutes this week while working on "${ctx.primary_habit}". Keep building that habit!`
+                : `A 10-min walk after meals is a great way to build your habit of "${ctx.primary_habit}".`,
+            articleUrl: ARTICLE_LIBRARY['walking'],
+            metric: `${totalMinutes} min`,
+        });
+    } else {
+        tips.push({
+            id: '3',
+            category: 'activity',
+            title: 'Stay Active',
+            description: totalMinutes > 0
+                ? `Great work! You've logged ${totalMinutes} minutes of activity this week.`
+                : 'A 10-min walk after meals can help keep energy steady.',
+            articleUrl: ARTICLE_LIBRARY['walking'],
+            metric: `${totalMinutes} min`,
+        });
+    }
 
     return tips;
 }
@@ -460,13 +483,37 @@ serve(async (req) => {
         const userId = user.id;
         const aiEnabled = await isAiEnabled(supabase, userId);
 
-        // Fetch user stats
-        const stats = await fetchUserStats(supabase, userId);
+        // Fetch user context and check-in breakdowns in parallel
+        const serverHour = new Date().getUTCHours();
+        const [ctx, checkins] = await Promise.all([
+            buildUserContext(supabase, userId, serverHour),
+            fetchCheckinBreakdowns(supabase, userId),
+        ]);
 
-        // Generate tips with Gemini
-        const fallback = generateFallbackTips(stats);
-        const tips = aiEnabled ? await generateTipsWithGemini(stats) : fallback;
+        // Generate tips with Gemini (or fallback)
+        const fallback = generateFallbackTips(ctx, checkins);
+        const tips = aiEnabled ? await generateTipsWithGemini(ctx, checkins) : fallback;
         const safeTips = sanitizeTips(tips, fallback);
+
+        // Derive backwards-compatible stats from context
+        const stats = deriveStats(ctx);
+
+        // Log tips to ai_output_history for rotation/dedup (non-blocking)
+        try {
+            for (const tip of safeTips) {
+                await supabase.from('ai_output_history').insert({
+                    user_id: userId,
+                    output_type: 'personalized_tips',
+                    content_hash: await hashContent(`${tip.title}:${tip.category}`),
+                    title: tip.title,
+                    body: tip.description,
+                    action_type: tip.category,
+                    metadata: { category: tip.category },
+                });
+            }
+        } catch {
+            // Non-blocking: tips still return even if history write fails
+        }
 
         return new Response(
             JSON.stringify({ tips: safeTips, stats }),

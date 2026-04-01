@@ -9,6 +9,7 @@ import { containsBannedTerms } from '../_shared/safety.ts';
 import { buildUserContext } from '../_shared/user-context.ts';
 import { assemblePrompt } from '../_shared/coaching-prompt.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { hashContent } from '../_shared/hash.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
@@ -113,18 +114,6 @@ function getDeterministicExplanationWithBehavioral(
     }
 
     return base;
-}
-
-// ============================================
-// Content hash
-// ============================================
-
-async function hashContent(text: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(text);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // ============================================

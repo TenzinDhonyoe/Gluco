@@ -1,0 +1,1 @@
+-- Stub: migration applied directly to remote database

@@ -10,6 +10,7 @@ import { containsBannedTerms } from '../_shared/safety.ts';
 import { buildUserContext, type UserContextObject } from '../_shared/user-context.ts';
 import { assemblePrompt } from '../_shared/coaching-prompt.ts';
 import { sanitizeForPrompt } from '../_shared/sanitize-prompt.ts';
+import { hashContent } from '../_shared/hash.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
@@ -238,18 +239,6 @@ function getRulesBasedAction(ctx: UserContextObject): FallbackAction | null {
     }
 
     return null;
-}
-
-// ============================================
-// Content hash for dedup
-// ============================================
-
-async function hashContent(text: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(text);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // ============================================
