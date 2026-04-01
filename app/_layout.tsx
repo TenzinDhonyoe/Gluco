@@ -100,21 +100,21 @@ export default function RootLayout() {
     initializeRevenueCat();
   }, []);
 
-  // Setup notification handlers
-  useEffect(() => {
-    // Initialize notifications (listeners, channels, handlers)
-    initNotifications().then(() => {
-      configureAndroidChannel();
-    });
+  // Setup notification handlers (TEMPORARILY DISABLED FOR SCREENSHOTS)
+  // useEffect(() => {
+  //   // Initialize notifications (listeners, channels, handlers)
+  //   initNotifications().then(() => {
+  //     configureAndroidChannel();
+  //   });
 
-    // Setup notification response listener
-    const cleanup = setupNotificationListeners();
+  //   // Setup notification response listener
+  //   const cleanup = setupNotificationListeners();
 
-    // Handle notification if app was opened from one
-    handleInitialNotification();
+  //   // Handle notification if app was opened from one
+  //   handleInitialNotification();
 
-    return cleanup;
-  }, []);
+  //   return cleanup;
+  // }, []);
 
   useEffect(() => {
     if (!fontsReady || !navigationReady) return;

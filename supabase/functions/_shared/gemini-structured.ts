@@ -102,6 +102,8 @@ export interface FoodDetectionResult {
     items: DetectedFoodItem[];
     photo_quality: PhotoQuality;
     two_step_debug?: TwoStepDebug;
+    error_category?: string;
+    error_message?: string;
 }
 
 // ============================================
@@ -364,6 +366,46 @@ async function fetchImageAsBase64(
 }
 
 // ============================================
+// ERROR CATEGORIZATION
+// ============================================
+
+export interface GeminiErrorInfo {
+    category: string;
+    message: string;
+}
+
+/**
+ * Categorize a Gemini API error into a safe, user-facing category.
+ * Never leaks API keys, internal URLs, or stack traces.
+ */
+export function categorizeGeminiError(error: unknown): GeminiErrorInfo {
+    const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+    if (msg.includes('api key') || msg.includes('unauthorized') || msg.includes('403') || msg.includes('permission')) {
+        return { category: 'auth_error', message: 'AI service authentication failed' };
+    }
+    if (msg.includes('model') && (msg.includes('not found') || msg.includes('404'))) {
+        return { category: 'model_not_found', message: 'AI model unavailable' };
+    }
+    if (msg.includes('429') || msg.includes('rate') || msg.includes('quota') || msg.includes('resource exhausted')) {
+        return { category: 'rate_limited', message: 'Too many requests, try again shortly' };
+    }
+    if (msg.includes('timeout') || msg.includes('deadline') || msg.includes('timed out')) {
+        return { category: 'timeout', message: 'Analysis timed out' };
+    }
+    if (msg.includes('failed to fetch image') || msg.includes('not a valid image')) {
+        return { category: 'image_fetch_failed', message: 'Could not access the photo' };
+    }
+    if (msg.includes('not a json array') || msg.includes('json') && msg.includes('parse')) {
+        return { category: 'parse_error', message: 'AI returned invalid response' };
+    }
+    if (msg.includes('empty response')) {
+        return { category: 'empty_response', message: 'AI returned no response' };
+    }
+    return { category: 'unknown_error', message: 'Analysis failed unexpectedly' };
+}
+
+// ============================================
 // TWO-STEP GEMINI CALLS
 // ============================================
 
@@ -477,6 +519,13 @@ async function twoStepDetection(
     console.log(`Step 1 completed in ${Date.now() - step1Start}ms, found ${step1Output.length} items`);
 
     if (step1Output.length === 0) {
+        const model = Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL;
+        console.error('Step 1 returned 0 items — diagnostic context:', JSON.stringify({
+            model,
+            mimeType,
+            imageSizeBytes: Math.round(imageBase64.length * 3 / 4),
+            mealType: mealType || 'none',
+        }));
         return {
             items: [],
             photo_quality: {
@@ -485,6 +534,8 @@ async function twoStepDetection(
                 has_reference_object: false,
                 lighting_issue: false,
             },
+            error_category: 'no_items_detected',
+            error_message: 'No food items detected in the photo',
         };
     }
 
@@ -590,21 +641,7 @@ export async function detectFoodItems(
 ): Promise<FoodDetectionResult> {
     const { data: imageBase64, mimeType, size } = await fetchImageAsBase64(photoUrl);
     console.log(`Detecting food items in image (${size} bytes)`);
-
-    try {
-        return await twoStepDetection(imageBase64, mimeType, mealType, mealTime);
-    } catch (error) {
-        console.error('Food detection failed:', error);
-        return {
-            items: [],
-            photo_quality: {
-                is_blurry: false,
-                has_occlusion: false,
-                has_reference_object: false,
-                lighting_issue: false,
-            },
-        };
-    }
+    return twoStepDetection(imageBase64, mimeType, mealType, mealTime);
 }
 
 /**
@@ -616,20 +653,7 @@ export async function detectFoodItemsFromBase64(
     mealType?: string,
     mealTime?: string
 ): Promise<FoodDetectionResult> {
-    try {
-        return await twoStepDetection(imageBase64, mimeType, mealType, mealTime);
-    } catch (error) {
-        console.error('Food detection failed:', error);
-        return {
-            items: [],
-            photo_quality: {
-                is_blurry: false,
-                has_occlusion: false,
-                has_reference_object: false,
-                lighting_issue: false,
-            },
-        };
-    }
+    return twoStepDetection(imageBase64, mimeType, mealType, mealTime);
 }
 
 // ============================================

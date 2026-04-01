@@ -171,6 +171,8 @@ export interface MealsFromPhotoResponse {
     followups?: FollowupQuestion[];
     cache_hit: boolean;
     debug?: AnalysisDebugInfo;
+    error_category?: string;
+    error_message?: string;
 }
 
 /**

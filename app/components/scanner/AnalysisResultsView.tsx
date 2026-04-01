@@ -219,6 +219,18 @@ export default function AnalysisResultsView({
     // Portion editing state
     const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
     const [editingGrams, setEditingGrams] = useState<string>('');
+    const [previewGrams, setPreviewGrams] = useState<number | null>(null);
+
+    // Debounced preview: update preview grams 150ms after user stops typing
+    useEffect(() => {
+        const parsed = parseInt(editingGrams, 10);
+        if (!editingGrams || isNaN(parsed) || parsed <= 0) {
+            setPreviewGrams(null);
+            return;
+        }
+        const timer = setTimeout(() => setPreviewGrams(parsed), 150);
+        return () => clearTimeout(timer);
+    }, [editingGrams]);
 
     const handlePortionTap = useCallback((index: number) => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -527,86 +539,128 @@ export default function AnalysisResultsView({
                         </View>
                     </View>
 
-                    {/* Food Items List — tap to edit portion */}
+                    {/* Food List Section */}
                     <View style={styles.itemsSection}>
-                        {items.map((item, index) => {
-                            const hasPerGData = !!(item as any).per_100g;
-                            const detectedGrams = (item as any).detected_grams || item.serving_size;
-                            const isEditing = editingItemIndex === index;
+                        <View style={styles.foodListHeader}>
+                            <Text style={styles.foodListTitle}>Food List</Text>
+                            <Text style={styles.foodListHint}>Tap any item to adjust portion</Text>
+                        </View>
 
-                            return (
-                                <View key={index}>
-                                    <Pressable
-                                        style={[styles.foodItem, isEditing && styles.foodItemEditing]}
-                                        onPress={() => hasPerGData && handlePortionTap(index)}
-                                    >
-                                        <View style={styles.foodItemLeft}>
-                                            <Text style={styles.foodItemName}>{item.display_name}</Text>
-                                            <Text style={styles.foodItemBrand}>{item.brand || 'Generic'}</Text>
-                                        </View>
-                                        <View style={styles.foodItemRight}>
-                                            {detectedGrams ? (
-                                                <Text style={[styles.foodItemServing, hasPerGData && styles.foodItemServingEditable]}>
-                                                    {Math.round(detectedGrams)}g
-                                                    {hasPerGData ? ' ✎' : ''}
-                                                </Text>
-                                            ) : (
-                                                <Text style={styles.foodItemServing}>{formatServing(item)}</Text>
-                                            )}
-                                        </View>
-                                    </Pressable>
+                        {items.length === 0 ? (
+                            <View style={styles.emptyFoodList}>
+                                <Ionicons name="restaurant-outline" size={24} color={Colors.textTertiary} />
+                                <Text style={styles.emptyFoodListText}>No items detected — tap Edit to add manually</Text>
+                            </View>
+                        ) : (
+                            <View style={styles.foodCardList}>
+                                {items.map((item, index) => {
+                                    const hasPerGData = !!(item as any).per_100g;
+                                    const detectedGrams = (item as any).detected_grams || item.serving_size;
+                                    const isEditing = editingItemIndex === index;
+                                    const itemCalories = Math.round((item.calories_kcal || 0) * (item.quantity || 1));
 
-                                    {isEditing && (
-                                        <Animated.View entering={FadeInDown.duration(200)} style={styles.portionEditor}>
-                                            <View style={styles.portionEditorRow}>
-                                                <TextInput
-                                                    style={styles.portionInput}
-                                                    value={editingGrams}
-                                                    onChangeText={setEditingGrams}
-                                                    keyboardType="numeric"
-                                                    selectTextOnFocus
-                                                    autoFocus
-                                                    placeholder="grams"
-                                                    placeholderTextColor="rgba(255,255,255,0.3)"
-                                                />
-                                                <Text style={styles.portionUnit}>g</Text>
-                                                <Pressable
-                                                    style={styles.portionApplyBtn}
-                                                    onPress={() => {
-                                                        const g = parseInt(editingGrams, 10);
-                                                        if (g > 0) applyPortionChange(index, g);
-                                                    }}
-                                                >
-                                                    <Ionicons name="checkmark-circle" size={28} color={Colors.buttonPrimary} />
-                                                </Pressable>
-                                            </View>
-                                            <View style={styles.portionPresetsRow}>
-                                                {['S', 'M', 'L'].map((label) => {
-                                                    const presetGrams = label === 'S'
-                                                        ? Math.round((detectedGrams || 100) * 0.6)
-                                                        : label === 'M'
-                                                        ? Math.round(detectedGrams || 100)
-                                                        : Math.round((detectedGrams || 100) * 1.5);
-                                                    return (
+                                    return (
+                                        <Animated.View key={index} layout={Layout.duration(200)}>
+                                            <Pressable
+                                                style={[styles.foodCard, isEditing && styles.foodCardEditing]}
+                                                onPress={() => hasPerGData && handlePortionTap(index)}
+                                            >
+                                                <View style={styles.foodCardLeft}>
+                                                    <Text style={styles.foodCardName}>{item.display_name}</Text>
+                                                    <Text style={styles.foodCardBrand}>{item.brand || 'Generic'}</Text>
+                                                    <Text style={styles.foodCardGrams}>
+                                                        {detectedGrams ? `${Math.round(detectedGrams)}g` : formatServing(item)}
+                                                    </Text>
+                                                </View>
+                                                <View style={styles.foodCardRight}>
+                                                    <Text style={styles.foodCardCalories}>{itemCalories} cal</Text>
+                                                    {hasPerGData && (
+                                                        <Animated.View style={{ transform: [{ rotate: isEditing ? '90deg' : '0deg' }] }}>
+                                                            <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
+                                                        </Animated.View>
+                                                    )}
+                                                </View>
+                                            </Pressable>
+
+                                            {isEditing && (
+                                                <Animated.View entering={FadeInDown.duration(200)} exiting={FadeOutUp.duration(150)} style={styles.portionEditor}>
+                                                    <View style={styles.portionEditorRow}>
+                                                        <TextInput
+                                                            style={styles.portionInput}
+                                                            value={editingGrams}
+                                                            onChangeText={setEditingGrams}
+                                                            keyboardType="numeric"
+                                                            selectTextOnFocus
+                                                            autoFocus
+                                                            placeholder="grams"
+                                                            placeholderTextColor={Colors.textTertiary}
+                                                        />
+                                                        <Text style={styles.portionUnit}>g</Text>
                                                         <Pressable
-                                                            key={label}
-                                                            style={styles.portionPresetBtn}
+                                                            style={styles.portionApplyBtn}
                                                             onPress={() => {
-                                                                setEditingGrams(String(presetGrams));
-                                                                applyPortionChange(index, presetGrams);
+                                                                const g = parseInt(editingGrams, 10);
+                                                                if (g > 0) applyPortionChange(index, g);
                                                             }}
                                                         >
-                                                            <Text style={styles.portionPresetLabel}>{label}</Text>
-                                                            <Text style={styles.portionPresetGrams}>{presetGrams}g</Text>
+                                                            <Ionicons name="checkmark-circle" size={28} color={Colors.buttonPrimary} />
                                                         </Pressable>
-                                                    );
-                                                })}
-                                            </View>
+                                                    </View>
+                                                    <View style={styles.portionPresetsRow}>
+                                                        {['S', 'M', 'L'].map((label) => {
+                                                            const presetGrams = label === 'S'
+                                                                ? Math.round((detectedGrams || 100) * 0.6)
+                                                                : label === 'M'
+                                                                ? Math.round(detectedGrams || 100)
+                                                                : Math.round((detectedGrams || 100) * 1.5);
+                                                            return (
+                                                                <Pressable
+                                                                    key={label}
+                                                                    style={styles.portionPresetBtn}
+                                                                    onPress={() => {
+                                                                        setEditingGrams(String(presetGrams));
+                                                                        applyPortionChange(index, presetGrams);
+                                                                    }}
+                                                                >
+                                                                    <Text style={styles.portionPresetLabel}>{label}</Text>
+                                                                    <Text style={styles.portionPresetGrams}>{presetGrams}g</Text>
+                                                                </Pressable>
+                                                            );
+                                                        })}
+                                                    </View>
+
+                                                    {/* Live macro preview */}
+                                                    {previewGrams && hasPerGData && (() => {
+                                                        const per100g = (item as any).per_100g;
+                                                        const mult = previewGrams / 100;
+                                                        return (
+                                                            <Animated.View entering={FadeIn.duration(200)} style={styles.macroPreview}>
+                                                                <View style={styles.macroPreviewRow}>
+                                                                    <Text style={styles.macroPreviewItem}>
+                                                                        <Text style={styles.macroPreviewValue}>{Math.round((per100g.calories_kcal || 0) * mult)}</Text> cal
+                                                                    </Text>
+                                                                    <Text style={styles.macroPreviewItem}>
+                                                                        <Text style={styles.macroPreviewValue}>{Math.round((per100g.carbs_g || 0) * mult * 10) / 10}</Text>g carbs
+                                                                    </Text>
+                                                                </View>
+                                                                <View style={styles.macroPreviewRow}>
+                                                                    <Text style={styles.macroPreviewItem}>
+                                                                        <Text style={styles.macroPreviewValue}>{Math.round((per100g.protein_g || 0) * mult * 10) / 10}</Text>g protein
+                                                                    </Text>
+                                                                    <Text style={styles.macroPreviewItem}>
+                                                                        <Text style={styles.macroPreviewValue}>{Math.round((per100g.fat_g || 0) * mult * 10) / 10}</Text>g fat
+                                                                    </Text>
+                                                                </View>
+                                                            </Animated.View>
+                                                        );
+                                                    })()}
+                                                </Animated.View>
+                                            )}
                                         </Animated.View>
-                                    )}
-                                </View>
-                            );
-                        })}
+                                    );
+                                })}
+                            </View>
+                        )}
                     </View>
 
                     {/* Followup Questions (if any) */}
@@ -1000,43 +1054,79 @@ const styles = StyleSheet.create({
     itemsSection: {
         marginBottom: 24,
     },
-    foodItem: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.borderCard,
+    foodListHeader: {
+        marginBottom: 12,
     },
-    foodItemLeft: {
+    foodListTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 18,
+        color: Colors.textPrimary,
+        marginBottom: 2,
+    },
+    foodListHint: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textSecondary,
+    },
+    emptyFoodList: {
+        alignItems: 'center' as const,
+        paddingVertical: 32,
+        gap: 8,
+    },
+    emptyFoodListText: {
+        fontFamily: fonts.regular,
+        fontSize: 14,
+        color: Colors.textTertiary,
+        textAlign: 'center' as const,
+    },
+    foodCardList: {
+        gap: 8,
+    },
+    foodCard: {
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        alignItems: 'center' as const,
+        padding: 14,
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderRadius: 12,
+        borderWidth: 0.5,
+        borderColor: 'rgba(255,255,255,0.15)',
+    },
+    foodCardEditing: {
+        borderColor: Colors.buttonPrimary,
+        backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    foodCardLeft: {
         flex: 1,
         marginRight: 16,
     },
-    foodItemName: {
+    foodCardName: {
         fontFamily: fonts.medium,
         fontSize: 16,
         color: Colors.textPrimary,
         marginBottom: 2,
     },
-    foodItemBrand: {
+    foodCardBrand: {
         fontFamily: fonts.regular,
         fontSize: 13,
         color: Colors.textSecondary,
+        marginBottom: 2,
     },
-    foodItemRight: {
-        alignItems: 'flex-end' as const,
-    },
-    foodItemServing: {
+    foodCardGrams: {
         fontFamily: fonts.regular,
-        fontSize: 15,
+        fontSize: 14,
         color: Colors.textSecondary,
     },
-    foodItemServingEditable: {
-        color: Colors.buttonPrimary,
+    foodCardRight: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        gap: 12,
     },
-    foodItemEditing: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        borderRadius: 8,
+    foodCardCalories: {
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
+        color: Colors.textPrimary,
+        fontVariant: ['tabular-nums'] as any,
     },
     portionEditor: {
         paddingHorizontal: 16,
@@ -1094,6 +1184,28 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: Colors.textSecondary,
         marginTop: 2,
+    },
+    macroPreview: {
+        marginTop: 10,
+        paddingTop: 10,
+        borderTopWidth: 0.5,
+        borderTopColor: 'rgba(255,255,255,0.1)',
+        gap: 4,
+    },
+    macroPreviewRow: {
+        flexDirection: 'row' as const,
+        justifyContent: 'space-around' as const,
+    },
+    macroPreviewItem: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textSecondary,
+        minWidth: 80,
+    },
+    macroPreviewValue: {
+        fontFamily: fonts.semiBold,
+        fontSize: 13,
+        color: Colors.textPrimary,
     },
     loadingContainer: {
         alignItems: 'center',

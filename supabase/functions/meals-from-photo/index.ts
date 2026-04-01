@@ -8,7 +8,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
-import { detectFoodItemsFromBase64, FoodDetectionResult, TwoStepDebug, validatePhotoUrl } from '../_shared/gemini-structured.ts';
+import { detectFoodItemsFromBase64, FoodDetectionResult, TwoStepDebug, validatePhotoUrl, categorizeGeminiError } from '../_shared/gemini-structured.ts';
 import {
     cacheImageAnalysis,
     fetchAndHashImage,
@@ -116,6 +116,8 @@ interface AnalysisResponse {
     followups?: FollowupQuestion[];
     cache_hit: boolean;
     detection_debug?: TwoStepDebug;
+    error_category?: string;
+    error_message?: string;
 }
 
 // ============================================
@@ -378,6 +380,7 @@ async function analyzePhoto(
             log('INFO', 'Empty detection result', {
                 processingTimeMs: Date.now() - startTime,
                 detectionTimeMs,
+                error_category: detection.error_category || 'no_items_detected',
             });
             return {
                 status: 'failed',
@@ -388,6 +391,8 @@ async function analyzePhoto(
                     lighting_issue: detection.photo_quality?.lighting_issue ?? false,
                 },
                 cache_hit: cacheHit,
+                error_category: detection.error_category || 'no_items_detected',
+                error_message: detection.error_message || 'No food items detected in the photo',
             };
         }
 
@@ -458,7 +463,14 @@ async function analyzePhoto(
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         const errorStack = error instanceof Error ? error.stack : undefined;
-        log('ERROR', 'Photo analysis failed', { error: errorMessage, stack: errorStack });
+        const { category, message: safeMessage } = categorizeGeminiError(error);
+        const model = Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash';
+        log('ERROR', 'Photo analysis failed', {
+            error: errorMessage,
+            stack: errorStack,
+            error_category: category,
+            model,
+        });
 
         return {
             status: 'failed',
@@ -469,6 +481,8 @@ async function analyzePhoto(
                 lighting_issue: false,
             },
             cache_hit: false,
+            error_category: category,
+            error_message: safeMessage,
         };
     }
 }

@@ -408,6 +408,48 @@ export default function MealScannerScreen() {
         setFlashMode(prev => prev === 'off' ? 'on' : 'off');
     }, []);
 
+    const getErrorAlert = (errorCategory?: string, connectionFailed?: boolean): { title: string; message: string } => {
+        if (connectionFailed && !errorCategory) {
+            return {
+                title: 'Analysis Unavailable',
+                message: 'Could not connect to the analysis service. You can try again or add items manually.',
+            };
+        }
+        switch (errorCategory) {
+            case 'auth_error':
+            case 'model_not_found':
+                return {
+                    title: 'AI Service Unavailable',
+                    message: 'The food analysis service is temporarily down. Try again later or add items manually.',
+                };
+            case 'rate_limited':
+                return {
+                    title: 'Too Many Requests',
+                    message: 'Please wait a moment and try again.',
+                };
+            case 'image_fetch_failed':
+                return {
+                    title: 'Photo Upload Issue',
+                    message: 'Could not process the uploaded photo. Try retaking the photo.',
+                };
+            case 'timeout':
+                return {
+                    title: 'Analysis Timed Out',
+                    message: 'The analysis took too long. Try with a simpler photo or add items manually.',
+                };
+            case 'no_items_detected':
+                return {
+                    title: 'No Food Detected',
+                    message: 'Could not identify food items in this photo. Try again or add items manually.',
+                };
+            default:
+                return {
+                    title: 'Analysis Failed',
+                    message: 'Could not analyze the photo. Try again or add items manually.',
+                };
+        }
+    };
+
     const analyzeImage = useCallback(async (imageUri: string, existingFollowupResponses?: FollowupResponse[]) => {
         if (!user) {
             router.push('/signin');
@@ -439,6 +481,10 @@ export default function MealScannerScreen() {
             const newResult = await analyzeMealPhotoWithRetry(user.id, photoPath, {
                 followupResponses: existingFollowupResponses,
             });
+
+            // Save error info from new endpoint in case legacy also fails
+            let savedErrorCategory: string | undefined;
+            let savedErrorMessage: string | undefined;
 
             if (newResult.success) {
                 const { data } = newResult;
@@ -479,8 +525,10 @@ export default function MealScannerScreen() {
                     setAnalysisStep(null);
                     return;
                 } else if (data.status === 'failed') {
-                    // New endpoint returned failed, fall through to legacy
-                    console.log('[analyzeImage] New endpoint returned failed status, trying legacy...');
+                    // Save error details before falling through to legacy
+                    savedErrorCategory = data.error_category;
+                    savedErrorMessage = data.error_message;
+                    console.log('[analyzeImage] New endpoint failed:', savedErrorCategory, savedErrorMessage);
                 }
             } else {
                 console.log('[analyzeImage] New endpoint error, trying legacy:', newResult.error);
@@ -509,31 +557,12 @@ export default function MealScannerScreen() {
                 setScannerState('ready');
                 setAnalysisStep(null);
                 // Don't clear capturedImageUri - let the results view use it
-            } else if (analysis === null) {
-                // API call failed completely - offer retry or manual entry
-                Alert.alert(
-                    'Analysis Unavailable',
-                    'Could not connect to the analysis service. You can try again or add items manually.',
-                    [
-                        { text: 'Retry', onPress: () => analyzeImage(imageUri) },
-                        {
-                            text: 'Add Manually',
-                            onPress: () => {
-                                setScannerState('ready');
-                                setAnalysisStep(null);
-                                setCapturedImageUri(null);
-                                setScanMode('manual_add');
-                            }
-                        },
-                    ]
-                );
-                setScannerState('ready');
-                setAnalysisStep(null);
             } else {
-                // Analysis returned but no items detected - offer options
+                // Both endpoints failed — show error-specific alert using saved error category
+                const { title, message } = getErrorAlert(savedErrorCategory, analysis === null);
                 Alert.alert(
-                    'No Food Detected',
-                    'Could not identify food items in this photo. Try again or add items manually.',
+                    title,
+                    message,
                     [
                         { text: 'Retry', onPress: () => analyzeImage(imageUri) },
                         {
