@@ -2,16 +2,15 @@ import { PAYWALL_ENABLED } from '@/app/index';
 import { FadeText } from '@/components/reacticx/organisms/fade-text';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
-import { BlurView } from 'expo-blur';
 import { fonts } from '@/hooks/useFonts';
-import { getMeals, invokeOnboardingPlan } from '@/lib/supabase';
+import { invokeOnboardingPlan } from '@/lib/supabase';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { navigateToApp } from '@/lib/navigation';
 import React, { useEffect, useRef, useState } from 'react';
-import { BackHandler, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, {
     Easing,
     FadeIn,
@@ -51,6 +50,18 @@ const COACHING_LABELS: Record<CoachingStyle, string> = {
     balanced: 'balanced coaching',
     structured: 'structured guidance',
 };
+
+// ── Step colors (by type) ──
+
+const STEP_COLORS = [
+    '#34D399', // goals — mint
+    '#2DD4BF', // tracking — teal
+    '#2DD4BF', // coaching — teal
+    '#60A5FA', // dietary — blue
+    '#60A5FA', // AI — blue
+    '#60A5FA', // generate — blue
+    '#34D399', // dashboard — mint
+];
 
 // ── Steps (7 total) ──
 
@@ -106,7 +117,7 @@ function getLocalFallback(profile: {
 
 // ── Step item component ──
 
-function StepItem({ text, index, startTime }: { text: string; index: number; startTime: number }) {
+function StepItem({ text, index, startTime, color }: { text: string; index: number; startTime: number; color: string }) {
     const opacity = useSharedValue(0);
     const translateX = useSharedValue(-12);
     const checkScale = useSharedValue(0);
@@ -138,8 +149,8 @@ function StepItem({ text, index, startTime }: { text: string; index: number; sta
 
     return (
         <Animated.View style={[styles.stepRow, containerStyle]}>
-            <View style={styles.circle}>
-                <Animated.View style={[styles.circleFill, fillStyle]} />
+            <View style={[styles.circle, { borderColor: color }]}>
+                <Animated.View style={[styles.circleFill, { backgroundColor: color }, fillStyle]} />
                 <Animated.View style={[styles.checkContainer, checkStyle]}>
                     <Ionicons name="checkmark" size={14} color="#fff" />
                 </Animated.View>
@@ -158,11 +169,10 @@ export default function OnboardingPersonalizeScreen() {
 
     // Phase state
     const [phase, setPhase] = useState<'steps' | 'teaser'>('steps');
+    const phaseRef = useRef<'steps' | 'teaser'>('steps');
     const [planResult, setPlanResult] = useState<OnboardingPlanResult | null>(null);
-    const [showFirstMealPrompt, setShowFirstMealPrompt] = useState(false);
     const stepsAnimDone = useRef(false);
     const aiDone = useRef(false);
-    const hasCheckedMeals = useRef(false);
 
     const firstName = profile?.first_name?.trim() || null;
     const greeting = firstName ? `Creating your plan, ${firstName}...` : 'Creating your plan...';
@@ -186,7 +196,8 @@ export default function OnboardingPersonalizeScreen() {
 
     // Try to transition to phase 2 when both conditions are met
     const tryTransition = () => {
-        if (stepsAnimDone.current && aiDone.current && phase === 'steps') {
+        if (stepsAnimDone.current && aiDone.current && phaseRef.current === 'steps') {
+            phaseRef.current = 'teaser';
             setPhase('teaser');
             triggerHaptic('medium');
         }
@@ -255,7 +266,6 @@ export default function OnboardingPersonalizeScreen() {
     // Safety timeout — navigate no matter what
     useEffect(() => {
         const safety = setTimeout(() => {
-            // If still in steps phase, force the fallback
             if (!aiDone.current) {
                 setPlanResult(getLocalFallback(profile || {}));
             }
@@ -297,7 +307,7 @@ export default function OnboardingPersonalizeScreen() {
                                 inputs={[greeting]}
                                 wordDelay={200}
                                 duration={600}
-                                fontSize={28}
+                                fontSize={32}
                                 fontWeight="600"
                                 color={Colors.textPrimary}
                                 style={{ fontFamily: fonts.semiBold }}
@@ -305,7 +315,7 @@ export default function OnboardingPersonalizeScreen() {
 
                             <View style={styles.stepsContainer}>
                                 {steps.map((text, i) => (
-                                    <StepItem key={i} text={text} index={i} startTime={GREETING_DURATION} />
+                                    <StepItem key={i} text={text} index={i} startTime={GREETING_DURATION} color={STEP_COLORS[i] || Colors.primary} />
                                 ))}
                             </View>
                         </Animated.View>
@@ -313,6 +323,11 @@ export default function OnboardingPersonalizeScreen() {
 
                     {phase === 'teaser' && plan && (
                         <Animated.View entering={FadeIn.duration(500).delay(200)} style={styles.teaserPhase}>
+                          <ScrollView
+                            contentContainerStyle={styles.teaserScroll}
+                            showsVerticalScrollIndicator={false}
+                            bounces={false}
+                          >
                             <Text style={styles.teaserTitle}>{plan.plan_title}</Text>
 
                             <View style={styles.teaserCard}>
@@ -351,89 +366,25 @@ export default function OnboardingPersonalizeScreen() {
 
                             <Pressable
                                 style={styles.continueButton}
-                                onPress={async () => {
+                                onPress={() => {
                                     triggerHaptic('medium');
-                                    // Check if user has any meals — show first-meal prompt if not
-                                    if (!hasCheckedMeals.current && profile?.id) {
-                                        hasCheckedMeals.current = true;
-                                        try {
-                                            const meals = await getMeals(profile.id, 1);
-                                            if (meals.length === 0) {
-                                                setShowFirstMealPrompt(true);
-                                                return;
-                                            }
-                                        } catch {
-                                            // If check fails, just continue normally
-                                        }
-                                    }
                                     navigate();
                                 }}
                             >
                                 <Text style={styles.continueButtonText}>See Your Full Plan</Text>
                             </Pressable>
+                          </ScrollView>
                         </Animated.View>
                     )}
                 </View>
 
-                <View style={styles.progressContainer}>
+                <View style={styles.progressContainer} pointerEvents="none">
                     <View style={styles.progressTrack}>
                         <Animated.View style={[styles.progressFill, progressStyle]} />
                     </View>
                 </View>
             </SafeAreaView>
 
-            {/* First-meal prompt modal */}
-            <Modal
-                visible={showFirstMealPrompt}
-                transparent
-                animationType="fade"
-                onRequestClose={() => {
-                    setShowFirstMealPrompt(false);
-                    navigate();
-                }}
-            >
-                <Pressable
-                    style={styles.modalBackdrop}
-                    onPress={() => {
-                        setShowFirstMealPrompt(false);
-                        navigate();
-                    }}
-                >
-                    <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
-                        <BlurView intensity={80} tint="light" style={StyleSheet.absoluteFill} />
-                        <View style={styles.modalHandle} />
-                        <Ionicons name="camera-outline" size={36} color={Colors.primary} style={{ marginBottom: 12 }} />
-                        <Text style={styles.modalTitle}>Ready to log your first meal?</Text>
-                        <Text style={styles.modalSubtext}>
-                            Snap a photo and see what AI can tell you about your food
-                        </Text>
-                        <Pressable
-                            style={styles.modalPrimaryButton}
-                            onPress={() => {
-                                triggerHaptic('medium');
-                                setShowFirstMealPrompt(false);
-                                router.push('/meal-scanner' as never);
-                                // Brief delay before replacing this screen with paywall/home.
-                                // The scanner opens on top; replace happens underneath so when
-                                // the user returns from scanner they land on paywall/home.
-                                setTimeout(() => navigate(), 500);
-                            }}
-                        >
-                            <Ionicons name="camera" size={18} color="#fff" />
-                            <Text style={styles.modalPrimaryButtonText}>Take a photo</Text>
-                        </Pressable>
-                        <Pressable
-                            style={styles.modalSkipButton}
-                            onPress={() => {
-                                setShowFirstMealPrompt(false);
-                                navigate();
-                            }}
-                        >
-                            <Text style={styles.modalSkipText}>Skip for now</Text>
-                        </Pressable>
-                    </Pressable>
-                </Pressable>
-            </Modal>
         </View>
     );
 }
@@ -453,12 +404,14 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         paddingHorizontal: 24,
+        paddingTop: 24,
     },
 
     // Phase 1: Steps
     stepsPhase: {
         flex: 1,
         justifyContent: 'center',
+        paddingBottom: 40,
     },
     stepsContainer: {
         marginTop: 40,
@@ -474,14 +427,12 @@ const styles = StyleSheet.create({
         height: 26,
         borderRadius: 13,
         borderWidth: 2,
-        borderColor: Colors.primary,
         justifyContent: 'center',
         alignItems: 'center',
     },
     circleFill: {
         ...StyleSheet.absoluteFillObject,
         borderRadius: 13,
-        backgroundColor: Colors.primary,
     },
     checkContainer: {
         position: 'absolute',
@@ -495,7 +446,12 @@ const styles = StyleSheet.create({
     // Phase 2: Teaser
     teaserPhase: {
         flex: 1,
+    },
+    teaserScroll: {
+        flexGrow: 1,
         justifyContent: 'center',
+        paddingTop: 24,
+        paddingBottom: 48,
     },
     teaserTitle: {
         fontFamily: fonts.semiBold,
@@ -504,11 +460,16 @@ const styles = StyleSheet.create({
         marginBottom: 20,
     },
     teaserCard: {
-        backgroundColor: Colors.backgroundCardGlass,
+        backgroundColor: 'rgba(255, 255, 255, 0.85)',
         borderRadius: 20,
         padding: 20,
-        borderWidth: 1,
-        borderColor: Colors.borderCard,
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.6)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
     },
     teaserSentenceVisible: {
         fontFamily: fonts.regular,
@@ -556,70 +517,6 @@ const styles = StyleSheet.create({
         fontFamily: fonts.semiBold,
         fontSize: 17,
         color: Colors.buttonActionText,
-    },
-
-    // First-meal prompt modal
-    modalBackdrop: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.4)',
-        justifyContent: 'flex-end',
-    },
-    modalSheet: {
-        backgroundColor: Colors.backgroundCardGlass,
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        paddingHorizontal: 24,
-        paddingTop: 12,
-        paddingBottom: 40,
-        alignItems: 'center',
-        overflow: 'hidden',
-    },
-    modalHandle: {
-        width: 36,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: 'rgba(0, 0, 0, 0.15)',
-        marginBottom: 20,
-    },
-    modalTitle: {
-        fontFamily: fonts.semiBold,
-        fontSize: 20,
-        color: Colors.textPrimary,
-        textAlign: 'center',
-        marginBottom: 8,
-    },
-    modalSubtext: {
-        fontFamily: fonts.regular,
-        fontSize: 15,
-        color: Colors.textSecondary,
-        textAlign: 'center',
-        lineHeight: 22,
-        marginBottom: 24,
-        paddingHorizontal: 12,
-    },
-    modalPrimaryButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        backgroundColor: Colors.buttonAction,
-        borderRadius: 16,
-        paddingVertical: 16,
-        width: '100%',
-        marginBottom: 12,
-    },
-    modalPrimaryButtonText: {
-        fontFamily: fonts.semiBold,
-        fontSize: 17,
-        color: Colors.buttonActionText,
-    },
-    modalSkipButton: {
-        paddingVertical: 12,
-    },
-    modalSkipText: {
-        fontFamily: fonts.medium,
-        fontSize: 15,
-        color: Colors.textSecondary,
     },
 
     // Progress bar

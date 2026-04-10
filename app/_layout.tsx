@@ -158,13 +158,7 @@ export default function RootLayout() {
                 <Stack.Screen name="signup" options={{ headerShown: false }} />
                 <Stack.Screen name="privacy-intro" options={{ headerShown: false }} />
                 <Stack.Screen name="confirm-email" options={{ headerShown: false }} />
-                <Stack.Screen name="onboarding-profile" options={{ headerShown: false }} />
-                <Stack.Screen name="onboarding-goals" options={{ headerShown: false }} />
-                <Stack.Screen name="onboarding-body" options={{ headerShown: false }} />
-                <Stack.Screen name="onboarding-tracking" options={{ headerShown: false }} />
-                <Stack.Screen name="onboarding-coaching" options={{ headerShown: false }} />
-                <Stack.Screen name="onboarding-ai" options={{ headerShown: false }} />
-                <Stack.Screen name="onboarding-personalize" options={{ headerShown: false, animation: 'fade' }} />
+                <Stack.Screen name="(onboarding)" options={{ headerShown: false, animation: 'none' }} />
                 <Stack.Screen name="framework-reset" options={{ headerShown: false }} />
                 <Stack.Screen name="paywall" options={{ headerShown: false }} />
                 <Stack.Screen name="pre-meal-check" options={{ headerShown: false }} />

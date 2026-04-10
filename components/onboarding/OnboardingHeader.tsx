@@ -1,13 +1,32 @@
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 interface OnboardingHeaderProps {
     currentStep: number;
     totalSteps: number;
     onBack: () => void;
+}
+
+function ProgressSegment({ active }: { active: boolean }) {
+    const fill = useSharedValue(active ? 1 : 0);
+
+    useEffect(() => {
+        fill.value = withTiming(active ? 1 : 0, { duration: 200 });
+    }, [active, fill]);
+
+    const fillStyle = useAnimatedStyle(() => ({
+        width: `${fill.value * 100}%` as `${number}%`,
+    }));
+
+    return (
+        <View style={styles.segmentTrack}>
+            <Animated.View style={[styles.segmentFill, fillStyle]} />
+        </View>
+    );
 }
 
 export function OnboardingHeader({ currentStep, totalSteps, onBack }: OnboardingHeaderProps) {
@@ -22,13 +41,7 @@ export function OnboardingHeader({ currentStep, totalSteps, onBack }: Onboarding
 
             <View style={styles.progressContainer}>
                 {Array.from({ length: totalSteps }).map((_, index) => (
-                    <View
-                        key={index}
-                        style={[
-                            styles.progressBar,
-                            index < currentStep ? styles.progressBarActive : styles.progressBarInactive,
-                        ]}
-                    />
+                    <ProgressSegment key={index} active={index < currentStep} />
                 ))}
             </View>
         </View>
@@ -40,24 +53,25 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         marginTop: 16,
-        marginBottom: 24,
+        marginBottom: 8,
         gap: 16,
     },
     progressContainer: {
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 5,
+        gap: 6,
     },
-    progressBar: {
+    segmentTrack: {
         flex: 1,
-        height: 2,
-        borderRadius: 12,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: Colors.borderCard,
+        overflow: 'hidden',
     },
-    progressBarActive: {
-        backgroundColor: Colors.textPrimary,
-    },
-    progressBarInactive: {
-        backgroundColor: Colors.textTertiary,
+    segmentFill: {
+        height: '100%',
+        borderRadius: 2,
+        backgroundColor: Colors.primary,
     },
 });

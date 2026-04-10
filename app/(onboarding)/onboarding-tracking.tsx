@@ -1,6 +1,5 @@
 import { ONBOARDING_STEP_KEY } from '@/app/index';
-import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
-import { OnboardingHeader } from '@/components/onboarding/OnboardingHeader';
+import { OnboardingScreenLayout } from '@/components/onboarding/OnboardingScreenLayout';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
@@ -8,6 +7,7 @@ import { triggerHaptic } from '@/lib/utils/haptics';
 import { useOnboardingDraft } from '@/hooks/useOnboardingDraft';
 import { requestHealthKitAuthorization } from '@/lib/healthkit';
 import { PromptWindow, TrackingMode, updateUserProfile } from '@/lib/supabase';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
@@ -15,13 +15,11 @@ import {
     ActivityIndicator,
     Alert,
     Platform,
-    ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface TrackingOption {
     id: TrackingMode;
@@ -43,7 +41,6 @@ export default function OnboardingTrackingScreen() {
     const [selectedMode, setSelectedMode] = useState<TrackingMode>(isIOS ? 'meals_wearables' : 'meals_only');
     const [promptWindow, setPromptWindow] = useState<PromptWindow>('midday');
     const [isLoading, setIsLoading] = useState(false);
-    const scrollViewRef = React.useRef<ScrollView>(null);
     const { user } = useAuth();
     const draftRestored = React.useRef(false);
 
@@ -86,6 +83,14 @@ export default function OnboardingTrackingScreen() {
         },
     ];
 
+    const firstName = draft.firstName;
+
+    const TRACKING_ICONS: Partial<Record<TrackingMode, keyof typeof Ionicons.glyphMap>> = {
+        meals_wearables: 'watch-outline',
+        meals_only: 'restaurant-outline',
+        manual_glucose_optional: 'water-outline',
+    };
+
     const handleContinue = async () => {
         triggerHaptic('medium');
         setIsLoading(true);
@@ -123,134 +128,98 @@ export default function OnboardingTrackingScreen() {
     };
 
     return (
-        <View style={styles.container}>
-            <ForestGlassBackground blurIntensity={18} />
-            <SafeAreaView style={styles.safeArea}>
-                <ScrollView
-                    ref={scrollViewRef}
-                    contentContainerStyle={styles.scrollContent}
-                    showsVerticalScrollIndicator={false}
+        <OnboardingScreenLayout
+            currentStep={4}
+            title="Choose your tracking style"
+            subtitle={`We'll set up the right tools for your routine${firstName ? `, ${firstName}` : ''}.`}
+            onBack={handleBack}
+            bottomContent={
+                <TouchableOpacity
+                    style={styles.continueButton}
+                    onPress={handleContinue}
+                    activeOpacity={0.8}
+                    disabled={isLoading}
                 >
-                    <OnboardingHeader currentStep={4} totalSteps={6} onBack={handleBack} />
-
-                    <View style={styles.content}>
-                        <View style={styles.titleSection}>
-                            <Text style={styles.titleLabel}>CHOOSE YOUR SETUP</Text>
-                            <Text style={styles.description}>How would you like to track?</Text>
-                        </View>
-
-                        <View style={styles.optionsContainer}>
-                            {trackingOptions.map((option) => {
-                                const isSelected = selectedMode === option.id;
-                                return (
-                                    <TouchableOpacity
-                                        key={option.id}
-                                        style={[
-                                            styles.optionItem,
-                                            isSelected && styles.optionItemSelected,
-                                            option.disabled && styles.optionItemDisabled,
-                                        ]}
-                                        onPress={() => handleSelectMode(option.id)}
-                                        activeOpacity={option.disabled ? 1 : 0.7}
-                                        disabled={option.disabled}
-                                    >
-                                        <View style={styles.optionContent}>
-                                            <View style={styles.optionHeader}>
-                                                <Text style={[styles.optionTitle, option.disabled && styles.optionTitleDisabled]}>
-                                                    {option.title}
-                                                </Text>
-                                                {option.recommended && (
-                                                    <View style={styles.recommendedBadge}>
-                                                        <Text style={styles.recommendedText}>Recommended</Text>
-                                                    </View>
-                                                )}
-                                            </View>
-                                            <Text style={[styles.optionSubtitle, option.disabled && styles.optionSubtitleDisabled]}>
-                                                {option.disabled ? 'Coming soon on Android' : option.subtitle}
-                                            </Text>
+                    {isLoading ? (
+                        <ActivityIndicator color={Colors.buttonActionText} />
+                    ) : (
+                        <Text style={styles.continueButtonText}>Continue</Text>
+                    )}
+                </TouchableOpacity>
+            }
+        >
+            <View style={styles.optionsContainer}>
+                {trackingOptions.map((option) => {
+                    const isSelected = selectedMode === option.id;
+                    return (
+                        <TouchableOpacity
+                            key={option.id}
+                            style={[
+                                styles.optionItem,
+                                isSelected && styles.optionItemSelected,
+                                option.disabled && styles.optionItemDisabled,
+                            ]}
+                            onPress={() => handleSelectMode(option.id)}
+                            activeOpacity={option.disabled ? 1 : 0.7}
+                            disabled={option.disabled}
+                            accessibilityRole="radio"
+                            accessibilityState={{ selected: isSelected }}
+                        >
+                            <Ionicons
+                                name={TRACKING_ICONS[option.id] ?? 'ellipse-outline'}
+                                size={22}
+                                color={isSelected ? Colors.primary : option.disabled ? Colors.textMuted : Colors.textSecondary}
+                                style={styles.optionIcon}
+                            />
+                            <View style={styles.optionContent}>
+                                <View style={styles.optionHeader}>
+                                    <Text style={[styles.optionTitle, option.disabled && styles.optionTitleDisabled]}>
+                                        {option.title}
+                                    </Text>
+                                    {option.recommended && (
+                                        <View style={styles.recommendedBadge}>
+                                            <Text style={styles.recommendedText}>Recommended</Text>
                                         </View>
-                                        <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected, option.disabled && styles.radioOuterDisabled]}>
-                                            {isSelected && <View style={styles.radioInner} />}
-                                        </View>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
-
-                        <View style={styles.promptSection}>
-                            <Text style={styles.promptTitle}>PREFERRED DAILY NUDGE WINDOW</Text>
-                            <View style={styles.promptOptions}>
-                                {PROMPT_WINDOWS.map(option => {
-                                    const isSelected = promptWindow === option.id;
-                                    return (
-                                        <TouchableOpacity
-                                            key={option.id}
-                                            style={[styles.promptCard, isSelected && styles.promptCardSelected]}
-                                            onPress={() => { triggerHaptic(); setPromptWindow(option.id); }}
-                                            activeOpacity={0.75}
-                                        >
-                                            <Text style={styles.promptCardTitle}>{option.label}</Text>
-                                            <Text style={styles.promptCardSubtitle}>{option.subtitle}</Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
+                                    )}
+                                </View>
+                                <Text style={[styles.optionSubtitle, option.disabled && styles.optionSubtitleDisabled]}>
+                                    {option.disabled ? 'Coming soon on Android' : option.subtitle}
+                                </Text>
                             </View>
-                        </View>
-                    </View>
-                </ScrollView>
+                            <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected, option.disabled && styles.radioOuterDisabled]}>
+                                {isSelected && <View style={styles.radioInner} />}
+                            </View>
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
 
-                <View style={styles.buttonContainer}>
-                    <TouchableOpacity
-                        style={styles.continueButton}
-                        onPress={handleContinue}
-                        activeOpacity={0.8}
-                        disabled={isLoading}
-                    >
-                        {isLoading ? (
-                            <ActivityIndicator color={Colors.buttonActionText} />
-                        ) : (
-                            <Text style={styles.continueButtonText}>Continue</Text>
-                        )}
-                    </TouchableOpacity>
+            <View style={styles.promptSection}>
+                <Text style={styles.promptTitle}>PREFERRED DAILY NUDGE WINDOW</Text>
+                <View style={styles.promptOptions}>
+                    {PROMPT_WINDOWS.map(option => {
+                        const isSelected = promptWindow === option.id;
+                        return (
+                            <TouchableOpacity
+                                key={option.id}
+                                style={[styles.promptCard, isSelected && styles.promptCardSelected]}
+                                onPress={() => { triggerHaptic(); setPromptWindow(option.id); }}
+                                activeOpacity={0.75}
+                                accessibilityRole="radio"
+                                accessibilityState={{ selected: isSelected }}
+                            >
+                                <Text style={styles.promptCardTitle}>{option.label}</Text>
+                                <Text style={styles.promptCardSubtitle}>{option.subtitle}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
                 </View>
-            </SafeAreaView>
-        </View>
+            </View>
+        </OnboardingScreenLayout>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: 'transparent',
-    },
-    safeArea: {
-        flex: 1,
-    },
-    scrollContent: {
-        flexGrow: 1,
-        paddingHorizontal: 16,
-        paddingBottom: 120,
-    },
-    content: {
-        flex: 1,
-    },
-    titleSection: {
-        marginBottom: 32,
-    },
-    titleLabel: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
-        lineHeight: 16 * 1.2,
-        color: Colors.textTertiary,
-        textTransform: 'uppercase',
-        marginBottom: 12,
-    },
-    description: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
-        lineHeight: 16 * 1.4,
-        color: Colors.textPrimary,
-    },
     optionsContainer: {
         gap: 12,
     },
@@ -270,6 +239,9 @@ const styles = StyleSheet.create({
     },
     optionItemDisabled: {
         opacity: 0.5,
+    },
+    optionIcon: {
+        marginRight: 12,
     },
     optionContent: {
         flex: 1,
@@ -333,20 +305,20 @@ const styles = StyleSheet.create({
     },
     promptSection: {
         marginTop: 24,
-        marginBottom: 10,
+        marginBottom: 12,
     },
     promptTitle: {
         fontFamily: fonts.medium,
-        fontSize: 13,
+        fontSize: 12,
         color: Colors.textSecondary,
-        letterSpacing: 0.6,
-        marginBottom: 10,
+        letterSpacing: 0.8,
+        marginBottom: 12,
     },
     promptOptions: {
-        gap: 10,
+        gap: 8,
     },
     promptCard: {
-        borderRadius: 10,
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: Colors.borderCard,
         backgroundColor: Colors.inputBackground,
@@ -367,12 +339,6 @@ const styles = StyleSheet.create({
         fontFamily: fonts.regular,
         fontSize: 12,
         color: Colors.textSecondary,
-    },
-    buttonContainer: {
-        position: 'absolute',
-        bottom: 42,
-        left: 16,
-        right: 16,
     },
     continueButton: {
         width: '100%',

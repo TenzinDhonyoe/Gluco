@@ -1,11 +1,11 @@
 import { ONBOARDING_STEP_KEY } from '@/app/index';
-import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
-import { OnboardingHeader } from '@/components/onboarding/OnboardingHeader';
+import { OnboardingScreenLayout } from '@/components/onboarding/OnboardingScreenLayout';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { useOnboardingDraft } from '@/hooks/useOnboardingDraft';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { ReadinessLevel, updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -14,12 +14,10 @@ import React, { useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    ScrollView,
     StyleSheet,
     Text,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 const GOALS = [
     'Understand meal patterns',
@@ -32,6 +30,15 @@ const GOALS = [
 
 const MAX_SELECTIONS = 3;
 
+const GOAL_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+    'Understand meal patterns': 'restaurant-outline',
+    'More consistent energy': 'flash-outline',
+    'Better sleep routine': 'moon-outline',
+    'Build a walking habit': 'walk-outline',
+    'Fibre and nutrition': 'leaf-outline',
+    'General wellness tracking': 'analytics-outline',
+};
+
 const READINESS_OPTIONS: { id: ReadinessLevel; label: string }[] = [
     { id: 'low', label: 'Low readiness' },
     { id: 'medium', label: 'Medium readiness' },
@@ -43,7 +50,6 @@ export default function OnboardingGoalsScreen() {
     const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
     const [selectedReadiness, setSelectedReadiness] = useState<ReadinessLevel | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const scrollViewRef = React.useRef<ScrollView>(null);
     const { user, signOut } = useAuth();
     const draftRestored = React.useRef(false);
 
@@ -79,6 +85,7 @@ export default function OnboardingGoalsScreen() {
 
     const handleContinue = async () => {
         if (selectedGoals.length === 0 || !selectedReadiness) return;
+        triggerHaptic('medium');
         setIsLoading(true);
         try {
             if (user) {
@@ -107,33 +114,36 @@ export default function OnboardingGoalsScreen() {
 
     const isContinueEnabled = selectedGoals.length > 0 && !!selectedReadiness;
 
+    const firstName = draft.firstName?.trim();
+    const titleText = firstName ? `What matters most to you, ${firstName}?` : 'What matters most to you?';
+
     return (
-        <View style={styles.container}>
-            <ForestGlassBackground blurIntensity={18} />
-            <SafeAreaView style={styles.safeArea}>
-                <ScrollView
-                    ref={scrollViewRef}
-                    contentContainerStyle={styles.scrollContent}
-                    showsVerticalScrollIndicator={false}
+        <OnboardingScreenLayout
+            currentStep={2}
+            title={titleText}
+            subtitle="Pick up to three. We'll shape your daily experience around these."
+            onBack={handleBack}
+            bottomContent={
+                <AnimatedPressable
+                    style={[styles.continueButton, !isContinueEnabled && styles.continueButtonDisabled]}
+                    onPress={handleContinue}
+                    disabled={!isContinueEnabled || isLoading}
                 >
-                    <OnboardingHeader currentStep={2} totalSteps={6} onBack={handleBack} />
-
-                    <View style={styles.content}>
-                        <View style={styles.titleSection}>
-                            <Text style={styles.titleLabel}>WHAT ARE YOU HERE FOR?</Text>
-                            <View>
-                                <Text style={styles.description}>
-                                    Pick the goals that matter most. We'll personalize your daily nudges.
-                                </Text>
-                                <View style={{ height: 8 }} />
-                                <Text style={styles.descriptionSecondary}>Choose up to three.</Text>
-                            </View>
-                        </View>
-
+                    {isLoading ? (
+                        <ActivityIndicator color={Colors.buttonActionText} />
+                    ) : (
+                        <Text style={[styles.continueButtonText, !isContinueEnabled && styles.continueButtonTextDisabled]}>
+                            Continue
+                        </Text>
+                    )}
+                </AnimatedPressable>
+            }
+        >
                         <View style={styles.goalsContainer}>
                             {GOALS.map((goal) => {
                                 const isSelected = selectedGoals.includes(goal);
                                 const isDisabled = !isSelected && selectedGoals.length >= MAX_SELECTIONS;
+                                const iconName = GOAL_ICONS[goal] || 'ellipse-outline';
                                 return (
                                     <AnimatedPressable
                                         key={goal}
@@ -145,6 +155,12 @@ export default function OnboardingGoalsScreen() {
                                         onPress={() => handleToggleGoal(goal)}
                                         disabled={isDisabled}
                                     >
+                                        <Ionicons
+                                            name={iconName}
+                                            size={20}
+                                            color={isSelected ? Colors.primary : Colors.textSecondary}
+                                            style={styles.goalIcon}
+                                        />
                                         <Text style={[
                                             styles.goalItemText,
                                             isSelected && styles.goalItemTextSelected,
@@ -153,7 +169,7 @@ export default function OnboardingGoalsScreen() {
                                             {goal}
                                         </Text>
                                         {isSelected ? (
-                                            <Ionicons name="checkmark-circle" size={24} color={Colors.textPrimary} />
+                                            <Ionicons name="checkmark-circle" size={24} color={Colors.primary} />
                                         ) : (
                                             <View style={styles.checkmarkPlaceholder} />
                                         )}
@@ -179,68 +195,11 @@ export default function OnboardingGoalsScreen() {
                                 );
                             })}
                         </View>
-                    </View>
-                </ScrollView>
-
-                <View style={styles.buttonContainer}>
-                    <AnimatedPressable
-                        style={[styles.continueButton, !isContinueEnabled && styles.continueButtonDisabled]}
-                        onPress={handleContinue}
-                        disabled={!isContinueEnabled || isLoading}
-                    >
-                        {isLoading ? (
-                            <ActivityIndicator color={Colors.buttonActionText} />
-                        ) : (
-                            <Text style={[styles.continueButtonText, !isContinueEnabled && styles.continueButtonTextDisabled]}>
-                                Continue
-                            </Text>
-                        )}
-                    </AnimatedPressable>
-                </View>
-            </SafeAreaView>
-        </View>
+        </OnboardingScreenLayout>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: 'transparent',
-    },
-    safeArea: {
-        flex: 1,
-    },
-    scrollContent: {
-        flexGrow: 1,
-        paddingHorizontal: 16,
-        paddingBottom: 120,
-    },
-    content: {
-        flex: 1,
-    },
-    titleSection: {
-        marginBottom: 32,
-    },
-    titleLabel: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
-        lineHeight: 16 * 1.2,
-        color: Colors.textTertiary,
-        textTransform: 'uppercase',
-        marginBottom: 12,
-    },
-    description: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
-        lineHeight: 16 * 1.4,
-        color: Colors.textPrimary,
-    },
-    descriptionSecondary: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        lineHeight: 14 * 1.4,
-        color: Colors.textTertiary,
-    },
     goalsContainer: {
         gap: 12,
     },
@@ -262,6 +221,9 @@ const styles = StyleSheet.create({
     goalItemDisabled: {
         opacity: 0.5,
     },
+    goalIcon: {
+        marginRight: 4,
+    },
     goalItemText: {
         fontFamily: fonts.medium,
         fontSize: 16,
@@ -279,18 +241,18 @@ const styles = StyleSheet.create({
         height: 24,
     },
     readinessTitle: {
-        marginTop: 22,
-        marginBottom: 10,
+        marginTop: 24,
+        marginBottom: 12,
         fontFamily: fonts.medium,
-        fontSize: 13,
+        fontSize: 12,
         color: Colors.textSecondary,
-        letterSpacing: 0.6,
+        letterSpacing: 0.8,
     },
     readinessRow: {
-        gap: 10,
+        gap: 8,
     },
     readinessChip: {
-        borderRadius: 10,
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: Colors.borderCard,
         backgroundColor: Colors.inputBackground,
@@ -308,12 +270,6 @@ const styles = StyleSheet.create({
     },
     readinessChipTextSelected: {
         color: Colors.primary,
-    },
-    buttonContainer: {
-        position: 'absolute',
-        bottom: 42,
-        left: 16,
-        right: 16,
     },
     continueButton: {
         width: '100%',

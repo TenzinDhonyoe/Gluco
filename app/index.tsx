@@ -152,11 +152,11 @@ export default function WelcomeScreen() {
                     // Fallback: Profile-based routing if no stored step
                     hasNavigated.current = true;
                     if (!profile?.first_name || !profile?.last_name) {
-                        router.replace('/onboarding-profile' as never);
+                        router.replace('/onboarding-welcome' as never);
                     } else if (!profile?.goals || profile.goals.length === 0) {
                         router.replace('/onboarding-goals' as never);
-                    } else if (profile?.tracking_mode === undefined) {
-                        router.replace('/onboarding-body' as never);
+                    } else if (!profile?.tracking_mode) {
+                        router.replace('/onboarding-tracking' as never);
                     } else if (!profile?.coaching_style) {
                         router.replace('/onboarding-coaching' as never);
                     } else {
