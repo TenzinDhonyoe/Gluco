@@ -1,20 +1,17 @@
 import { PAYWALL_SEEN_KEY } from '@/app/index';
 import { Colors } from '@/constants/Colors';
-import { Images } from '@/constants/Images';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useSubscription } from '@/context/SubscriptionContext';
 import { fonts } from '@/hooks/useFonts';
-import { supabase } from '@/lib/supabase';
 import { navigateToApp } from '@/lib/navigation';
 import { triggerHaptic } from '@/lib/utils/haptics';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Image,
     Linking,
-    ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -22,14 +19,17 @@ import {
 } from 'react-native';
 import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import Purchases from 'react-native-purchases';
+import Animated, { FadeIn, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const LOAD_TIMEOUT_MS = 8000;
+const SUCCESS_DISPLAY_MS = 1500;
 
 const FEATURES = [
-    'AI-Powered Insights',
-    'Advanced Analytics',
-    'Smart Reminders',
-    'Unlimited Logging',
+    'Personalized health insights',
+    'Detailed progress tracking',
+    'Smart meal reminders',
+    'Unlimited meal logging',
 ];
 
 function getPackageLabel(pkg: PurchasesPackage): string {
@@ -41,9 +41,17 @@ function getPackageLabel(pkg: PurchasesPackage): string {
 function getPriceDetail(pkg: PurchasesPackage): string {
     if (pkg.packageType === 'ANNUAL') {
         const monthlyEquiv = (pkg.product.price / 12).toFixed(2);
-        return `${pkg.product.priceString}/year (${pkg.product.currencyCode} ${monthlyEquiv}/mo)`;
+        return `${pkg.product.priceString}/yr (${pkg.product.currencyCode} ${monthlyEquiv}/mo)`;
     }
     return `${pkg.product.priceString}/month`;
+}
+
+function getSavingsText(annual: PurchasesPackage | null, monthly: PurchasesPackage | null): string | null {
+    if (!annual || !monthly) return null;
+    const annualMonthly = annual.product.price / 12;
+    const savings = Math.round((1 - annualMonthly / monthly.product.price) * 100);
+    if (savings > 0) return `Save ${savings}%`;
+    return null;
 }
 
 export default function PaywallScreen() {
@@ -57,56 +65,42 @@ export default function PaywallScreen() {
     const [timedOut, setTimedOut] = useState(false);
     const [selectedPackage, setSelectedPackage] = useState<PurchasesPackage | null>(null);
     const [purchasing, setPurchasing] = useState(false);
+    const [purchaseSuccess, setPurchaseSuccess] = useState(false);
     const [retrying, setRetrying] = useState(false);
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // Sync context offerings to local state
+    // Success checkmark animation
+    const checkScale = useSharedValue(0);
+    const checkStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: checkScale.value }],
+    }));
+
     useEffect(() => {
-        if (contextOfferings) {
-            setLocalOffering(contextOfferings);
-        }
+        if (contextOfferings) setLocalOffering(contextOfferings);
     }, [contextOfferings]);
 
-    // Safety timeout — if loading takes too long, show fallback
     useEffect(() => {
         timeoutRef.current = setTimeout(() => setTimedOut(true), LOAD_TIMEOUT_MS);
-        return () => {
-            if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        };
+        return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
     }, []);
 
     const offering = localOffering;
     const isLoading = contextLoading && !timedOut;
     const hasFailed = (!contextLoading && !offering) || (timedOut && !offering);
 
-    // Extract packages
     const annualPackage = offering?.availablePackages.find(p => p.packageType === 'ANNUAL') ?? null;
     const monthlyPackage = offering?.availablePackages.find(p => p.packageType === 'MONTHLY') ?? null;
     const packages = [annualPackage, monthlyPackage].filter(Boolean) as PurchasesPackage[];
+    const savingsText = getSavingsText(annualPackage, monthlyPackage);
 
-    // Default-select annual when packages load
     useEffect(() => {
-        if (annualPackage && !selectedPackage) {
-            setSelectedPackage(annualPackage);
-        } else if (!annualPackage && monthlyPackage && !selectedPackage) {
-            setSelectedPackage(monthlyPackage);
-        }
+        if (annualPackage && !selectedPackage) setSelectedPackage(annualPackage);
+        else if (!annualPackage && monthlyPackage && !selectedPackage) setSelectedPackage(monthlyPackage);
     }, [annualPackage, monthlyPackage, selectedPackage]);
 
     const markSeenAndNavigate = async () => {
         await AsyncStorage.setItem(PAYWALL_SEEN_KEY, 'true');
         navigateToApp();
-    };
-
-    const handleSignOut = async () => {
-        triggerHaptic();
-        try {
-            await supabase.auth.signOut();
-            await AsyncStorage.removeItem(PAYWALL_SEEN_KEY);
-            navigateToApp('/');
-        } catch (error) {
-            Alert.alert('Sign Out Error', String(error));
-        }
     };
 
     const handleRetry = async () => {
@@ -115,16 +109,10 @@ export default function PaywallScreen() {
         setTimedOut(false);
         try {
             const fetchedOfferings = await Purchases.getOfferings();
-            if (fetchedOfferings.current) {
-                setLocalOffering(fetchedOfferings.current);
-            } else {
-                setTimedOut(true);
-            }
-        } catch {
-            setTimedOut(true);
-        } finally {
-            setRetrying(false);
-        }
+            if (fetchedOfferings.current) setLocalOffering(fetchedOfferings.current);
+            else setTimedOut(true);
+        } catch { setTimedOut(true); }
+        finally { setRetrying(false); }
     };
 
     const handlePurchase = async () => {
@@ -134,223 +122,217 @@ export default function PaywallScreen() {
         try {
             const result = await purchasePackage(selectedPackage);
             if (result.success) {
-                markSeenAndNavigate();
+                setPurchaseSuccess(true);
+                triggerHaptic('medium');
+                checkScale.value = withSpring(1, { damping: 10, stiffness: 150 });
+                setTimeout(markSeenAndNavigate, SUCCESS_DISPLAY_MS);
             } else if (result.error && result.error !== 'cancelled') {
                 Alert.alert('Purchase Error', result.error);
             }
-        } catch (error) {
-            Alert.alert('Purchase Error', String(error));
-        } finally {
-            setPurchasing(false);
-        }
+        } catch (error) { Alert.alert('Purchase Error', String(error)); }
+        finally { setPurchasing(false); }
     };
 
     const handleRestore = async () => {
         triggerHaptic();
         const result = await restorePurchases();
         if (result.success) {
-            markSeenAndNavigate();
+            setPurchaseSuccess(true);
+            triggerHaptic('medium');
+            checkScale.value = withSpring(1, { damping: 10, stiffness: 150 });
+            setTimeout(markSeenAndNavigate, SUCCESS_DISPLAY_MS);
         } else {
             Alert.alert('Restore', result.error || 'No active subscription found');
         }
     };
 
-    const handleDevReset = async () => {
-        if (!__DEV__) return;
-        triggerHaptic();
-        try {
-            await AsyncStorage.clear();
-            try { await Purchases.logOut(); } catch { /* may not be logged in */ }
-            await supabase.auth.signOut();
-            navigateToApp('/');
-        } catch (error) {
-            Alert.alert('Reset Error', String(error));
-        }
-    };
+    // ── Success State ──
+    if (purchaseSuccess) {
+        return (
+            <View style={styles.container}>
+                <SafeAreaView style={styles.safeArea}>
+                    <View style={styles.centered}>
+                        <Animated.View style={checkStyle}>
+                            <Ionicons name="checkmark-circle" size={72} color={Colors.success} />
+                        </Animated.View>
+                        <Animated.Text entering={FadeIn.delay(200).duration(400)} style={styles.successTitle}>
+                            Welcome to Premium
+                        </Animated.Text>
+                        <Animated.Text entering={FadeIn.delay(400).duration(400)} style={styles.successSubtitle}>
+                            Your health journey just leveled up
+                        </Animated.Text>
+                    </View>
+                </SafeAreaView>
+            </View>
+        );
+    }
 
-    const devResetButton = __DEV__ ? (
-        <TouchableOpacity
-            style={styles.devResetButton}
-            onPress={handleDevReset}
-            activeOpacity={0.7}
-        >
-            <Text style={styles.devResetButtonText}>Dev Reset</Text>
-        </TouchableOpacity>
-    ) : null;
-
-    const footer = (
-        <View style={styles.footerContainer}>
-            <TouchableOpacity onPress={markSeenAndNavigate} activeOpacity={0.7}>
-                <Text style={styles.skipButtonText}>Not now</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleSignOut} activeOpacity={0.7}>
-                <Text style={styles.signOutButtonText}>Sign Out</Text>
-            </TouchableOpacity>
-            {devResetButton}
-        </View>
-    );
-
-    // Loading state
+    // ── Loading State ──
     if (isLoading) {
         return (
             <View style={styles.container}>
-                <View style={styles.centered}>
-                    <ActivityIndicator size="large" color={Colors.primary} />
-                    <Text style={styles.loadingText}>Loading plans...</Text>
-                </View>
-                {footer}
+                <SafeAreaView style={styles.safeArea}>
+                    <View style={styles.centered}>
+                        <ActivityIndicator size="large" color={Colors.primary} />
+                        <Text style={styles.loadingText}>Loading plans...</Text>
+                    </View>
+                    <View style={styles.footerSimple}>
+                        <TouchableOpacity onPress={markSeenAndNavigate} activeOpacity={0.7}>
+                            <Text style={styles.notNowText}>Not now</Text>
+                        </TouchableOpacity>
+                    </View>
+                </SafeAreaView>
             </View>
         );
     }
 
-    // Failed state — show custom fallback UI instead of blank screen
+    // ── Failed State ──
     if (hasFailed) {
         return (
             <View style={styles.container}>
-                <View style={styles.centered}>
-                    <View style={styles.failedCard}>
-                        <View style={styles.failedIconContainer}>
-                            <Text style={styles.failedIcon}>📡</Text>
+                <SafeAreaView style={styles.safeArea}>
+                    <View style={styles.centered}>
+                        <View style={styles.failedCard}>
+                            <View style={styles.failedIconContainer}>
+                                <Text style={styles.failedIcon}>📡</Text>
+                            </View>
+                            <Text style={styles.failedTitle}>Couldn't load plans</Text>
+                            <Text style={styles.failedMessage}>
+                                This usually means your connection dropped. Give it another shot.
+                            </Text>
+                            <TouchableOpacity
+                                style={[styles.ctaButton, retrying && styles.ctaButtonDisabled]}
+                                onPress={handleRetry}
+                                activeOpacity={0.7}
+                                disabled={retrying}
+                            >
+                                {retrying ? (
+                                    <ActivityIndicator size="small" color={Colors.buttonActionText} />
+                                ) : (
+                                    <Text style={styles.ctaButtonText}>Try Again</Text>
+                                )}
+                            </TouchableOpacity>
                         </View>
-                        <Text style={styles.failedTitle}>Couldn't load plans</Text>
-                        <Text style={styles.failedMessage}>
-                            This usually means your connection dropped. Give it another shot — we'll have you set up in no time.
-                        </Text>
-                        <TouchableOpacity
-                            style={[styles.retryButton, retrying && styles.retryButtonDisabled]}
-                            onPress={handleRetry}
-                            activeOpacity={0.7}
-                            disabled={retrying}
-                        >
-                            {retrying ? (
-                                <ActivityIndicator size="small" color={Colors.buttonActionText} />
-                            ) : (
-                                <Text style={styles.retryButtonText}>Try Again</Text>
-                            )}
+                    </View>
+                    <View style={styles.footerSimple}>
+                        <TouchableOpacity onPress={markSeenAndNavigate} activeOpacity={0.7}>
+                            <Text style={styles.notNowText}>Not now</Text>
                         </TouchableOpacity>
                     </View>
-                </View>
-                {footer}
+                </SafeAreaView>
             </View>
         );
     }
 
-    // Build disclaimer text with selected package details
     const disclaimerPlanName = selectedPackage ? `${selectedPackage.product.title} — ${getPriceDetail(selectedPackage)}. ` : '';
 
-    // Normal paywall — custom UI with Apple 3.1.2(c) compliance
+    // ── Normal Paywall ──
     return (
         <View style={styles.container}>
-            <ScrollView
-                contentContainerStyle={styles.scrollContent}
-                showsVerticalScrollIndicator={false}
-                bounces={false}
-            >
-                {/* Spacer to let background show */}
-                <View style={styles.heroSpacer} />
-
-                {/* Hero */}
-                <View style={styles.hero}>
-                    <Image source={Images.mascots.default} style={styles.heroImage} />
+            <SafeAreaView style={styles.safeArea}>
+                {/* Hero — centered, bold */}
+                <View style={styles.heroSection}>
                     <Text style={styles.heroTitle}>Unlock Premium</Text>
                     <Text style={styles.heroSubtitle}>
-                        Get personalized insights for{'\n'}your health journey
+                        Everything you need to understand{'\n'}your health, all in one place
                     </Text>
                 </View>
 
-                {/* Feature Pills */}
-                <View style={styles.features}>
+                {/* Features — vertical list with checkmarks */}
+                <View style={styles.featureList}>
                     {FEATURES.map(feature => (
-                        <View key={feature} style={styles.featurePill}>
-                            <Text style={styles.featurePillText}>{feature}</Text>
+                        <View key={feature} style={styles.featureRow}>
+                            <View style={styles.featureCheck}>
+                                <Ionicons name="checkmark" size={14} color="#fff" />
+                            </View>
+                            <Text style={styles.featureText}>{feature}</Text>
                         </View>
                     ))}
                 </View>
 
-                {/* Pricing Cards — Apple 3.1.2(c) items 1-3: title, duration, price */}
-                <View style={styles.pricing}>
-                    {packages.map(pkg => {
-                        const isSelected = selectedPackage?.identifier === pkg.identifier;
-                        const isAnnual = pkg.packageType === 'ANNUAL';
-                        return (
-                            <TouchableOpacity
-                                key={pkg.identifier}
-                                style={[
-                                    styles.priceCard,
-                                    isSelected && styles.priceCardSelected,
-                                    isAnnual && styles.priceCardAnnual,
-                                ]}
-                                onPress={() => {
-                                    triggerHaptic();
-                                    setSelectedPackage(pkg);
-                                }}
-                                activeOpacity={0.7}
-                            >
-                                {isAnnual && (
-                                    <View style={styles.bestValueBadge}>
-                                        <Text style={styles.bestValueText}>BEST VALUE</Text>
+                {/* Pricing + CTA + Legal — bottom section */}
+                <View style={styles.bottomSection}>
+                    {/* Pricing Cards */}
+                    <View style={styles.pricing}>
+                        {packages.map(pkg => {
+                            const isSelected = selectedPackage?.identifier === pkg.identifier;
+                            const isAnnual = pkg.packageType === 'ANNUAL';
+                            return (
+                                <TouchableOpacity
+                                    key={pkg.identifier}
+                                    style={[
+                                        styles.priceCard,
+                                        isSelected && styles.priceCardSelected,
+                                    ]}
+                                    onPress={() => {
+                                        triggerHaptic();
+                                        setSelectedPackage(pkg);
+                                    }}
+                                    activeOpacity={0.8}
+                                >
+                                    {isAnnual && savingsText && (
+                                        <View style={styles.savingsBadge}>
+                                            <Text style={styles.savingsText}>{savingsText}</Text>
+                                        </View>
+                                    )}
+                                    <View style={styles.priceCardInner}>
+                                        <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected]}>
+                                            {isSelected && <View style={styles.radioInner} />}
+                                        </View>
+                                        <View style={styles.priceCardInfo}>
+                                            <Text style={[styles.priceCardLabel, isSelected && styles.priceCardLabelSelected]}>
+                                                {getPackageLabel(pkg)}
+                                            </Text>
+                                            <Text style={styles.priceCardPrice}>
+                                                {getPriceDetail(pkg)}
+                                            </Text>
+                                        </View>
                                     </View>
-                                )}
-                                <View style={styles.priceCardContent}>
-                                    <View style={styles.priceCardLeft}>
-                                        <Text style={styles.priceCardLabel}>
-                                            {getPackageLabel(pkg)}
-                                        </Text>
-                                        <Text style={styles.priceCardDetail}>
-                                            {pkg.product.title} — {getPriceDetail(pkg)}
-                                        </Text>
-                                    </View>
-                                    <View style={[styles.radio, isSelected && styles.radioSelected]}>
-                                        {isSelected && <View style={styles.radioDot} />}
-                                    </View>
-                                </View>
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
 
-                {/* Legal Disclaimer — Apple-recommended auto-renewal text */}
-                <Text style={styles.disclaimer}>
-                    {disclaimerPlanName}Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your App Store account settings after purchase.
-                </Text>
-
-                {/* CTA Button */}
-                <TouchableOpacity
-                    style={[styles.ctaButton, (!selectedPackage || purchasing) && styles.ctaButtonDisabled]}
-                    onPress={handlePurchase}
-                    activeOpacity={0.7}
-                    disabled={!selectedPackage || purchasing}
-                >
-                    {purchasing ? (
-                        <ActivityIndicator size="small" color={Colors.buttonPrimaryText} />
-                    ) : (
-                        <Text style={styles.ctaButtonText}>Continue</Text>
-                    )}
-                </TouchableOpacity>
-
-                {/* Restore Purchases */}
-                <TouchableOpacity onPress={handleRestore} style={styles.restoreRow} activeOpacity={0.7}>
-                    <Text style={styles.restoreText}>Restore Purchases</Text>
-                </TouchableOpacity>
-
-                {/* Legal Links — Apple 3.1.2(c) items 4-5: Privacy Policy & Terms of Use */}
-                <View style={styles.legalFooter}>
-                    <Text
-                        style={styles.legalLink}
-                        onPress={() => Linking.openURL(LEGAL_URLS.appleEula)}
+                    {/* CTA Button */}
+                    <TouchableOpacity
+                        style={[styles.ctaButton, (!selectedPackage || purchasing) && styles.ctaButtonDisabled]}
+                        onPress={handlePurchase}
+                        activeOpacity={0.7}
+                        disabled={!selectedPackage || purchasing}
                     >
-                        Terms of Use (EULA)
+                        {purchasing ? (
+                            <ActivityIndicator size="small" color={Colors.buttonActionText} />
+                        ) : (
+                            <Text style={styles.ctaButtonText}>Continue</Text>
+                        )}
+                    </TouchableOpacity>
+
+                    {/* Disclaimer */}
+                    <Text style={styles.disclaimer}>
+                        {disclaimerPlanName}Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your App Store account settings after purchase.
                     </Text>
-                    <Text style={styles.legalDot}> · </Text>
-                    <Text
-                        style={styles.legalLink}
-                        onPress={() => Linking.openURL(LEGAL_URLS.privacyPolicy)}
-                    >
-                        Privacy Policy
-                    </Text>
+
+                    {/* Restore + Legal + Not now */}
+                    <View style={styles.legalRow}>
+                        <TouchableOpacity onPress={handleRestore} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                            <Text style={styles.legalLink}>Restore</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.legalDot}> · </Text>
+                        <Text style={styles.legalLink} onPress={() => Linking.openURL(LEGAL_URLS.appleEula)}>
+                            Terms
+                        </Text>
+                        <Text style={styles.legalDot}> · </Text>
+                        <Text style={styles.legalLink} onPress={() => Linking.openURL(LEGAL_URLS.privacyPolicy)}>
+                            Privacy
+                        </Text>
+                    </View>
+
+                    <TouchableOpacity onPress={markSeenAndNavigate} activeOpacity={0.7} style={styles.notNowButton}>
+                        <Text style={styles.notNowText}>Not now</Text>
+                    </TouchableOpacity>
+
                 </View>
-            </ScrollView>
-            {footer}
+            </SafeAreaView>
         </View>
     );
 }
@@ -358,13 +340,11 @@ export default function PaywallScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: 'transparent',
     },
-    scrollContent: {
-        flexGrow: 1,
-        paddingHorizontal: 24,
-        paddingTop: 60,
-        paddingBottom: 16,
+    safeArea: {
+        flex: 1,
+        justifyContent: 'flex-end',
     },
     centered: {
         flex: 1,
@@ -372,123 +352,88 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingHorizontal: 32,
     },
-    loadingText: {
-        fontFamily: fonts.medium,
-        fontSize: 16,
-        color: Colors.textSecondary,
-        marginTop: 16,
-    },
 
-    // Hero
-    heroSpacer: {
-        flex: 1,
-        minHeight: 20,
-    },
-    hero: {
+    // ── Hero ──
+    heroSection: {
+        paddingTop: 16,
+        paddingHorizontal: 28,
         alignItems: 'center',
-        marginBottom: 28,
-    },
-    heroImage: {
-        width: 100,
-        height: 100,
-        marginBottom: 16,
-        resizeMode: 'contain',
     },
     heroTitle: {
         fontFamily: fonts.bold,
-        fontSize: 28,
+        fontSize: 32,
         color: Colors.textPrimary,
-        marginBottom: 8,
-        letterSpacing: -0.3,
+        letterSpacing: -0.5,
+        textAlign: 'center',
     },
     heroSubtitle: {
         fontFamily: fonts.regular,
-        fontSize: 15,
+        fontSize: 16,
         color: Colors.textSecondary,
         textAlign: 'center',
-        lineHeight: 22,
+        lineHeight: 23,
+        marginTop: 8,
     },
 
-    // Features
-    features: {
+    // ── Features ──
+    featureList: {
+        paddingHorizontal: 36,
+        paddingVertical: 28,
+        gap: 16,
+    },
+    featureRow: {
         flexDirection: 'row',
-        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 14,
+    },
+    featureCheck: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: Colors.primary,
         justifyContent: 'center',
-        gap: 8,
-        marginBottom: 28,
+        alignItems: 'center',
     },
-    featurePill: {
-        paddingVertical: 9,
-        paddingHorizontal: 14,
-        borderRadius: 20,
-        backgroundColor: Colors.primaryLight,
-        borderWidth: 1,
-        borderColor: Colors.primaryMedium,
-    },
-    featurePillText: {
+    featureText: {
         fontFamily: fonts.medium,
-        fontSize: 13,
-        color: Colors.primary,
+        fontSize: 16,
+        color: Colors.textPrimary,
     },
 
-    // Pricing
+    // ── Bottom Section ──
+    bottomSection: {
+        paddingHorizontal: 24,
+        paddingBottom: 0,
+    },
+
+    // ── Pricing ──
     pricing: {
         gap: 10,
         marginBottom: 16,
     },
     priceCard: {
-        padding: 16,
-        borderRadius: 14,
-        backgroundColor: Colors.backgroundCardGlass,
+        paddingVertical: 16,
+        paddingHorizontal: 18,
+        borderRadius: 16,
+        backgroundColor: 'rgba(255, 255, 255, 0.65)',
         borderWidth: 1.5,
-        borderColor: Colors.borderCard,
+        borderColor: 'rgba(255, 255, 255, 0.4)',
     },
     priceCardSelected: {
-        backgroundColor: Colors.primaryLight,
+        backgroundColor: 'rgba(255, 255, 255, 0.85)',
         borderColor: Colors.primary,
+        shadowColor: Colors.primary,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        elevation: 3,
     },
-    priceCardAnnual: {
-        marginTop: 6,
-    },
-    priceCardContent: {
+    priceCardInner: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        gap: 14,
     },
-    priceCardLeft: {
-        flex: 1,
-        marginRight: 12,
-    },
-    priceCardLabel: {
-        fontFamily: fonts.semiBold,
-        fontSize: 16,
-        color: Colors.textPrimary,
-    },
-    priceCardDetail: {
-        fontFamily: fonts.regular,
-        fontSize: 13,
-        color: Colors.textSecondary,
-        marginTop: 3,
-    },
-    bestValueBadge: {
-        position: 'absolute',
-        top: -10,
-        left: 16,
-        paddingVertical: 3,
-        paddingHorizontal: 10,
-        borderRadius: 6,
-        backgroundColor: Colors.primaryLight,
-        borderWidth: 1,
-        borderColor: Colors.primaryMedium,
-        zIndex: 1,
-    },
-    bestValueText: {
-        fontFamily: fonts.bold,
-        fontSize: 10,
-        letterSpacing: 1,
-        color: Colors.primary,
-    },
-    radio: {
+    radioOuter: {
         width: 22,
         height: 22,
         borderRadius: 11,
@@ -497,107 +442,145 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    radioSelected: {
+    radioOuterSelected: {
         borderColor: Colors.primary,
     },
-    radioDot: {
+    radioInner: {
         width: 10,
         height: 10,
         borderRadius: 5,
         backgroundColor: Colors.primary,
     },
-
-    // Legal disclaimer
-    disclaimer: {
+    priceCardInfo: {
+        flex: 1,
+    },
+    priceCardLabel: {
+        fontFamily: fonts.semiBold,
+        fontSize: 16,
+        color: Colors.textPrimary,
+    },
+    priceCardLabelSelected: {
+        color: Colors.textPrimary,
+    },
+    priceCardPrice: {
         fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textSecondary,
+        marginTop: 2,
+    },
+    savingsBadge: {
+        position: 'absolute',
+        top: -9,
+        right: 16,
+        paddingVertical: 2,
+        paddingHorizontal: 10,
+        borderRadius: 8,
+        backgroundColor: Colors.primary,
+        zIndex: 1,
+    },
+    savingsText: {
+        fontFamily: fonts.semiBold,
         fontSize: 11,
-        color: Colors.textTertiary,
-        textAlign: 'center',
-        lineHeight: 16,
-        marginBottom: 16,
-        paddingHorizontal: 8,
+        color: '#fff',
+        letterSpacing: 0.3,
     },
 
-    // CTA
+    // ── CTA ──
     ctaButton: {
-        height: 52,
-        borderRadius: 14,
-        backgroundColor: Colors.primary,
+        height: 54,
+        borderRadius: 16,
+        backgroundColor: Colors.buttonAction,
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: Colors.primary,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 10,
-        elevation: 4,
     },
     ctaButtonDisabled: {
-        opacity: 0.6,
+        opacity: 0.5,
     },
     ctaButtonText: {
         fontFamily: fonts.semiBold,
         fontSize: 17,
-        color: Colors.buttonPrimaryText,
+        color: Colors.buttonActionText,
     },
 
-    // Restore
-    restoreRow: {
-        alignItems: 'center',
-        marginTop: 14,
-    },
-    restoreText: {
-        fontFamily: fonts.medium,
-        fontSize: 13,
+    // ── Disclaimer ──
+    disclaimer: {
+        fontFamily: fonts.regular,
+        fontSize: 10,
         color: Colors.textTertiary,
+        textAlign: 'center',
+        lineHeight: 14,
+        marginTop: 12,
+        paddingHorizontal: 4,
     },
 
-    // Legal links
-    legalFooter: {
+    // ── Legal Row ──
+    legalRow: {
         flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
         marginTop: 10,
-        paddingBottom: 4,
     },
     legalLink: {
         fontFamily: fonts.regular,
-        fontSize: 11,
+        fontSize: 12,
         color: Colors.textTertiary,
-        textDecorationLine: 'underline',
+        paddingVertical: 4,
+        paddingHorizontal: 2,
     },
     legalDot: {
         fontFamily: fonts.regular,
-        fontSize: 11,
+        fontSize: 12,
         color: Colors.textTertiary,
     },
 
-    // Footer
-    footerContainer: {
+    // ── Not Now ──
+    notNowButton: {
         alignItems: 'center',
-        paddingBottom: 50,
-        paddingTop: 12,
-        gap: 12,
+        paddingVertical: 12,
+        marginTop: 4,
     },
-    skipButtonText: {
+    notNowText: {
         fontFamily: fonts.medium,
-        fontSize: 15,
+        fontSize: 14,
         color: Colors.textSecondary,
     },
-    signOutButtonText: {
+
+    // ── Loading ──
+    loadingText: {
         fontFamily: fonts.medium,
-        fontSize: 13,
-        color: Colors.textTertiary,
+        fontSize: 16,
+        color: Colors.textSecondary,
+        marginTop: 16,
     },
 
-    // Failed state
+    // ── Success ──
+    successTitle: {
+        fontFamily: fonts.semiBold,
+        fontSize: 26,
+        color: Colors.textPrimary,
+        marginTop: 20,
+    },
+    successSubtitle: {
+        fontFamily: fonts.regular,
+        fontSize: 16,
+        color: Colors.textSecondary,
+        marginTop: 8,
+    },
+
+    // ── Failed ──
     failedCard: {
-        backgroundColor: Colors.backgroundCardGlass,
+        backgroundColor: 'rgba(255, 255, 255, 0.70)',
         borderRadius: 20,
         paddingVertical: 32,
         paddingHorizontal: 28,
         alignItems: 'center',
         borderWidth: 0.5,
-        borderColor: Colors.borderCard,
+        borderColor: 'rgba(255, 255, 255, 0.5)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 16,
+        elevation: 2,
         width: '100%',
     },
     failedIconContainer: {
@@ -626,33 +609,12 @@ const styles = StyleSheet.create({
         lineHeight: 22,
         marginBottom: 28,
     },
-    retryButton: {
-        backgroundColor: Colors.buttonAction,
-        paddingVertical: 16,
-        paddingHorizontal: 48,
-        borderRadius: 16,
-        width: '100%',
+
+    // ── Footer (loading/failed states) ──
+    footerSimple: {
         alignItems: 'center',
-        minHeight: 52,
-        justifyContent: 'center',
+        paddingBottom: 16,
+        paddingTop: 12,
     },
-    retryButtonDisabled: {
-        backgroundColor: Colors.buttonDisabled,
-    },
-    retryButtonText: {
-        fontFamily: fonts.semiBold,
-        fontSize: 16,
-        color: Colors.buttonActionText,
-    },
-    devResetButton: {
-        paddingVertical: 6,
-        paddingHorizontal: 16,
-        backgroundColor: 'rgba(255, 100, 100, 0.2)',
-        borderRadius: 8,
-    },
-    devResetButtonText: {
-        fontFamily: fonts.medium,
-        fontSize: 11,
-        color: '#ff6464',
-    },
+
 });

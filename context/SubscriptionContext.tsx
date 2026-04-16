@@ -1,5 +1,5 @@
 import { useAuth } from '@/context/AuthContext';
-import { getPurchases } from '@/lib/revenuecat';
+import { getPurchases, whenConfigured } from '@/lib/revenuecat';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
 // Import types only (not runtime code)
@@ -38,17 +38,24 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
         const init = async () => {
             try {
+                // Wait for RevenueCat initialization to complete before fetching
+                await whenConfigured;
+
                 const Purchases = await getPurchases();
                 if (!Purchases) {
                     setLoading(false);
                     return;
                 }
 
-                // Small delay to ensure RevenueCat is configured
-                await new Promise(resolve => setTimeout(resolve, 100));
-
                 // Fetch offerings
-                const offeringsResult = await Purchases.getOfferings();
+                let offeringsResult = await Purchases.getOfferings();
+
+                // Retry once after 2s if no offerings (sandbox can be slow)
+                if (!offeringsResult.current) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    offeringsResult = await Purchases.getOfferings();
+                }
+
                 if (offeringsResult.current) {
                     setOfferings(offeringsResult.current);
                 }

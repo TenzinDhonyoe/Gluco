@@ -1,10 +1,16 @@
 import { useAuth } from '@/context/AuthContext';
 import { isBehaviorV1Experience } from '@/lib/experience';
+import { Redirect } from 'expo-router';
 import { NativeTabs, Icon, Label } from 'expo-router/unstable-native-tabs';
 
 export default function TabLayout() {
-    const { profile } = useAuth();
+    const { user, profile, loading } = useAuth();
     const isBehaviorV1 = isBehaviorV1Experience(profile?.experience_variant);
+
+    // Redirect to welcome screen if user signed out
+    if (!loading && !user) {
+        return <Redirect href="/" />;
+    }
 
     return (
         <NativeTabs backgroundColor="transparent" blurEffect="none" shadowColor="transparent">
@@ -25,10 +31,6 @@ export default function TabLayout() {
                     }
                 />
                 <Label>{isBehaviorV1 ? 'Actions' : 'Insights'}</Label>
-            </NativeTabs.Trigger>
-            <NativeTabs.Trigger name="chat">
-                <Icon sf={{ default: 'bubble.left.and.bubble.right', selected: 'bubble.left.and.bubble.right.fill' }} />
-                <Label>Chat</Label>
             </NativeTabs.Trigger>
         </NativeTabs>
     );

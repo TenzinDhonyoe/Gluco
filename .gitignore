@@ -71,3 +71,6 @@ supabase/.branches/
 # Secrets (never commit these)
 *.secret
 secrets.json
+
+# App Store screenshot generator (separate Next.js project)
+app-store-screenshots/

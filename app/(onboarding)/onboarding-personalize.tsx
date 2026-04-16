@@ -65,6 +65,15 @@ const STEP_COLORS = [
 
 // ── Steps (7 total) ──
 
+const GOAL_SHORT_LABELS: Record<string, string> = {
+    'Understand meal patterns': 'meal pattern',
+    'More consistent energy': 'energy',
+    'Better sleep routine': 'sleep',
+    'Build a walking habit': 'walking',
+    'Fibre and nutrition': 'nutrition',
+    'General wellness tracking': 'wellness',
+};
+
 function getSteps(profile: {
     goals?: string[] | null;
     tracking_mode?: TrackingMode;
@@ -72,13 +81,14 @@ function getSteps(profile: {
     dietary_preferences?: string[];
     ai_enabled?: boolean;
 }) {
-    const goalText = profile.goals?.length ? profile.goals[0].toLowerCase() : null;
+    const firstGoal = profile.goals?.length ? profile.goals[0] : null;
+    const goalLabel = firstGoal ? (GOAL_SHORT_LABELS[firstGoal] || firstGoal.toLowerCase()) : null;
     const trackingLabel = profile.tracking_mode ? TRACKING_LABELS[profile.tracking_mode] : null;
     const coachingLabel = profile.coaching_style ? COACHING_LABELS[profile.coaching_style] : null;
     const hasDietary = profile.dietary_preferences && profile.dietary_preferences.length > 0;
 
     return [
-        goalText ? `Reviewing your ${goalText} goal` : 'Reviewing your goals',
+        goalLabel ? `Reviewing your ${goalLabel} goals` : 'Reviewing your goals',
         trackingLabel ? `Setting up ${trackingLabel}` : 'Setting up your tracking',
         coachingLabel ? `Personalizing ${coachingLabel}` : 'Personalizing your coaching',
         hasDietary ? 'Applying dietary preferences' : 'Analyzing your preferences',
