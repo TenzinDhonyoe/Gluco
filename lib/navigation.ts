@@ -10,8 +10,5 @@ import { router } from 'expo-router';
  *   navigateToApp('/')        → clears stack, goes to welcome (sign-out)
  */
 export function navigateToApp(destination: string = '/(tabs)') {
-  while (router.canDismiss()) {
-    router.dismiss();
-  }
   router.replace(destination as never);
 }

@@ -2,6 +2,7 @@ import { ONBOARDING_STEP_KEY } from '@/app/index';
 import { OnboardingScreenLayout } from '@/components/onboarding/OnboardingScreenLayout';
 import { Disclaimer } from '@/components/ui/Disclaimer';
 import { Colors } from '@/constants/Colors';
+import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { triggerHaptic } from '@/lib/utils/haptics';
@@ -14,6 +15,7 @@ import React, { useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Linking,
     StyleSheet,
     Switch,
     Text,
@@ -95,7 +97,7 @@ export default function OnboardingAiScreen() {
         <OnboardingScreenLayout
             currentStep={6}
             title={`Unlock smart features\nfor your ${firstGoal} journey`}
-            subtitle="AI analyzes your meals and patterns to give personalized tips."
+            subtitle="Meal photos and wellness data are analyzed by Google's Gemini AI to give you personalized tips."
             onBack={handleBack}
             bottomContent={
                 <>
@@ -138,7 +140,7 @@ export default function OnboardingAiScreen() {
                     <View style={styles.aiTextBlock}>
                         <Text style={styles.aiTitle}>Enable AI Insights</Text>
                         <Text style={styles.aiSubtitle}>
-                            Allow AI to analyze meals and generate personalized tips.
+                            When enabled, meal photos and wellness data are sent to Google's Gemini AI for analysis. No data is shared when disabled.
                         </Text>
                     </View>
                     <Switch
@@ -149,6 +151,22 @@ export default function OnboardingAiScreen() {
                         ios_backgroundColor={Colors.borderCard}
                     />
                 </View>
+            </View>
+
+            <View style={styles.policyLinks}>
+                <Text
+                    style={styles.policyLink}
+                    onPress={() => Linking.openURL(LEGAL_URLS.privacyPolicy)}
+                >
+                    Privacy Policy
+                </Text>
+                <Text style={styles.policyDot}> · </Text>
+                <Text
+                    style={styles.policyLink}
+                    onPress={() => Linking.openURL(LEGAL_URLS.googleAiTerms)}
+                >
+                    Google AI Terms
+                </Text>
             </View>
 
             {!aiEnabled && (
@@ -270,6 +288,23 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: Colors.textTertiary,
         lineHeight: 16,
+    },
+    policyLinks: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    policyLink: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: Colors.primary,
+        textDecorationLine: 'underline',
+    },
+    policyDot: {
+        fontFamily: fonts.regular,
+        fontSize: 12,
+        color: Colors.textTertiary,
     },
     disabledNote: {
         fontFamily: fonts.regular,

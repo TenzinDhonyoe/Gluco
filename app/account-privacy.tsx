@@ -375,7 +375,7 @@ export default function AccountPrivacyScreen() {
                             <View style={styles.rowLabelBlock}>
                                 <Text style={styles.rowLabel}>AI-Powered Insights</Text>
                                 <Text style={styles.rowSubtext}>
-                                    Allow AI to generate tips and analyze meal photos.
+                                    Meal photos and wellness data are processed by Google's Gemini AI. No data is shared when disabled.
                                 </Text>
                             </View>
                             <Switch
@@ -412,8 +412,23 @@ export default function AccountPrivacyScreen() {
                         {expandedSection === 'data-use' && (
                             <View style={styles.expandedContent}>
                                 <Text style={styles.expandedText}>
-                                    We keep your data private and only use it to provide features you enable. You can turn AI insights on or off at any time.
+                                    When AI features are enabled, your meal photos, meal context (type, time, notes), and wellness patterns are sent to Google's Gemini AI for analysis. This data is used solely to generate personalized insights and is not stored by Google beyond processing.{'\n\n'}When AI is disabled, no data is sent to third-party services. You can turn AI on or off at any time.
                                 </Text>
+                                <View style={styles.dataUsePolicyLinks}>
+                                    <Text
+                                        style={styles.dataUsePolicyLink}
+                                        onPress={() => Linking.openURL(LEGAL_URLS.privacyPolicy)}
+                                    >
+                                        Privacy Policy
+                                    </Text>
+                                    <Text style={styles.dataUsePolicyDot}> · </Text>
+                                    <Text
+                                        style={styles.dataUsePolicyLink}
+                                        onPress={() => Linking.openURL(LEGAL_URLS.googleAiTerms)}
+                                    >
+                                        Google AI Terms
+                                    </Text>
+                                </View>
                             </View>
                         )}
                     </View>
@@ -525,6 +540,21 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: Colors.textTertiary,
         lineHeight: 20,
+    },
+    dataUsePolicyLinks: {
+        flexDirection: 'row',
+        marginTop: 12,
+    },
+    dataUsePolicyLink: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.primary,
+        textDecorationLine: 'underline',
+    },
+    dataUsePolicyDot: {
+        fontFamily: fonts.regular,
+        fontSize: 13,
+        color: Colors.textTertiary,
     },
     dangerText: {
         color: Colors.buttonDestructive,

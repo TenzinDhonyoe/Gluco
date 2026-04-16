@@ -12,6 +12,12 @@ const REVENUECAT_ANDROID_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_AP
 let purchasesModule: typeof import('react-native-purchases') | null = null;
 let isConfigured = false;
 
+// Promise that resolves when RevenueCat initialization completes (success or failure)
+let configuredResolve: (() => void) | null = null;
+export const whenConfigured = new Promise<void>(resolve => {
+    configuredResolve = resolve;
+});
+
 /**
  * Lazily loads the RevenueCat Purchases module
  */
@@ -81,5 +87,7 @@ export async function initializeRevenueCat(): Promise<boolean> {
     } catch (error) {
         if (__DEV__) console.warn('Error initializing RevenueCat:', error);
         return false;
+    } finally {
+        configuredResolve?.();
     }
 }
