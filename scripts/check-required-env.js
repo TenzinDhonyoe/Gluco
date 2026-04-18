@@ -21,6 +21,12 @@ const REQUIRED = [
     'EXPO_PUBLIC_SUPABASE_ANON_KEY',
     'EXPO_PUBLIC_REVENUECAT_IOS_API_KEY',
     'EXPO_PUBLIC_APP_SCHEME',
+    // Experience variant flags: without these, the app falls back to the
+    // legacy UI variant which is visually and functionally different from
+    // the behavior_v1 UI the team ships by default. If you're intentionally
+    // building the legacy variant, set SKIP_ENV_CHECK=true.
+    'EXPO_PUBLIC_FORCE_BEHAVIOR_V1',
+    'EXPO_PUBLIC_SKIP_FRAMEWORK_RESET_GATE',
 ];
 
 function main() {
