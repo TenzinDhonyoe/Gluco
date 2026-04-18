@@ -28,7 +28,10 @@ function walk(dir) {
 function toRoutePath(filePath) {
   const rel = path.relative(APP_DIR, filePath).replace(/\\/g, '/');
   const noExt = rel.replace(/\.[^.]+$/, '');
-  const segments = noExt.split('/');
+  // Expo Router: directories wrapped in parens are route groups and do NOT
+  // appear in the URL. `app/(onboarding)/onboarding-profile.tsx` is routed
+  // as `/onboarding-profile`, not `/(onboarding)/onboarding-profile`.
+  const segments = noExt.split('/').filter(seg => !/^\(.+\)$/.test(seg));
 
   if (segments[segments.length - 1] === 'index') {
     segments.pop();
@@ -44,6 +47,11 @@ function normalizeRoute(route) {
   let out = route.split('?')[0].trim();
   if (!out) return null;
   if (out.length > 1 && out.endsWith('/')) out = out.slice(0, -1);
+  // Strip route-group segments (e.g. `(tabs)`, `(onboarding)`) — Expo Router
+  // accepts these in router.push() but they're optional and the file-side
+  // already strips them. Normalize both sides the same way.
+  const segments = out.split('/').filter(seg => !/^\(.+\)$/.test(seg));
+  out = segments.length <= 1 ? '/' : segments.join('/');
   return out;
 }
 
