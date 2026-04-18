@@ -181,7 +181,10 @@ export function AddMenuOverlay() {
     const { profile } = useAuth();
     const isBehaviorV1 = isBehaviorV1Experience(profile?.experience_variant);
     const segments = useSegments();
-    const isOnHomeTab = segments[0] === '(tabs)' && segments[1] == null;
+    // Home tab = we're inside (tabs) group at the group root (no sub-segment).
+    // Use segments.length instead of segments[1] so this typechecks regardless
+    // of whether Expo Router's typedRoutes typegen has run (CI doesn't run it).
+    const isOnHomeTab = segments[0] === '(tabs)' && segments.length === 1;
     const insets = useSafeAreaInsets();
     const [shouldRender, setShouldRender] = useState(false);
     const pathname = usePathname();
