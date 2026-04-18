@@ -4,6 +4,7 @@ import { LEGAL_URLS } from '@/constants/legal';
 import { useSubscription } from '@/context/SubscriptionContext';
 import { fonts } from '@/hooks/useFonts';
 import { navigateToApp } from '@/lib/navigation';
+import { getConfiguredStatus } from '@/lib/revenuecat';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -87,6 +88,11 @@ export default function PaywallScreen() {
     const offering = localOffering;
     const isLoading = contextLoading && !timedOut;
     const hasFailed = (!contextLoading && !offering) || (timedOut && !offering);
+    // If the SDK itself isn't configured, retry can't help — show a distinct error.
+    // This prevents repeating the "plans couldn't load" mystery that caused the
+    // Apple v1 rejection when EAS env vars weren't set.
+    const rcStatus = getConfiguredStatus();
+    const hasMisconfig = hasFailed && (rcStatus === 'missing-key' || rcStatus === 'error');
 
     const annualPackage = offering?.availablePackages.find(p => p.packageType === 'ANNUAL') ?? null;
     const monthlyPackage = offering?.availablePackages.find(p => p.packageType === 'MONTHLY') ?? null;
@@ -188,6 +194,42 @@ export default function PaywallScreen() {
 
     // ── Failed State ──
     if (hasFailed) {
+        // Misconfig: SDK never initialized (missing API key in build, or config error).
+        // Retry cannot help — guide the user toward reinstalling or contacting support.
+        if (hasMisconfig) {
+            return (
+                <View style={styles.container}>
+                    <SafeAreaView style={styles.safeArea}>
+                        <View style={styles.centered}>
+                            <View style={styles.failedCard}>
+                                <View style={styles.failedIconContainer}>
+                                    <Text style={styles.failedIcon}>⚙️</Text>
+                                </View>
+                                <Text style={styles.failedTitle}>Subscriptions unavailable</Text>
+                                <Text style={styles.failedMessage}>
+                                    This build can't connect to the subscription service. Please reinstall Gluco from the App Store, or contact support at tenzin@glucosolutions.ca.
+                                </Text>
+                                <TouchableOpacity
+                                    style={styles.ctaButton}
+                                    onPress={() => Linking.openURL('mailto:tenzin@glucosolutions.ca?subject=Gluco%20subscription%20issue')}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={styles.ctaButtonText}>Contact Support</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                        <View style={styles.footerSimple}>
+                            <TouchableOpacity onPress={markSeenAndNavigate} activeOpacity={0.7}>
+                                <Text style={styles.notNowText}>Not now</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </SafeAreaView>
+                </View>
+            );
+        }
+
+        // Generic failure: offerings fetch failed (network, sandbox hiccup, etc.).
+        // Retry is meaningful here.
         return (
             <View style={styles.container}>
                 <SafeAreaView style={styles.safeArea}>

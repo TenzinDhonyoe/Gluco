@@ -29,10 +29,7 @@
       },
       "entitlements": {
         "com.apple.developer.healthkit": true,
-        "com.apple.developer.healthkit.background-delivery": true,
-        "com.apple.developer.in-app-payments": [
-          "merchant.ca.gluco.solutions"
-        ]
+        "com.apple.developer.healthkit.background-delivery": true
       }
     },
     "android": {
