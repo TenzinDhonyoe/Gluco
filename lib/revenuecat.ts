@@ -12,6 +12,22 @@ const REVENUECAT_ANDROID_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_AP
 let purchasesModule: typeof import('react-native-purchases') | null = null;
 let isConfigured = false;
 
+/**
+ * Tracks the outcome of initializeRevenueCat() so UI can show a useful error
+ * instead of a generic "couldn't load plans" when misconfiguration is the cause.
+ *
+ *   'pending'     — initialization hasn't completed yet
+ *   'ok'          — SDK configured successfully, ready to fetch offerings
+ *   'missing-key' — API key env var is missing from the build (EAS env not set)
+ *   'disabled'    — paywall intentionally disabled (beta flag)
+ *   'error'       — SDK threw during configure()
+ */
+export type RevenueCatStatus = 'pending' | 'ok' | 'missing-key' | 'disabled' | 'error';
+let configuredStatus: RevenueCatStatus = 'pending';
+export function getConfiguredStatus(): RevenueCatStatus {
+    return configuredStatus;
+}
+
 // Promise that resolves when RevenueCat initialization completes (success or failure)
 let configuredResolve: (() => void) | null = null;
 export const whenConfigured = new Promise<void>(resolve => {
@@ -44,6 +60,8 @@ export async function initializeRevenueCat(): Promise<boolean> {
     // Skip initialization if paywall is disabled (beta mode)
     if (!PAYWALL_ENABLED) {
         if (__DEV__) console.log('RevenueCat: Skipped (paywall disabled for beta)');
+        configuredStatus = 'disabled';
+        configuredResolve?.();
         return false;
     }
 
@@ -51,7 +69,10 @@ export async function initializeRevenueCat(): Promise<boolean> {
 
     try {
         const Purchases = await getPurchases();
-        if (!Purchases) return false;
+        if (!Purchases) {
+            configuredStatus = 'error';
+            return false;
+        }
 
         const { LOG_LEVEL, STOREKIT_VERSION } = await import('react-native-purchases');
         if (__DEV__) {
@@ -67,25 +88,39 @@ export async function initializeRevenueCat(): Promise<boolean> {
 
         if (Platform.OS === 'ios') {
             if (!REVENUECAT_IOS_API_KEY) {
-                console.error('RevenueCat iOS key is missing. Set EXPO_PUBLIC_REVENUECAT_IOS_API_KEY.');
+                // Always log (not just __DEV__) — this is the kind of misconfig that
+                // silently breaks TestFlight builds and causes Apple rejections.
+                console.error(
+                    '[RevenueCat] FATAL: EXPO_PUBLIC_REVENUECAT_IOS_API_KEY is missing from this build. ' +
+                    'The paywall will not work. Set the env var in EAS: ' +
+                    '`eas env:create --environment production --name EXPO_PUBLIC_REVENUECAT_IOS_API_KEY --value <key> --visibility plaintext`'
+                );
+                configuredStatus = 'missing-key';
                 return false;
             }
             Purchases.configure({ apiKey: REVENUECAT_IOS_API_KEY, storeKitVersion: STOREKIT_VERSION.STOREKIT_2 });
             isConfigured = true;
+            configuredStatus = 'ok';
             if (__DEV__) console.log('RevenueCat: Configured for iOS');
         } else if (Platform.OS === 'android') {
             if (!REVENUECAT_ANDROID_API_KEY) {
-                console.error('RevenueCat Android key is missing. Set EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY.');
+                console.error(
+                    '[RevenueCat] FATAL: EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY is missing from this build. ' +
+                    'The paywall will not work. Set the env var in EAS.'
+                );
+                configuredStatus = 'missing-key';
                 return false;
             }
             Purchases.configure({ apiKey: REVENUECAT_ANDROID_API_KEY });
             isConfigured = true;
+            configuredStatus = 'ok';
             if (__DEV__) console.log('RevenueCat: Configured for Android');
         }
 
         return isConfigured;
     } catch (error) {
-        if (__DEV__) console.warn('Error initializing RevenueCat:', error);
+        console.error('[RevenueCat] Error during initialization:', error);
+        configuredStatus = 'error';
         return false;
     } finally {
         configuredResolve?.();

@@ -9,8 +9,10 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "check:routes": "node ./scripts/check-routes.js",
+    "check:env": "node ./scripts/check-required-env.js",
     "lint": "expo lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eas-build-post-install": "node ./scripts/check-required-env.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
