@@ -182,11 +182,6 @@ export default function PaywallScreen() {
                         <ActivityIndicator size="large" color={Colors.primary} />
                         <Text style={styles.loadingText}>Loading plans...</Text>
                     </View>
-                    <View style={styles.footerSimple}>
-                        <TouchableOpacity onPress={markSeenAndNavigate} activeOpacity={0.7}>
-                            <Text style={styles.notNowText}>Not now</Text>
-                        </TouchableOpacity>
-                    </View>
                 </SafeAreaView>
             </View>
         );
@@ -217,11 +212,6 @@ export default function PaywallScreen() {
                                     <Text style={styles.ctaButtonText}>Contact Support</Text>
                                 </TouchableOpacity>
                             </View>
-                        </View>
-                        <View style={styles.footerSimple}>
-                            <TouchableOpacity onPress={markSeenAndNavigate} activeOpacity={0.7}>
-                                <Text style={styles.notNowText}>Not now</Text>
-                            </TouchableOpacity>
                         </View>
                     </SafeAreaView>
                 </View>
@@ -255,11 +245,6 @@ export default function PaywallScreen() {
                                 )}
                             </TouchableOpacity>
                         </View>
-                    </View>
-                    <View style={styles.footerSimple}>
-                        <TouchableOpacity onPress={markSeenAndNavigate} activeOpacity={0.7}>
-                            <Text style={styles.notNowText}>Not now</Text>
-                        </TouchableOpacity>
                     </View>
                 </SafeAreaView>
             </View>
@@ -354,7 +339,7 @@ export default function PaywallScreen() {
                         {disclaimerPlanName}Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your App Store account settings after purchase.
                     </Text>
 
-                    {/* Restore + Legal + Not now */}
+                    {/* Restore + Legal */}
                     <View style={styles.legalRow}>
                         <TouchableOpacity onPress={handleRestore} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                             <Text style={styles.legalLink}>Restore</Text>
@@ -368,10 +353,6 @@ export default function PaywallScreen() {
                             Privacy
                         </Text>
                     </View>
-
-                    <TouchableOpacity onPress={markSeenAndNavigate} activeOpacity={0.7} style={styles.notNowButton}>
-                        <Text style={styles.notNowText}>Not now</Text>
-                    </TouchableOpacity>
 
                 </View>
             </SafeAreaView>
@@ -575,18 +556,6 @@ const styles = StyleSheet.create({
         color: Colors.textTertiary,
     },
 
-    // ── Not Now ──
-    notNowButton: {
-        alignItems: 'center',
-        paddingVertical: 12,
-        marginTop: 4,
-    },
-    notNowText: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: Colors.textSecondary,
-    },
-
     // ── Loading ──
     loadingText: {
         fontFamily: fonts.medium,
@@ -650,13 +619,6 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         lineHeight: 22,
         marginBottom: 28,
-    },
-
-    // ── Footer (loading/failed states) ──
-    footerSimple: {
-        alignItems: 'center',
-        paddingBottom: 16,
-        paddingTop: 12,
     },
 
 });
