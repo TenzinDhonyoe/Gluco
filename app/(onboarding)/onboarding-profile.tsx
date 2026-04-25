@@ -24,8 +24,17 @@ export default function OnboardingProfileScreen() {
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const { user, signOut } = useAuth();
+    const { user, profile, signOut } = useAuth();
     const draftRestored = React.useRef(false);
+
+    // If the profile already has a name (e.g. from Sign in with Apple),
+    // skip this screen — Apple already provided it.
+    React.useEffect(() => {
+        if (profile?.first_name && profile?.last_name) {
+            AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'goals').catch(() => null);
+            router.replace('/onboarding-goals' as never);
+        }
+    }, [profile?.first_name, profile?.last_name]);
 
     // Restore draft once loaded
     React.useEffect(() => {

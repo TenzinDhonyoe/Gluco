@@ -10,12 +10,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Animated,
     Image,
-    Linking,
     Modal,
     Platform,
     Pressable,
@@ -378,8 +378,8 @@ export default function LogScreen() {
 
     const handleTipPress = (tip: TipCardData) => {
         if (tip.articleUrl) {
-            Linking.openURL(tip.articleUrl).catch(err => {
-                console.error('Failed to open URL:', err);
+            WebBrowser.openBrowserAsync(tip.articleUrl).catch(err => {
+                console.error('Failed to open article:', err);
             });
         }
     };
