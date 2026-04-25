@@ -1931,9 +1931,6 @@ export default function InsightsScreen() {
                         <View style={styles.behaviorHeaderContainer}>
                             <View style={styles.planHeaderRow}>
                                 <Text style={[styles.behaviorHeaderTitle, styles.behaviorHeaderTitleTuned]}>ACTION PLAN</Text>
-                                <View style={[styles.betaPill, styles.behaviorBetaPill]}>
-                                    <Text style={[styles.betaPillText, styles.behaviorBetaPillText]}>BETA</Text>
-                                </View>
                             </View>
                             <View style={styles.focusControlWrap}>
                                 <SegmentedControl
@@ -2077,27 +2074,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 8,
         alignSelf: 'flex-start',
-    },
-    betaPill: {
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: 'rgba(60, 60, 67, 0.18)',
-        backgroundColor: 'rgba(0, 0, 0, 0.04)',
-    },
-    betaPillText: {
-        fontFamily: fonts.semiBold,
-        fontSize: 11,
-        color: Colors.textSecondary,
-        letterSpacing: 0.4,
-    },
-    behaviorBetaPill: {
-        borderColor: 'rgba(60, 60, 67, 0.12)',
-        backgroundColor: 'rgba(45, 212, 191, 0.08)',
-    },
-    behaviorBetaPillText: {
-        color: Colors.textSecondary,
     },
     focusControlWrap: {
         marginTop: 2,

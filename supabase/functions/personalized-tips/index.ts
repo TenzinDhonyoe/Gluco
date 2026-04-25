@@ -62,8 +62,8 @@ const ARTICLE_LIBRARY: Record<string, string> = {
     // General wellness
     'wellness': 'https://www.healthline.com/nutrition/27-health-and-nutrition-tips',
     'general': 'https://www.healthline.com/nutrition/27-health-and-nutrition-tips',
-    'glucose': 'https://www.healthline.com/nutrition/blood-sugar-after-eating',
-    'blood_sugar': 'https://www.healthline.com/nutrition/blood-sugar-after-eating',
+    'glucose': 'https://www.cdc.gov/diabetes/managing/manage-blood-sugar.html',
+    'blood_sugar': 'https://www.cdc.gov/diabetes/managing/manage-blood-sugar.html',
 
     // Fallback
     'default': 'https://www.healthline.com/nutrition/27-health-and-nutrition-tips',

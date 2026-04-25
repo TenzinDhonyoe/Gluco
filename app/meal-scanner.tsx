@@ -43,6 +43,7 @@ import {
     Alert,
     Dimensions,
     LayoutAnimation,
+    Linking,
     Platform,
     Pressable,
     StyleSheet,
@@ -358,6 +359,15 @@ export default function MealScannerScreen() {
     const { user, profile } = useAuth();
     const cameraRef = useRef<CameraView>(null);
     const [permission, requestPermission] = useCameraPermissions();
+
+    // If permission has never been asked, trigger the system prompt directly —
+    // Apple requires that any pre-prompt UI must always lead to the system
+    // prompt without an exit path.
+    useEffect(() => {
+        if (permission && !permission.granted && permission.canAskAgain) {
+            requestPermission();
+        }
+    }, [permission, requestPermission]);
 
     const [scanMode, setScanMode] = useState<ScanMode>('scan_food');
     const [scannerState, setScannerState] = useState<ScannerState>('ready');
@@ -938,21 +948,27 @@ export default function MealScannerScreen() {
         );
     }
 
-    // Permission not granted
+    // Permission not granted. While the system prompt is pending (canAskAgain),
+    // show only a loader — the useEffect above triggers the prompt. If the user
+    // has denied permission, point them to Settings.
     if (!permission.granted) {
+        if (permission.canAskAgain) {
+            return (
+                <View style={styles.container}>
+                    <ActivityIndicator size="large" color={Colors.buttonPrimary} />
+                </View>
+            );
+        }
         return (
             <View style={styles.container}>
                 <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
                     <Ionicons name="camera-outline" size={64} color={Colors.textTertiary} />
-                    <Text style={styles.permissionTitle}>Camera Access Required</Text>
+                    <Text style={styles.permissionTitle}>Camera access is off</Text>
                     <Text style={styles.permissionText}>
-                        We need camera access to scan and log your meals.
+                        Turn on camera access in Settings to scan and log your meals.
                     </Text>
-                    <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
-                        <Text style={styles.permissionButtonText}>Grant Access</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.cancelButton} onPress={handleBack}>
-                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                    <TouchableOpacity style={styles.permissionButton} onPress={() => Linking.openSettings()}>
+                        <Text style={styles.permissionButtonText}>Open Settings</Text>
                     </TouchableOpacity>
                 </View>
             </View>

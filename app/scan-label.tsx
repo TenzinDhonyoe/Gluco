@@ -12,9 +12,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Linking,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -36,6 +37,15 @@ export default function ScanLabelScreen() {
     const [errorMessage, setErrorMessage] = useState<string>('');
     const [errorDetail, setErrorDetail] = useState<string>('');
 
+    // If permission has never been asked, trigger the system prompt directly —
+    // Apple requires that any pre-prompt UI must always lead to the system
+    // prompt without an exit path.
+    useEffect(() => {
+        if (permission && !permission.granted && permission.canAskAgain) {
+            requestPermission();
+        }
+    }, [permission, requestPermission]);
+
     // Request camera permission
     if (!permission) {
         return (
@@ -46,26 +56,27 @@ export default function ScanLabelScreen() {
     }
 
     if (!permission.granted) {
+        if (permission.canAskAgain) {
+            return (
+                <View style={styles.container}>
+                    <ActivityIndicator size="large" color={Colors.primary} />
+                </View>
+            );
+        }
         return (
             <View style={styles.container}>
                 <SafeAreaView style={styles.safeArea}>
                     <View style={styles.permissionContainer}>
                         <Ionicons name="camera-outline" size={64} color={Colors.textTertiary} />
-                        <Text style={styles.permissionTitle}>Camera Access Required</Text>
+                        <Text style={styles.permissionTitle}>Camera access is off</Text>
                         <Text style={styles.permissionText}>
-                            We need camera access to scan nutrition labels.
+                            Turn on camera access in Settings to scan nutrition labels.
                         </Text>
                         <TouchableOpacity
                             style={styles.permissionButton}
-                            onPress={requestPermission}
+                            onPress={() => Linking.openSettings()}
                         >
-                            <Text style={styles.permissionButtonText}>Grant Access</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={styles.cancelButton}
-                            onPress={() => router.back()}
-                        >
-                            <Text style={styles.cancelButtonText}>Cancel</Text>
+                            <Text style={styles.permissionButtonText}>Open Settings</Text>
                         </TouchableOpacity>
                     </View>
                 </SafeAreaView>

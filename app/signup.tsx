@@ -91,7 +91,7 @@ export default function SignUpScreen() {
 
         setIsAppleLoading(true);
         try {
-            const { error, onboardingComplete } = await signInWithApple();
+            const { error, onboardingComplete, hasName } = await signInWithApple();
 
             if (error) {
                 Alert.alert('Apple Sign-In Error', error.message);
@@ -101,6 +101,8 @@ export default function SignUpScreen() {
             // Navigate directly to the appropriate screen
             if (onboardingComplete) {
                 navigateToApp();
+            } else if (hasName) {
+                router.replace('/onboarding-goals' as never);
             } else {
                 router.replace('/onboarding-profile' as never);
             }

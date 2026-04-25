@@ -1,4 +1,4 @@
-import { getUserProfile, GlucoseUnit, supabase, UserProfile } from '@/lib/supabase';
+import { getUserProfile, GlucoseUnit, supabase, updateUserProfile, UserProfile } from '@/lib/supabase';
 import { RESET_PASSWORD_REDIRECT_URI } from '@/lib/deeplinks';
 import { Session, User } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -15,7 +15,7 @@ interface AuthContextType {
     loading: boolean;
     signUp: (email: string, password: string) => Promise<{ error: Error | null; autoConfirmed?: boolean }>;
     signIn: (email: string, password: string) => Promise<{ error: Error | null; onboardingComplete?: boolean }>;
-    signInWithApple: () => Promise<{ error: Error | null; onboardingComplete?: boolean }>;
+    signInWithApple: () => Promise<{ error: Error | null; onboardingComplete?: boolean; hasName?: boolean }>;
     signOut: () => Promise<void>;
     refreshProfile: () => Promise<void>;
     resetPassword: (email: string) => Promise<{ error: Error | null }>;
@@ -165,7 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
-    const signInWithApple = async (): Promise<{ error: Error | null; onboardingComplete?: boolean }> => {
+    const signInWithApple = async (): Promise<{ error: Error | null; onboardingComplete?: boolean; hasName?: boolean }> => {
         // Only available on iOS
         if (Platform.OS !== 'ios') {
             return { error: new Error('Apple Sign-In is only available on iOS') };
@@ -197,13 +197,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 return { error };
             }
 
+            // Apple only returns fullName/email on the first authorization. Persist
+            // them to the profile so we don't have to re-ask the user.
+            if (data.user) {
+                const givenName = credential.fullName?.givenName?.trim();
+                const familyName = credential.fullName?.familyName?.trim();
+                if (givenName || familyName) {
+                    try {
+                        await updateUserProfile(data.user.id, {
+                            ...(givenName ? { first_name: givenName } : {}),
+                            ...(familyName ? { last_name: familyName } : {}),
+                        });
+                    } catch (e) {
+                        if (__DEV__) console.warn('Failed to persist Apple name', e);
+                    }
+                }
+            }
+
             // Load the user's profile
             let userProfile: UserProfile | null = null;
             if (data.user) {
                 userProfile = await loadProfile(data.user.id);
             }
 
-            return { error: null, onboardingComplete: !!userProfile?.onboarding_completed };
+            return {
+                error: null,
+                onboardingComplete: !!userProfile?.onboarding_completed,
+                hasName: !!(userProfile?.first_name && userProfile?.last_name),
+            };
         } catch (error: any) {
             // Handle user cancellation
             if (error.code === 'ERR_REQUEST_CANCELED') {
