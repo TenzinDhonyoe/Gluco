@@ -9,6 +9,7 @@ export default function OnboardingLayout() {
                 headerShown: false,
                 contentStyle: { backgroundColor: 'transparent' },
                 animation: Platform.OS === 'ios' ? 'ios_from_right' : 'slide_from_right',
+                gestureEnabled: false,
             }}
         >
             <Stack.Screen name="onboarding-welcome" options={{ animation: 'fade' }} />

@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { useOnboardingDraft } from '@/hooks/useOnboardingDraft';
 import { triggerHaptic } from '@/lib/utils/haptics';
-import { ReadinessLevel, updateUserProfile } from '@/lib/supabase';
+import { updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
@@ -39,16 +39,9 @@ const GOAL_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
     'General wellness tracking': 'analytics-outline',
 };
 
-const READINESS_OPTIONS: { id: ReadinessLevel; label: string }[] = [
-    { id: 'low', label: 'Low readiness' },
-    { id: 'medium', label: 'Medium readiness' },
-    { id: 'high', label: 'High readiness' },
-];
-
 export default function OnboardingGoalsScreen() {
     const { draft, updateDraft, isLoaded } = useOnboardingDraft();
     const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
-    const [selectedReadiness, setSelectedReadiness] = useState<ReadinessLevel | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const { user, signOut } = useAuth();
     const draftRestored = React.useRef(false);
@@ -60,9 +53,6 @@ export default function OnboardingGoalsScreen() {
         if (Array.isArray(draft.selectedGoals) && draft.selectedGoals.length > 0) {
             setSelectedGoals(draft.selectedGoals);
         }
-        if (draft.selectedReadiness) {
-            setSelectedReadiness(draft.selectedReadiness as ReadinessLevel);
-        }
         AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'goals').catch(() => null);
     }, [isLoaded, draft]);
 
@@ -70,10 +60,10 @@ export default function OnboardingGoalsScreen() {
     React.useEffect(() => {
         if (!draftRestored.current) return;
         const timer = setTimeout(() => {
-            updateDraft({ selectedGoals, selectedReadiness });
+            updateDraft({ selectedGoals });
         }, 300);
         return () => clearTimeout(timer);
-    }, [selectedGoals, selectedReadiness, updateDraft]);
+    }, [selectedGoals, updateDraft]);
 
     const handleToggleGoal = (goal: string) => {
         setSelectedGoals(prev => {
@@ -84,18 +74,15 @@ export default function OnboardingGoalsScreen() {
     };
 
     const handleContinue = async () => {
-        if (selectedGoals.length === 0 || !selectedReadiness) return;
+        if (selectedGoals.length === 0) return;
         triggerHaptic('medium');
         setIsLoading(true);
         try {
             if (user) {
-                await updateUserProfile(user.id, {
-                    goals: selectedGoals,
-                    readiness_level: selectedReadiness,
-                });
+                await updateUserProfile(user.id, { goals: selectedGoals });
             }
-            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'body');
-            router.push('/onboarding-body' as never);
+            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'readiness');
+            router.push('/onboarding-readiness' as never);
         } catch {
             Alert.alert('Error', 'Failed to save your goals. Please try again.');
         } finally {
@@ -112,7 +99,7 @@ export default function OnboardingGoalsScreen() {
         }
     };
 
-    const isContinueEnabled = selectedGoals.length > 0 && !!selectedReadiness;
+    const isContinueEnabled = selectedGoals.length > 0;
 
     const firstName = draft.firstName?.trim();
     const titleText = firstName ? `What matters most to you, ${firstName}?` : 'What matters most to you?';
@@ -177,24 +164,6 @@ export default function OnboardingGoalsScreen() {
                                 );
                             })}
                         </View>
-
-                        <Text style={styles.readinessTitle}>HOW READY ARE YOU THIS WEEK?</Text>
-                        <View style={styles.readinessRow}>
-                            {READINESS_OPTIONS.map(option => {
-                                const selected = selectedReadiness === option.id;
-                                return (
-                                    <AnimatedPressable
-                                        key={option.id}
-                                        style={[styles.readinessChip, selected && styles.readinessChipSelected]}
-                                        onPress={() => setSelectedReadiness(option.id)}
-                                    >
-                                        <Text style={[styles.readinessChipText, selected && styles.readinessChipTextSelected]}>
-                                            {option.label}
-                                        </Text>
-                                    </AnimatedPressable>
-                                );
-                            })}
-                        </View>
         </OnboardingScreenLayout>
     );
 }
@@ -239,37 +208,6 @@ const styles = StyleSheet.create({
     checkmarkPlaceholder: {
         width: 24,
         height: 24,
-    },
-    readinessTitle: {
-        marginTop: 24,
-        marginBottom: 12,
-        fontFamily: fonts.medium,
-        fontSize: 12,
-        color: Colors.textSecondary,
-        letterSpacing: 0.8,
-    },
-    readinessRow: {
-        gap: 8,
-    },
-    readinessChip: {
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: Colors.borderCard,
-        backgroundColor: Colors.inputBackground,
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-    },
-    readinessChipSelected: {
-        borderColor: Colors.primary,
-        backgroundColor: Colors.primaryLight,
-    },
-    readinessChipText: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: Colors.textPrimary,
-    },
-    readinessChipTextSelected: {
-        color: Colors.primary,
     },
     continueButton: {
         width: '100%',

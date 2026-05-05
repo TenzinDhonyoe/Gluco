@@ -356,6 +356,19 @@ export default function PaywallScreen() {
                         )}
                     </TouchableOpacity>
 
+                    {/* Redeem Code — secondary CTA */}
+                    {isOfferCodeRedemptionAvailable() && (
+                        <TouchableOpacity
+                            style={styles.redeemButton}
+                            onPress={handleRedeem}
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                            <Ionicons name="ticket-outline" size={16} color={Colors.primary} style={styles.redeemIcon} />
+                            <Text style={styles.redeemButtonText}>Have a code? Redeem now</Text>
+                        </TouchableOpacity>
+                    )}
+
                     {/* Disclaimer */}
                     <Text style={styles.disclaimer}>
                         {disclaimerPlanName}Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your App Store account settings after purchase.
@@ -366,14 +379,6 @@ export default function PaywallScreen() {
                         <TouchableOpacity onPress={handleRestore} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                             <Text style={styles.legalLink}>Restore</Text>
                         </TouchableOpacity>
-                        {isOfferCodeRedemptionAvailable() && (
-                            <>
-                                <Text style={styles.legalDot}> · </Text>
-                                <TouchableOpacity onPress={handleRedeem} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                                    <Text style={styles.legalLink}>Redeem code</Text>
-                                </TouchableOpacity>
-                            </>
-                        )}
                         <Text style={styles.legalDot}> · </Text>
                         <Text style={styles.legalLink} onPress={() => Linking.openURL(LEGAL_URLS.appleEula)}>
                             Terms
@@ -553,6 +558,25 @@ const styles = StyleSheet.create({
         fontFamily: fonts.semiBold,
         fontSize: 17,
         color: Colors.buttonActionText,
+    },
+
+    // ── Redeem Code (secondary CTA) ──
+    redeemButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        paddingVertical: 12,
+        marginTop: 8,
+    },
+    redeemIcon: {
+        marginRight: 2,
+    },
+    redeemButtonText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 15,
+        color: Colors.primary,
+        textDecorationLine: 'underline',
     },
 
     // ── Disclaimer ──

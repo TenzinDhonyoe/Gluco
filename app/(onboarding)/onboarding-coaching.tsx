@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { useOnboardingDraft } from '@/hooks/useOnboardingDraft';
-import { CoachingStyle, COMBBarrier, updateUserProfile } from '@/lib/supabase';
+import { CoachingStyle, updateUserProfile } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
@@ -30,17 +30,9 @@ const COACHING_OPTIONS: CoachingOption[] = [
     { id: 'structured', title: 'More structured', subtitle: 'Detailed coaching with regular check-ins' },
 ];
 
-const BARRIER_OPTIONS: { id: COMBBarrier; label: string; subtitle: string }[] = [
-    { id: 'capability', label: 'Need simpler guidance', subtitle: 'Clearer and easier instructions help me act.' },
-    { id: 'opportunity', label: 'Environment gets in the way', subtitle: 'Schedule and surroundings make consistency hard.' },
-    { id: 'motivation', label: 'Staying consistent is hard', subtitle: 'I start well but struggle to keep going.' },
-    { id: 'unsure', label: 'Not sure yet', subtitle: 'Still figuring out what blocks me most.' },
-];
-
 export default function OnboardingCoachingScreen() {
     const { draft, updateDraft, isLoaded } = useOnboardingDraft();
     const [selectedStyle, setSelectedStyle] = useState<CoachingStyle>('balanced');
-    const [selectedBarrier, setSelectedBarrier] = useState<COMBBarrier>('unsure');
     const [isLoading, setIsLoading] = useState(false);
     const { user } = useAuth();
     const draftRestored = React.useRef(false);
@@ -50,7 +42,6 @@ export default function OnboardingCoachingScreen() {
         if (!isLoaded || draftRestored.current) return;
         draftRestored.current = true;
         if (draft.coachingStyle) setSelectedStyle(draft.coachingStyle as CoachingStyle);
-        if (draft.comBBarrier) setSelectedBarrier(draft.comBBarrier as COMBBarrier);
         AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'coaching').catch(() => null);
     }, [isLoaded, draft]);
 
@@ -58,23 +49,20 @@ export default function OnboardingCoachingScreen() {
     React.useEffect(() => {
         if (!draftRestored.current) return;
         const timer = setTimeout(() => {
-            updateDraft({ coachingStyle: selectedStyle, comBBarrier: selectedBarrier });
+            updateDraft({ coachingStyle: selectedStyle });
         }, 300);
         return () => clearTimeout(timer);
-    }, [selectedStyle, selectedBarrier, updateDraft]);
+    }, [selectedStyle, updateDraft]);
 
     const handleContinue = async () => {
         triggerHaptic('medium');
         setIsLoading(true);
         try {
             if (user) {
-                await updateUserProfile(user.id, {
-                    coaching_style: selectedStyle,
-                    com_b_barrier: selectedBarrier,
-                });
+                await updateUserProfile(user.id, { coaching_style: selectedStyle });
             }
-            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'ai');
-            router.push('/onboarding-ai' as never);
+            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'barrier');
+            router.push('/onboarding-barrier' as never);
         } catch {
             Alert.alert('Error', 'Failed to save your preferences. Please try again.');
         } finally {
@@ -90,7 +78,7 @@ export default function OnboardingCoachingScreen() {
 
     return (
         <OnboardingScreenLayout
-            currentStep={5}
+            currentStep={8}
             title={`How hands-on should we be${firstName ? `, ${firstName}` : ''}?`}
             subtitle="Choose what feels right. You can change this anytime."
             onBack={handleBack}
@@ -133,29 +121,6 @@ export default function OnboardingCoachingScreen() {
                     );
                 })}
             </View>
-
-            <View style={styles.behaviorSection}>
-                <Text style={styles.sectionHeading}>WHAT MOST GETS IN THE WAY?</Text>
-                <View style={styles.barrierOptions}>
-                    {BARRIER_OPTIONS.map(option => {
-                        const isSelected = selectedBarrier === option.id;
-                        return (
-                            <TouchableOpacity
-                                key={option.id}
-                                style={[styles.barrierCard, isSelected && styles.barrierCardSelected]}
-                                onPress={() => { triggerHaptic(); setSelectedBarrier(option.id); }}
-                                activeOpacity={0.75}
-                                accessibilityRole="radio"
-                                accessibilityState={{ selected: isSelected }}
-                            >
-                                <Text style={styles.barrierTitle}>{option.label}</Text>
-                                <Text style={styles.barrierSubtitle}>{option.subtitle}</Text>
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
-            </View>
-
         </OnboardingScreenLayout>
     );
 }

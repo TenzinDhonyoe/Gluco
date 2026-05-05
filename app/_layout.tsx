@@ -158,7 +158,7 @@ export default function RootLayout() {
                 <Stack.Screen name="signup" options={{ headerShown: false }} />
                 <Stack.Screen name="privacy-intro" options={{ headerShown: false }} />
                 <Stack.Screen name="confirm-email" options={{ headerShown: false }} />
-                <Stack.Screen name="(onboarding)" options={{ headerShown: false, animation: 'none' }} />
+                <Stack.Screen name="(onboarding)" options={{ headerShown: false, animation: 'none', gestureEnabled: false }} />
                 <Stack.Screen name="framework-reset" options={{ headerShown: false }} />
                 <Stack.Screen name="paywall" options={{ headerShown: false }} />
                 <Stack.Screen name="pre-meal-check" options={{ headerShown: false }} />

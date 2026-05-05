@@ -95,7 +95,7 @@ export default function OnboardingAiScreen() {
 
     return (
         <OnboardingScreenLayout
-            currentStep={6}
+            currentStep={10}
             title={`Unlock smart features\nfor your ${firstGoal} journey`}
             subtitle="Meal photos and wellness data are analyzed by Google's Gemini AI to give you personalized tips."
             onBack={handleBack}
