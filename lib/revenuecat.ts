@@ -35,6 +35,38 @@ export const whenConfigured = new Promise<void>(resolve => {
 });
 
 /**
+ * Whether the device supports Apple Offer Code redemption.
+ * Requires iOS 14+ (Android has its own promo system, not wired here).
+ */
+export function isOfferCodeRedemptionAvailable(): boolean {
+    if (Platform.OS !== 'ios') return false;
+    const version = typeof Platform.Version === 'string'
+        ? parseInt(Platform.Version, 10)
+        : Platform.Version;
+    return Number.isFinite(version) && (version as number) >= 14;
+}
+
+/**
+ * Opens Apple's native code redemption sheet so the user can enter an Offer Code.
+ * Returns true if the sheet was presented, false if unsupported / not configured.
+ *
+ * After redemption, the entitlement flows through Apple → RevenueCat → the
+ * customer-info listener wired in SubscriptionContext, which auto-flips isProUser.
+ */
+export async function presentCodeRedemption(): Promise<boolean> {
+    if (!isOfferCodeRedemptionAvailable()) return false;
+    const Purchases = await getPurchases();
+    if (!Purchases) return false;
+    try {
+        await Purchases.presentCodeRedemptionSheet();
+        return true;
+    } catch (error) {
+        if (__DEV__) console.warn('Code redemption sheet error:', error);
+        return false;
+    }
+}
+
+/**
  * Lazily loads the RevenueCat Purchases module
  */
 export async function getPurchases() {

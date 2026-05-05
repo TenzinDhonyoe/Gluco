@@ -4,7 +4,7 @@ import { LEGAL_URLS } from '@/constants/legal';
 import { useSubscription } from '@/context/SubscriptionContext';
 import { fonts } from '@/hooks/useFonts';
 import { navigateToApp } from '@/lib/navigation';
-import { getConfiguredStatus } from '@/lib/revenuecat';
+import { getConfiguredStatus, isOfferCodeRedemptionAvailable, presentCodeRedemption } from '@/lib/revenuecat';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -61,6 +61,8 @@ export default function PaywallScreen() {
         loading: contextLoading,
         purchasePackage,
         restorePurchases,
+        isProUser,
+        refreshCustomerInfo,
     } = useSubscription();
     const [localOffering, setLocalOffering] = useState<PurchasesOffering | null>(null);
     const [timedOut, setTimedOut] = useState(false);
@@ -151,6 +153,26 @@ export default function PaywallScreen() {
             Alert.alert('Restore', result.error || 'No active subscription found');
         }
     };
+
+    const handleRedeem = async () => {
+        triggerHaptic();
+        const opened = await presentCodeRedemption();
+        if (!opened) return;
+        // Belt-and-suspenders: customer info listener should auto-fire on
+        // entitlement grant, but force a refresh in case the listener missed it.
+        setTimeout(() => { refreshCustomerInfo(); }, 2000);
+    };
+
+    // When entitlement flips to active (purchase, restore, or redeem),
+    // play the success animation and dismiss the paywall.
+    useEffect(() => {
+        if (!isProUser || purchaseSuccess) return;
+        setPurchaseSuccess(true);
+        triggerHaptic('medium');
+        checkScale.value = withSpring(1, { damping: 10, stiffness: 150 });
+        const timer = setTimeout(markSeenAndNavigate, SUCCESS_DISPLAY_MS);
+        return () => clearTimeout(timer);
+    }, [isProUser, purchaseSuccess, checkScale]);
 
     // ── Success State ──
     if (purchaseSuccess) {
@@ -344,6 +366,14 @@ export default function PaywallScreen() {
                         <TouchableOpacity onPress={handleRestore} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                             <Text style={styles.legalLink}>Restore</Text>
                         </TouchableOpacity>
+                        {isOfferCodeRedemptionAvailable() && (
+                            <>
+                                <Text style={styles.legalDot}> · </Text>
+                                <TouchableOpacity onPress={handleRedeem} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                    <Text style={styles.legalLink}>Redeem code</Text>
+                                </TouchableOpacity>
+                            </>
+                        )}
                         <Text style={styles.legalDot}> · </Text>
                         <Text style={styles.legalLink} onPress={() => Linking.openURL(LEGAL_URLS.appleEula)}>
                             Terms
