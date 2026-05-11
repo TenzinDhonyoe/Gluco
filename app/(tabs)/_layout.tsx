@@ -1,15 +1,31 @@
+import { PAYWALL_ENABLED } from '@/app/index';
 import { useAuth } from '@/context/AuthContext';
+import { useSubscription } from '@/context/SubscriptionContext';
 import { isBehaviorV1Experience } from '@/lib/experience';
 import { Redirect } from 'expo-router';
 import { NativeTabs, Icon, Label } from 'expo-router/unstable-native-tabs';
 
 export default function TabLayout() {
     const { user, profile, loading } = useAuth();
+    const { isProUser, loading: subLoading } = useSubscription();
     const isBehaviorV1 = isBehaviorV1Experience(profile?.experience_variant);
 
     // Redirect to welcome screen if user signed out
     if (!loading && !user) {
         return <Redirect href="/" />;
+    }
+
+    // Hard paywall gate — no path into the tabs without an active subscription.
+    // Guards against swipe-back/re-entry from any auth or paywall screen.
+    if (
+        PAYWALL_ENABLED &&
+        !loading &&
+        !subLoading &&
+        user &&
+        profile?.onboarding_completed &&
+        !isProUser
+    ) {
+        return <Redirect href="/paywall" />;
     }
 
     return (

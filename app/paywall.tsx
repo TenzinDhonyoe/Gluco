@@ -1,4 +1,3 @@
-import { PAYWALL_SEEN_KEY } from '@/app/index';
 import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useSubscription } from '@/context/SubscriptionContext';
@@ -7,7 +6,6 @@ import { navigateToApp } from '@/lib/navigation';
 import { getConfiguredStatus, isOfferCodeRedemptionAvailable, presentCodeRedemption } from '@/lib/revenuecat';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -87,6 +85,12 @@ export default function PaywallScreen() {
         return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
     }, []);
 
+    // Auto-exit if a returning paid user lands here while RevenueCat is still linking.
+    // Without this they'd be stuck on the paywall (gestures are locked) until they tap Restore.
+    useEffect(() => {
+        if (isProUser && !purchaseSuccess) navigateToApp();
+    }, [isProUser, purchaseSuccess]);
+
     const offering = localOffering;
     const isLoading = contextLoading && !timedOut;
     const hasFailed = (!contextLoading && !offering) || (timedOut && !offering);
@@ -106,8 +110,7 @@ export default function PaywallScreen() {
         else if (!annualPackage && monthlyPackage && !selectedPackage) setSelectedPackage(monthlyPackage);
     }, [annualPackage, monthlyPackage, selectedPackage]);
 
-    const markSeenAndNavigate = async () => {
-        await AsyncStorage.setItem(PAYWALL_SEEN_KEY, 'true');
+    const markSeenAndNavigate = () => {
         navigateToApp();
     };
 

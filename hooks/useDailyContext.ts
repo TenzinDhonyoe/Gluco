@@ -3,7 +3,9 @@
  * Fetches HealthKit data, upserts to daily_context table, and returns aggregated stats
  */
 
+import { useDataSync } from '@/context/DataSyncContext';
 import {
+    GlucoseSyncResult,
     getActiveMinutes,
     getHRV,
     getRestingHeartRate,
@@ -12,6 +14,7 @@ import {
     initHealthKit,
     isHealthKitAvailable,
     syncHealthKitGlucoseToLogs,
+    toLocalDateKey,
 } from '@/lib/healthkit';
 import { checkAndScorePendingMeals } from '@/lib/mealScoreTrigger';
 import {
@@ -41,6 +44,11 @@ export interface DailyContextStats {
     // Source info
     dataSource: 'apple_health' | 'none';
     daysWithData: number;
+    // Diagnostics: surfaced so the UI can show "check permissions" prompts
+    // instead of silently rendering empty cards.
+    permissionLikelyDenied: boolean;
+    partialSyncFailures: number;
+    lastGlucoseSync: GlucoseSyncResult | null;
 }
 
 const defaultStats: DailyContextStats = {
@@ -57,6 +65,9 @@ const defaultStats: DailyContextStats = {
     lastSyncedAt: null,
     dataSource: 'none',
     daysWithData: 0,
+    permissionLikelyDenied: false,
+    partialSyncFailures: 0,
+    lastGlucoseSync: null,
 };
 
 /**
@@ -75,14 +86,12 @@ export function useDailyContext(
     const isFocused = useIsFocused();
     const syncInProgress = useRef(false);
     const lastSyncRef = useRef<string | null>(null);
+    const { recordError } = useDataSync();
 
-    // Format date as YYYY-MM-DD
-    const formatDate = (date: Date): string => {
-        return date.toISOString().split('T')[0];
-    };
-
-    const startDateStr = formatDate(startDate);
-    const endDateStr = formatDate(endDate);
+    // Use local-day boundaries (not UTC) so date-keys line up with what the
+    // user thinks of as "today" in their timezone. See toLocalDateKey rationale.
+    const startDateStr = toLocalDateKey(startDate);
+    const endDateStr = toLocalDateKey(endDate);
 
     // Load from database (fast, non-blocking)
     const loadFromDatabase = useCallback(async () => {
@@ -160,14 +169,43 @@ export function useDailyContext(
 
             setStats(prev => ({ ...prev, isAuthorized: true }));
 
-            // Fetch data from HealthKit (Apple Watch syncs via Apple Health)
-            const [stepsData, sleepData, activeData, hrData, hrvData] = await Promise.all([
+            // Fetch data from HealthKit (Apple Watch syncs via Apple Health).
+            // Use allSettled so one failing read (e.g. a permission gap on HRV
+            // only) doesn't blank everything else.
+            const settled = await Promise.allSettled([
                 getSteps(startDate, endDate),
                 getSleepData(startDate, endDate),
                 getActiveMinutes(startDate, endDate),
-                getRestingHeartRate(startDate, endDate),  // Apple Watch resting HR
-                getHRV(startDate, endDate),                // Apple Watch HRV
+                getRestingHeartRate(startDate, endDate),
+                getHRV(startDate, endDate),
             ]);
+            const [stepsData, sleepData, activeData, hrData, hrvData] = settled.map(
+                (r) => (r.status === 'fulfilled' ? r.value : null)
+            ) as [
+                Awaited<ReturnType<typeof getSteps>>,
+                Awaited<ReturnType<typeof getSleepData>>,
+                Awaited<ReturnType<typeof getActiveMinutes>>,
+                Awaited<ReturnType<typeof getRestingHeartRate>>,
+                Awaited<ReturnType<typeof getHRV>>,
+            ];
+            settled.forEach((r, i) => {
+                if (r.status === 'rejected') {
+                    const scope = (['steps', 'sleep', 'activity', 'hr', 'hrv'] as const)[i];
+                    recordError('healthkit', new Error(`HK ${scope} fetch failed: ${String(r.reason)}`));
+                }
+            });
+
+            // iOS deliberately hides read-permission denial from apps. If we
+            // initialized successfully but every single read came back empty,
+            // the overwhelmingly likely cause is the user denied permissions in
+            // the iOS sheet (or revoked them in Settings). Surface this so the
+            // UI can prompt the user to fix it instead of silently rendering "—".
+            const permissionLikelyDenied =
+                stepsData == null &&
+                sleepData == null &&
+                activeData == null &&
+                hrData == null &&
+                hrvData == null;
 
             // Upsert per-day records from HealthKit daily breakdowns
             // Build a map of date -> metrics from all breakdowns
@@ -192,29 +230,68 @@ export function useDailyContext(
             hrData?.dailyBreakdown.forEach(({ date, value }) => { ensureDay(date).resting_hr = value; });
             hrvData?.dailyBreakdown.forEach(({ date, value }) => { ensureDay(date).hrv_ms = value; });
 
-            // Upsert all days (bounded concurrency)
-            const upsertPromises = Array.from(dayMetrics.entries()).map(([date, metrics]) =>
-                upsertDailyContext(userId, {
-                    date,
-                    steps: metrics.steps,
-                    active_minutes: metrics.active_minutes,
-                    sleep_hours: metrics.sleep_hours,
-                    resting_hr: metrics.resting_hr,
-                    hrv_ms: metrics.hrv_ms,
-                    source: 'apple_health',
-                })
-            );
-            await Promise.all(upsertPromises);
+            // Steps-based fallback for active minutes.
+            // Apple Exercise Time and Workout samples are mostly populated by Apple Watch or
+            // manually-logged workouts. iPhone-only users (or anyone whose walking doesn't
+            // trip Apple's exercise threshold) end up with steps but zero exercise time,
+            // which makes the activity card show empty even though they're active.
+            // Derive minutes from steps for any day where we have steps but no active_minutes.
+            const STEPS_BASELINE = 2000;      // sedentary daily baseline to exclude
+            const STEPS_PER_ACTIVE_MIN = 110; // brisk walking pace (~110 steps/min)
+            const MAX_DERIVED_MINUTES = 240;
+            dayMetrics.forEach((metrics) => {
+                if (metrics.active_minutes === null && metrics.steps !== null && metrics.steps > STEPS_BASELINE) {
+                    metrics.active_minutes = Math.min(
+                        MAX_DERIVED_MINUTES,
+                        Math.round((metrics.steps - STEPS_BASELINE) / STEPS_PER_ACTIVE_MIN)
+                    );
+                }
+            });
 
-            // Sync HealthKit glucose readings to glucose_logs, then check for pending meal scores
-            if (userId) {
-                syncHealthKitGlucoseToLogs(userId, startDate, endDate)
-                    .then((count) => {
-                        if (count > 0) {
-                            checkAndScorePendingMeals(userId).catch(() => {});
-                        }
+            // Upsert all days (bounded concurrency). Count how many rows failed
+            // to upsert so the UI can flag a partial sync instead of pretending
+            // everything is fine when only half the days landed.
+            const upsertResults = await Promise.all(
+                Array.from(dayMetrics.entries()).map(([date, metrics]) =>
+                    upsertDailyContext(userId, {
+                        date,
+                        steps: metrics.steps,
+                        active_minutes: metrics.active_minutes,
+                        sleep_hours: metrics.sleep_hours,
+                        resting_hr: metrics.resting_hr,
+                        hrv_ms: metrics.hrv_ms,
+                        source: 'apple_health',
                     })
-                    .catch(() => {});
+                )
+            );
+            const partialSyncFailures = upsertResults.filter((r) => r === null).length;
+            if (partialSyncFailures > 0) {
+                recordError(
+                    'healthkit',
+                    new Error(`Failed to save ${partialSyncFailures} day(s) of HealthKit data`)
+                );
+            }
+
+            // Sync HealthKit glucose readings to glucose_logs, then check for
+            // pending meal scores. Capture the rich result so the UI can show
+            // "synced N readings" or "failed to sync N" instead of silently
+            // swallowing inserts.
+            let glucoseResult: GlucoseSyncResult | null = null;
+            if (userId) {
+                try {
+                    glucoseResult = await syncHealthKitGlucoseToLogs(userId, startDate, endDate);
+                    if (glucoseResult.inserted > 0) {
+                        checkAndScorePendingMeals(userId).catch(() => {});
+                    }
+                    if (glucoseResult.failed > 0) {
+                        recordError(
+                            'glucose',
+                            new Error(`Failed to sync ${glucoseResult.failed} glucose reading(s)`)
+                        );
+                    }
+                } catch (e) {
+                    recordError('glucose', e);
+                }
             }
 
             // Reload from database to get correct aggregated stats
@@ -225,16 +302,25 @@ export function useDailyContext(
                 isSyncing: false,
                 lastSyncedAt: new Date(),
                 dataSource: 'apple_health',
+                permissionLikelyDenied,
+                partialSyncFailures,
+                lastGlucoseSync: glucoseResult,
             }));
 
-            lastSyncRef.current = syncKey;
+            // Only memoize the sync key when we actually got data. A "success"
+            // that returned zero rows is almost certainly a permission or
+            // network issue — the next focus event should retry, not skip.
+            if (dayMetrics.size > 0 && !permissionLikelyDenied) {
+                lastSyncRef.current = syncKey;
+            }
         } catch (error) {
             console.warn('Error syncing HealthKit data:', error);
+            recordError('healthkit', error);
             setStats(prev => ({ ...prev, isSyncing: false }));
         } finally {
             syncInProgress.current = false;
         }
-    }, [userId, startDateStr, endDateStr, skipHealthKit, loadFromDatabase]);
+    }, [userId, startDateStr, endDateStr, skipHealthKit, loadFromDatabase, recordError]);
 
     // Check availability on mount
     useEffect(() => {

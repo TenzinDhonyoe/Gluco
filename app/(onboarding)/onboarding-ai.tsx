@@ -67,21 +67,48 @@ export default function OnboardingAiScreen() {
         setIsLoading(true);
         try {
             if (user) {
-                await updateUserProfile(user.id, {
-                    ai_enabled: aiEnabled,
-                    ai_consent_at: aiEnabled ? new Date().toISOString() : null,
-                    notifications_enabled: false,
-                    onboarding_completed: true,
-                });
+                // Retry the final commit a few times so flaky networks don't
+                // leave the user stuck with onboarding_completed=false. Only
+                // clear the local draft on confirmed success — if all retries
+                // fail, the user can try again with their data still in place.
+                const delaysMs = [0, 1000, 3000];
+                let committed = false;
+                let lastError: unknown = null;
+                for (const delay of delaysMs) {
+                    if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+                    try {
+                        await updateUserProfile(user.id, {
+                            ai_enabled: aiEnabled,
+                            ai_consent_at: aiEnabled ? new Date().toISOString() : null,
+                            notifications_enabled: false,
+                            onboarding_completed: true,
+                        });
+                        committed = true;
+                        break;
+                    } catch (e) {
+                        lastError = e;
+                    }
+                }
+                if (!committed) {
+                    if (__DEV__) console.warn('Onboarding commit failed:', lastError);
+                    setIsLoading(false);
+                    Alert.alert(
+                        'Connection issue',
+                        'We couldn\'t save your preferences. Check your connection and try again.'
+                    );
+                    return;
+                }
                 await refreshProfile();
             }
             await AsyncStorage.removeItem(ONBOARDING_STEP_KEY);
             await clearDraft();
             router.replace('/onboarding-personalize' as never);
+            // Don't reset isLoading after navigation — the outgoing screen is
+            // about to unmount, and a state update here causes the button to
+            // flicker from spinner back to "Get Started" mid-transition.
         } catch {
-            Alert.alert('Error', 'Failed to save your preferences. Please try again.');
-        } finally {
             setIsLoading(false);
+            Alert.alert('Error', 'Failed to save your preferences. Please try again.');
         }
     };
 
