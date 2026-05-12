@@ -16,7 +16,7 @@
       "policy": "appVersion"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "buildNumber": "52",
       "bundleIdentifier": "ca.gluco.solutions.gluco",
       "usesAppleSignIn": true,
