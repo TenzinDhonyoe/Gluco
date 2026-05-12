@@ -125,7 +125,7 @@ export default function ConfirmEmailScreen() {
         triggerHaptic();
         Alert.alert(
             'Check Your Email',
-            'Please open your email app and click the confirmation link. After verification, return to Gluco and we will automatically continue setup.',
+            'Please open your email app and click the confirmation link. After verification, return to Redu and we will automatically continue setup.',
             [{ text: 'OK' }]
         );
     };

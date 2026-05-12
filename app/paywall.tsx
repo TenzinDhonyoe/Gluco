@@ -227,11 +227,11 @@ export default function PaywallScreen() {
                                 </View>
                                 <Text style={styles.failedTitle}>Subscriptions unavailable</Text>
                                 <Text style={styles.failedMessage}>
-                                    This build can't connect to the subscription service. Please reinstall Gluco from the App Store, or contact support at tenzin@glucosolutions.ca.
+                                    This build can't connect to the subscription service. Please reinstall Redu from the App Store, or contact support at tenzin@glucosolutions.ca.
                                 </Text>
                                 <TouchableOpacity
                                     style={styles.ctaButton}
-                                    onPress={() => Linking.openURL('mailto:tenzin@glucosolutions.ca?subject=Gluco%20subscription%20issue')}
+                                    onPress={() => Linking.openURL('mailto:tenzin@glucosolutions.ca?subject=Redu%20subscription%20issue')}
                                     activeOpacity={0.7}
                                 >
                                     <Text style={styles.ctaButtonText}>Contact Support</Text>

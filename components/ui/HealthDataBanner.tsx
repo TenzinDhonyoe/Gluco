@@ -83,7 +83,7 @@ export function HealthDataBanner({
             <View style={styles.content}>
                 <Text style={styles.title}>Can&apos;t read your Health data</Text>
                 <Text style={styles.subtitle}>
-                    Tap to open Settings → Privacy & Security → Health → Gluco and allow reading.
+                    Tap to open Settings → Privacy & Security → Health → Redu and allow reading.
                 </Text>
             </View>
             <Pressable

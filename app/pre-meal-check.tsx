@@ -148,7 +148,7 @@ function AILoadingScreen() {
                 </Animated.View>
             </View>
 
-            <Text style={loadingStyles.subText}>Gluco is thinking...</Text>
+            <Text style={loadingStyles.subText}>Redu is thinking...</Text>
         </View>
     );
 }

@@ -57,7 +57,7 @@ export default function OnboardingWelcomeScreen() {
                     </Animated.View>
 
                     <Animated.View style={[styles.textContainer, textStyle]}>
-                        <Text style={styles.appName}>Gluco</Text>
+                        <Text style={styles.appName}>Redu</Text>
                         <Text style={styles.tagline}>Your wellness journey starts here</Text>
                     </Animated.View>
                 </View>
