@@ -2275,7 +2275,7 @@ function TodayScreenInner() {
                     <LiquidGlassIconButton size={44} onPress={() => router.push('/settings')}>
                         <Text style={styles.avatarText}>{getInitials()}</Text>
                     </LiquidGlassIconButton>
-                    <Text style={styles.headerTitle}>GLUCO</Text>
+                    <Text style={styles.headerTitle}>REDU</Text>
                     <LiquidGlassIconButton size={44} onPress={() => router.push('/notifications-list')}>
                         <Ionicons name="notifications-outline" size={22} color={Colors.textPrimary} />
                     </LiquidGlassIconButton>
