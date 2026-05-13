@@ -1,5 +1,5 @@
 import React from 'react';
-import Svg, { Circle, Path, G } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 
 /** Target with an arrow — hitting your goals */
 export function GoalsIllustration({ size = 48 }: { size?: number }) {

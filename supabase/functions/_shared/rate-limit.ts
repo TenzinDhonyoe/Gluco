@@ -40,9 +40,24 @@ const DEFAULT_LIMIT = 20;
  * Uses an atomic SQL function (check_rate_limit) that upserts a counter
  * per (user, function, 1-minute window) and returns the current count.
  *
- * If the rate_limits table doesn't exist yet (migration not applied),
- * silently allows the request through (fail-open).
+ * Failure modes:
+ *   - "function/table missing" (PG codes 42883, 42P01) → fail-open with warning.
+ *     This only applies before the rate-limit migration is deployed.
+ *   - All other errors (DB unavailable, RPC timeout) → fail-CLOSED with 429.
+ *     Without this, a DB outage means unbounded paid-API calls.
  */
+
+function isMissingObjectError(err: { code?: string; message?: string } | null | undefined): boolean {
+    if (!err) return false;
+    if (err.code === '42883' || err.code === '42P01' || err.code === 'PGRST202') return true;
+    const msg = (err.message || '').toLowerCase();
+    return (
+        msg.includes('function') && msg.includes('does not exist') ||
+        msg.includes('relation') && msg.includes('does not exist') ||
+        msg.includes('could not find')
+    );
+}
+
 export async function checkRateLimit(
     supabase: SupabaseClient,
     userId: string,
@@ -58,10 +73,27 @@ export async function checkRateLimit(
             p_window_minutes: 1,
         });
 
-        // Fail-open: if table/function doesn't exist, allow request
         if (error) {
-            console.warn(`[rate-limit] check failed for ${functionName}:`, error.message);
-            return null;
+            if (isMissingObjectError(error)) {
+                console.warn(`[rate-limit] migration not deployed for ${functionName}, allowing:`, error.message);
+                return null;
+            }
+            // DB available but RPC failed (timeout, perms, etc) — fail closed to protect billing.
+            console.error(`[rate-limit] check failed (fail-closed) for ${functionName}:`, error.message);
+            return new Response(
+                JSON.stringify({
+                    error: 'Service temporarily unavailable',
+                    retry_after_seconds: 30,
+                }),
+                {
+                    status: 503,
+                    headers: {
+                        ...corsHeaders,
+                        'Content-Type': 'application/json',
+                        'Retry-After': '30',
+                    },
+                },
+            );
         }
 
         const count = typeof data === 'number' ? data : 0;
@@ -83,8 +115,22 @@ export async function checkRateLimit(
             );
         }
     } catch (e) {
-        // Fail-open on unexpected errors
-        console.warn(`[rate-limit] unexpected error for ${functionName}:`, e);
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[rate-limit] unexpected error (fail-closed) for ${functionName}:`, msg);
+        return new Response(
+            JSON.stringify({
+                error: 'Service temporarily unavailable',
+                retry_after_seconds: 30,
+            }),
+            {
+                status: 503,
+                headers: {
+                    ...corsHeaders,
+                    'Content-Type': 'application/json',
+                    'Retry-After': '30',
+                },
+            },
+        );
     }
 
     return null;

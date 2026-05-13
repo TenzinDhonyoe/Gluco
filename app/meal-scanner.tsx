@@ -512,7 +512,7 @@ export default function MealScannerScreen() {
 
                     // Show photo quality warning if needed
                     if (data.photo_quality?.is_blurry || data.photo_quality?.lighting_issue) {
-                        console.log('[analyzeImage] Photo quality issues detected:', data.photo_quality);
+                        if (__DEV__) console.log('[analyzeImage] Photo quality issues detected:', data.photo_quality);
                     }
 
                     // Show analysis results view
@@ -538,10 +538,10 @@ export default function MealScannerScreen() {
                     // Save error details before falling through to legacy
                     savedErrorCategory = data.error_category;
                     savedErrorMessage = data.error_message;
-                    console.log('[analyzeImage] New endpoint failed:', savedErrorCategory, savedErrorMessage);
+                    if (__DEV__) console.log('[analyzeImage] New endpoint failed:', savedErrorCategory, savedErrorMessage);
                 }
             } else {
-                console.log('[analyzeImage] New endpoint error, trying legacy:', newResult.error);
+                if (__DEV__) console.log('[analyzeImage] New endpoint error, trying legacy:', newResult.error);
             }
 
             // Fallback to legacy endpoint

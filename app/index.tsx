@@ -202,7 +202,7 @@ export default function WelcomeScreen() {
     useEffect(() => {
         const timeoutId = setTimeout(() => {
             if (!hasNavigated.current) {
-                console.log('Auth check timed out, showing welcome screen fallback');
+                if (__DEV__) console.log('Auth check timed out, showing welcome screen fallback');
                 setIsCheckingAuth(false);
             }
         }, 5000);

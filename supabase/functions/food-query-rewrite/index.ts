@@ -4,10 +4,15 @@ import { requireAiEnabled } from '../_shared/ai.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { callGenAI } from '../_shared/genai.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { containsBannedTerms } from '../_shared/safety.ts';
 
 /**
  * Food Query Rewrite Edge Function
- * Uses Gemini to correct typos and suggest alternative food search queries
+ * Uses Gemini to correct typos and suggest alternative food search queries.
+ *
+ * NOTE: Intentionally NOT gated by requirePro. Food search is a core free-tier
+ * feature — typo correction is needed before a user has any motivation to pay.
+ * Cost surface is bounded by checkRateLimit + requireAiEnabled + maxOutputTokens=256.
  */
 
 const corsHeaders = {
@@ -138,6 +143,25 @@ Deno.serve(async (req) => {
                 .slice(0, 5)
                 .map((s: string) => String(s).slice(0, 30)),
         };
+
+        // Safe-language filter — if the model returned anything that crosses our
+        // medical-language boundary, drop those values and fall back to the original
+        // query. We don't want banned terms surfaced in the food search UI.
+        const combined = [
+            result.corrected_query,
+            ...result.alternative_queries,
+            ...result.synonyms,
+        ].join(' ');
+        if (containsBannedTerms(combined)) {
+            return new Response(
+                JSON.stringify({
+                    corrected_query: query.trim().slice(0, 100),
+                    alternative_queries: [],
+                    synonyms: [],
+                } as RewriteResponse),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
 
         return new Response(
             JSON.stringify(result),

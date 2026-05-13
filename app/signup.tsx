@@ -129,9 +129,7 @@ export default function SignUpScreen() {
         router.push('/signin');
     };
 
-    const isFormValid = agreeToTerms && email.trim().length > 0 && allRequirementsMet && password === confirmPassword;
     const showEmailError = hasAttemptedSubmit && !email.trim();
-    const showPasswordError = hasAttemptedSubmit && !password.trim();
     const showMismatchError = hasAttemptedSubmit && confirmPassword.length > 0 && password !== confirmPassword;
     const showTermsError = hasAttemptedSubmit && !agreeToTerms;
 

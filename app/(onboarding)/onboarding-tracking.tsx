@@ -88,7 +88,7 @@ export default function OnboardingTrackingScreen() {
         setIsLoading(true);
         try {
             if (isIOS && selectedMode === 'meals_wearables') {
-                await requestHealthKitAuthorization().catch((e) => console.log('HK Error:', e));
+                await requestHealthKitAuthorization().catch((e) => { if (__DEV__) console.log('HK Error:', e); });
                 await AsyncStorage.setItem('apple_health_enabled', 'true');
             }
             if (user) {

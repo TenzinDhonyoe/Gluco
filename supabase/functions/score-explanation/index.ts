@@ -9,6 +9,7 @@ import { containsBannedTerms } from '../_shared/safety.ts';
 import { buildUserContext } from '../_shared/user-context.ts';
 import { assemblePrompt } from '../_shared/coaching-prompt.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { requirePro } from '../_shared/subscription.ts';
 import { hashContent } from '../_shared/hash.ts';
 
 const corsHeaders = {
@@ -165,6 +166,10 @@ serve(async (req) => {
         // Rate limit check
         const rateLimitResponse = await checkRateLimit(supabase, user!.id, 'score-explanation', corsHeaders);
         if (rateLimitResponse) return rateLimitResponse;
+
+        // Server-side subscription gate (premium AI feature)
+        const proResponse = await requirePro(supabase, user!.id, corsHeaders);
+        if (proResponse) return proResponse;
 
         // Check AI consent
         const aiEnabled = await isAiEnabled(supabase, user_id);

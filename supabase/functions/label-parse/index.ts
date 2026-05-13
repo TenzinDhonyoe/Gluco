@@ -2,10 +2,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { GoogleGenAI } from 'npm:@google/genai@1.38.0';
 import { requireUser } from '../_shared/auth.ts';
+import { requireAiEnabled } from '../_shared/ai.ts';
+import { containsBannedTerms } from '../_shared/safety.ts';
 import { enforceNutrientLimits, NUTRIENT_LIMITS } from '../_shared/nutrition-validation.ts';
 import { buildGeminiUsageTelemetry, summarizeModalityTokens } from '../_shared/genai-telemetry.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
-// Note: AI enabled check removed - label scanning is available to all users
+import { requirePro } from '../_shared/subscription.ts';
 
 /**
  * Label Parse Edge Function
@@ -217,7 +219,13 @@ Deno.serve(async (req) => {
         const rateLimitResponse = await checkRateLimit(supabase, user.id, 'label-parse', corsHeaders);
         if (rateLimitResponse) return rateLimitResponse;
 
-        // Note: AI enabled check removed - label scanning is available to all users
+        // Server-side subscription gate (premium AI feature — Gemini Vision)
+        const proResponse = await requirePro(supabase, user.id, corsHeaders);
+        if (proResponse) return proResponse;
+
+        // AI consent gate — respect users who toggled AI off
+        const aiGate = await requireAiEnabled(supabase, user.id, corsHeaders);
+        if (aiGate) return aiGate;
 
         const ai = getGenAIClient();
         const model = Deno.env.get('GEMINI_MODEL') || DEFAULT_MODEL;
@@ -318,8 +326,13 @@ Deno.serve(async (req) => {
             sodium_mg: parseNumber(parsed.per_serving?.sodium_mg),
         };
 
-        // Apply nutrient limits to prevent extreme values from label parsing
-        const productName = parsed.display_name || 'Unknown Product';
+        // Apply nutrient limits to prevent extreme values from label parsing.
+        // Reject names containing medical-language terms — a malicious or misread
+        // label could otherwise surface banned terms in the UI.
+        const rawName = parsed.display_name || 'Unknown Product';
+        const productName = containsBannedTerms(rawName) ? 'Unknown Product' : rawName;
+        const rawBrand = parsed.brand;
+        const safeBrand = rawBrand && !containsBannedTerms(String(rawBrand)) ? String(rawBrand) : undefined;
         const enforced = enforceNutrientLimits(
             productName,
             {
@@ -345,7 +358,7 @@ Deno.serve(async (req) => {
         // Validate and sanitize response
         const result: ParsedLabel = {
             display_name: productName,
-            brand: parsed.brand || undefined,
+            brand: safeBrand,
             serving: {
                 amount: parseNumber(parsed.serving?.amount),
                 unit: parsed.serving?.unit || 'g',

@@ -35,7 +35,7 @@ export async function analyzeMealPhoto(
     options: AnalyzePhotoOptions = {}
 ): Promise<MealsFromPhotoResult> {
     try {
-        console.log('[meals-from-photo] Starting analysis for path:', photoPath);
+        if (__DEV__) console.log('[meals-from-photo] Starting analysis for path:', photoPath);
 
         // Get signed URL for the photo
         const photoUrl = await ensureSignedMealPhotoUrl(photoPath);
@@ -50,7 +50,7 @@ export async function analyzeMealPhoto(
             };
         }
 
-        console.log('[meals-from-photo] Got signed URL, invoking edge function...');
+        if (__DEV__) console.log('[meals-from-photo] Got signed URL, invoking edge function...');
 
         // Use invokeWithRetry for automatic network/5xx retry (project convention)
         const data = await invokeWithRetry<MealsFromPhotoResponse>('meals-from-photo', {
@@ -81,11 +81,13 @@ export async function analyzeMealPhoto(
             };
         }
 
-        console.log('[meals-from-photo] Response received:', {
-            status: data?.status,
-            itemCount: data?.items?.length,
-            cacheHit: data?.cache_hit,
-        });
+        if (__DEV__) {
+            console.log('[meals-from-photo] Response received:', {
+                status: data?.status,
+                itemCount: data?.items?.length,
+                cacheHit: data?.cache_hit,
+            });
+        }
 
         return {
             success: true,
@@ -206,7 +208,7 @@ export async function analyzeMealPhotoWithRetry(
 
         // Wait before retry (exponential backoff)
         const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
-        console.log(`[meals-from-photo] Retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        if (__DEV__) console.log(`[meals-from-photo] Retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, delay));
     }
 

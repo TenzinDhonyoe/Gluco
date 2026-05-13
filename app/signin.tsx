@@ -154,7 +154,6 @@ export default function SignInScreen() {
         );
     };
 
-    const isFormValid = email.trim().length > 0 && password.trim().length > 0;
     const showEmailError = hasAttemptedSubmit && !email.trim();
     const showPasswordError = hasAttemptedSubmit && !password.trim();
 
