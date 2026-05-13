@@ -9,14 +9,10 @@ import { SubscriptionProvider } from '@/context/SubscriptionContext';
 import { useOutfitFonts } from '@/hooks/useFonts';
 import { isBehaviorV1Experience } from '@/lib/experience';
 import {
-  configureAndroidChannel,
-  handleInitialNotification,
-  initNotifications,
   scheduleDailyCheckinReminder,
   scheduleMiddayActiveActionReminder,
   scheduleWeeklySummaryReminder,
   setNotificationNavigationReady,
-  setupNotificationListeners,
 } from '@/lib/notifications';
 import { initializeRevenueCat } from '@/lib/revenuecat';
 import { upsertUserAppSessionForToday } from '@/lib/supabase';

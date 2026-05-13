@@ -1,0 +1,27 @@
+# CODEOWNERS — protect security-sensitive paths from drive-by changes.
+# GitHub will require review from listed owners before merging PRs that touch
+# these paths. Add team members below and enable "Require review from Code
+# Owners" in branch protection settings for it to take effect.
+
+# CI / build / release config
+/.github/                @tendhon3015
+/eas.json                @tendhon3015
+/app.json                @tendhon3015
+/package.json            @tendhon3015
+/package-lock.json       @tendhon3015
+
+# Auth, secrets, and storage adapters
+/lib/supabase.ts         @tendhon3015
+/lib/revenuecat.ts       @tendhon3015
+/context/AuthContext.tsx @tendhon3015
+
+# DB migrations + RLS
+/supabase/migrations/    @tendhon3015
+/supabase/*.sql          @tendhon3015
+
+# Edge function auth helpers (every function depends on these)
+/supabase/functions/_shared/auth.ts          @tendhon3015
+/supabase/functions/_shared/rate-limit.ts    @tendhon3015
+/supabase/functions/_shared/subscription.ts  @tendhon3015
+/supabase/functions/_shared/safety.ts        @tendhon3015
+/supabase/functions/delete-account/          @tendhon3015

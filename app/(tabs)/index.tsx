@@ -1314,49 +1314,6 @@ function BehaviorMomentumCard({
     );
 }
 
-function BehaviorAdvancedGlucoseCard({
-    expanded,
-    onToggle,
-    avgGlucose,
-    timeInZone,
-}: {
-    expanded: boolean;
-    onToggle: () => void;
-    avgGlucose: string;
-    timeInZone: string;
-}) {
-    return (
-        <BlurView intensity={60} tint="light" style={styles.behaviorAdvancedCard}>
-            <AnimatedPressable style={styles.behaviorAdvancedHeader} onPress={onToggle}>
-                <View style={styles.behaviorAdvancedHeaderLeft}>
-                    <Ionicons name="analytics-outline" size={16} color={Colors.textSecondary} />
-                    <Text style={styles.behaviorAdvancedTitle}>Advanced glucose details</Text>
-                </View>
-                <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textTertiary} />
-            </AnimatedPressable>
-            {expanded && (
-                <View style={styles.behaviorAdvancedBody}>
-                    <View style={styles.behaviorAdvancedMetric}>
-                        <Text style={styles.behaviorAdvancedMetricLabel}>Average</Text>
-                        <Text style={styles.behaviorAdvancedMetricValue}>{avgGlucose}</Text>
-                    </View>
-                    <View style={styles.behaviorAdvancedMetric}>
-                        <Text style={styles.behaviorAdvancedMetricLabel}>In target</Text>
-                        <Text style={styles.behaviorAdvancedMetricValue}>{timeInZone}</Text>
-                    </View>
-                    <AnimatedPressable
-                        style={styles.behaviorAdvancedCta}
-                        onPress={() => router.push('/log-glucose')}
-                    >
-                        <Text style={styles.behaviorAdvancedCtaText}>Log glucose</Text>
-                    </AnimatedPressable>
-                </View>
-            )}
-        </BlurView>
-    );
-}
-
-
 // ============================================
 // Score-aware tip generator
 // ============================================
@@ -1485,7 +1442,6 @@ function TodayScreenInner() {
     const [currentScore, setCurrentScore] = useState<number | null>(null);
     const [scoreComponentsV2, setScoreComponentsV2] = useState<MetabolicScoreComponentsV2 | null>(null);
     const [scoresLoading, setScoresLoading] = useState(true);
-    const [advancedGlucoseExpanded, setAdvancedGlucoseExpanded] = useState(false);
     const [scoreExplanationVisible, setScoreExplanationVisible] = useState(false);
     const [scoreExplanation, setScoreExplanation] = useState<ScoreExplanation | null>(null);
     const [scoreExplanationLoading, setScoreExplanationLoading] = useState(false);
@@ -1675,28 +1631,6 @@ function TodayScreenInner() {
             .sort((a, b) => new Date(b.logged_at).getTime() - new Date(a.logged_at).getTime())
             .slice(0, 5);
     }, [recentMeals]);
-
-    const canShowAdvancedGlucose = useMemo(() => {
-        const glucoseModeEnabled =
-            trackingMode === 'manual_glucose_optional' || trackingMode === 'glucose_tracking';
-        return !!profile?.show_glucose_advanced && (glucoseModeEnabled || glucoseLogs.length > 0);
-    }, [profile?.show_glucose_advanced, trackingMode, glucoseLogs.length]);
-
-    const advancedGlucoseSummary = useMemo(() => {
-        if (!glucoseLogs.length) {
-            return { avg: 'No data', inTarget: 'No data' };
-        }
-
-        const avg = glucoseLogs.reduce((sum, log) => sum + log.glucose_level, 0) / glucoseLogs.length;
-        const inTarget = glucoseLogs.filter(
-            log => log.glucose_level >= targetMin && log.glucose_level <= targetMax
-        ).length;
-
-        return {
-            avg: `${avg.toFixed(1)} mmol/L`,
-            inTarget: `${Math.round((inTarget / glucoseLogs.length) * 100)}%`,
-        };
-    }, [glucoseLogs, targetMin, targetMax]);
 
     const primaryBehaviorCard = useMemo(() => {
         // Priority 1: Active user actions (keeps action loop primary)
@@ -2225,11 +2159,6 @@ function TodayScreenInner() {
     });
 
     const behaviorMealsTranslateIn = behaviorMealsReveal.interpolate({
-        inputRange: [0, 1],
-        outputRange: [14, 0],
-    });
-
-    const behaviorAdvancedTranslateIn = behaviorAdvancedReveal.interpolate({
         inputRange: [0, 1],
         outputRange: [14, 0],
     });

@@ -1,7 +1,9 @@
 import { getUserProfile, GlucoseUnit, supabase, updateUserProfile, UserProfile } from '@/lib/supabase';
 import { RESET_PASSWORD_REDIRECT_URI } from '@/lib/deeplinks';
+import { clearLocalCachesForLogout } from '@/lib/utils/logout-cleanup';
 import { Session, User } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 
@@ -174,12 +176,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
             setLoading(true);
 
+            // Generate a cryptographic nonce to bind Apple's identity token to this client.
+            // Apple signs SHA256(rawNonce) into the JWT; Supabase verifies the hash matches.
+            // Without a nonce, a captured identity token can be replayed.
+            const rawNonce = Crypto.randomUUID();
+            const hashedNonce = await Crypto.digestStringAsync(
+                Crypto.CryptoDigestAlgorithm.SHA256,
+                rawNonce
+            );
+
             // Request Apple authentication
             const credential = await AppleAuthentication.signInAsync({
                 requestedScopes: [
                     AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
                     AppleAuthentication.AppleAuthenticationScope.EMAIL,
                 ],
+                nonce: hashedNonce,
             });
 
             // Check if we got the identity token
@@ -191,6 +203,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const { data, error } = await supabase.auth.signInWithIdToken({
                 provider: 'apple',
                 token: credential.identityToken,
+                nonce: rawNonce,
             });
 
             if (error) {
@@ -244,6 +257,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(null);
             setSession(null);
             setProfile(null);
+            await clearLocalCachesForLogout();
         } catch (error) {
             console.error('Error signing out:', error);
         } finally {

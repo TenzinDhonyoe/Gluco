@@ -1,5 +1,5 @@
 import React from 'react';
-import Svg, { Circle, Path, G } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 
 /** Gluco leaf sprout — a seedling growing from a circle, representing the start of a journey */
 export function WelcomeIllustration({ size = 48 }: { size?: number }) {

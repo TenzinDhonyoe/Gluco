@@ -50,7 +50,7 @@ export default function SettingsScreen() {
                 Linking.openURL('https://play.google.com/store/account/subscriptions');
             }
         } catch (error) {
-            console.log('Error opening subscription management:', error);
+            if (__DEV__) console.log('Error opening subscription management:', error);
             // Fallback: Open iOS subscription settings URL
             if (Platform.OS === 'ios') {
                 Linking.openURL('https://apps.apple.com/account/subscriptions');

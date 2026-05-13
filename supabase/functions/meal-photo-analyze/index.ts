@@ -5,10 +5,12 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { GoogleGenAI } from 'npm:@google/genai@1.38.0';
 import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
+import { requireAiEnabled } from '../_shared/ai.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { requirePro } from '../_shared/subscription.ts';
 import { enforceNutrientLimits } from '../_shared/nutrition-validation.ts';
 import { buildGeminiUsageTelemetry, summarizeModalityTokens } from '../_shared/genai-telemetry.ts';
-import { categorizeGeminiError } from '../_shared/gemini-structured.ts';
+import { categorizeGeminiError, validatePhotoUrl } from '../_shared/gemini-structured.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
@@ -347,7 +349,11 @@ function getGenAIClient(): GoogleGenAI {
     return aiClient;
 }
 
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+
 async function fetchImageAsBase64(photoUrl: string): Promise<{ data: string; mimeType: string; size: number }> {
+    validatePhotoUrl(photoUrl);
+
     log('INFO', 'Fetching image', { url: photoUrl.substring(0, 100) + '...' });
 
     const response = await fetch(photoUrl);
@@ -357,8 +363,21 @@ async function fetchImageAsBase64(photoUrl: string): Promise<{ data: string; mim
         throw new Error(`Failed to fetch image: ${response.status} - ${errorText.substring(0, 100)}`);
     }
 
-    const mimeType = response.headers.get('content-type') || 'image/jpeg';
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.startsWith('image/')) {
+        throw new Error('Response is not a valid image type');
+    }
+    const mimeType = contentType.split(';')[0] || 'image/jpeg';
+
+    const contentLength = response.headers.get('content-length');
+    if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_SIZE_BYTES) {
+        throw new Error(`Image too large (max ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB)`);
+    }
+
     const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > MAX_IMAGE_SIZE_BYTES) {
+        throw new Error(`Image too large (max ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB)`);
+    }
     const bytes = new Uint8Array(buffer);
 
     log('INFO', 'Image fetched successfully', { size: bytes.length, mimeType });
@@ -767,6 +786,14 @@ serve(async (req) => {
         // Rate limit check
         const rateLimitResponse = await checkRateLimit(supabase, user.id, 'meal-photo-analyze', corsHeaders);
         if (rateLimitResponse) return rateLimitResponse;
+
+        // Server-side subscription gate (premium AI feature)
+        const proResponse = await requirePro(supabase, user.id, corsHeaders);
+        if (proResponse) return proResponse;
+
+        // AI consent gate
+        const aiGate = await requireAiEnabled(supabase, user.id, corsHeaders);
+        if (aiGate) return aiGate;
 
         const userId = user.id;
 
