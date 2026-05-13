@@ -7,7 +7,6 @@ import { invokeOnboardingPlan } from '@/lib/supabase';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
 import { navigateToApp } from '@/lib/navigation';
 import React, { useEffect, useRef, useState } from 'react';
 import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';

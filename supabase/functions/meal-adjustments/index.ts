@@ -8,6 +8,7 @@ import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { sanitizeText } from '../_shared/safety.ts';
 import { callGenAI } from '../_shared/genai.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { requirePro } from '../_shared/subscription.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('SUPABASE_URL') || '',
@@ -404,6 +405,10 @@ serve(async (req) => {
         // Rate limit check
         const rateLimitResponse = await checkRateLimit(supabase, user.id, 'meal-adjustments', corsHeaders);
         if (rateLimitResponse) return rateLimitResponse;
+
+        // Server-side subscription gate (premium AI feature)
+        const proResponse = await requirePro(supabase, user.id, corsHeaders);
+        if (proResponse) return proResponse;
 
         const userId = user.id;
         const aiEnabled = await isAiEnabled(supabase, userId);

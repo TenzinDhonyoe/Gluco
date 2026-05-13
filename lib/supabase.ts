@@ -20,46 +20,98 @@ if (!supabaseUrl || !supabaseAnonKey) {
     );
 }
 
+// SecureStore on iOS has a ~2KB limit per value. Supabase sessions can exceed this
+// once a long-lived refresh token is included, so we chunk values transparently.
+// Tokens NEVER fall back to plaintext AsyncStorage on native — that's an injection
+// vector for an attacker with device-level read access (e.g., iCloud backup).
+const SECURE_STORE_CHUNK_BYTES = 1800;
+const SECURE_STORE_CHUNK_COUNT_SUFFIX = '__chunks';
+
+async function secureGet(key: string): Promise<string | null> {
+    const meta = await SecureStore.getItemAsync(key + SECURE_STORE_CHUNK_COUNT_SUFFIX);
+    if (meta) {
+        const count = parseInt(meta, 10);
+        if (!Number.isFinite(count) || count <= 0) return null;
+        const parts: string[] = [];
+        for (let i = 0; i < count; i++) {
+            const part = await SecureStore.getItemAsync(`${key}__${i}`);
+            if (part === null) return null;
+            parts.push(part);
+        }
+        return parts.join('');
+    }
+    return SecureStore.getItemAsync(key);
+}
+
+async function secureSet(key: string, value: string): Promise<void> {
+    // Clear any prior chunked value first to avoid stale fragments.
+    const meta = await SecureStore.getItemAsync(key + SECURE_STORE_CHUNK_COUNT_SUFFIX);
+    if (meta) {
+        const count = parseInt(meta, 10);
+        if (Number.isFinite(count) && count > 0) {
+            for (let i = 0; i < count; i++) {
+                await SecureStore.deleteItemAsync(`${key}__${i}`).catch(() => undefined);
+            }
+        }
+        await SecureStore.deleteItemAsync(key + SECURE_STORE_CHUNK_COUNT_SUFFIX).catch(() => undefined);
+    }
+
+    if (value.length <= SECURE_STORE_CHUNK_BYTES) {
+        await SecureStore.setItemAsync(key, value);
+        return;
+    }
+
+    // Single value too large for SecureStore — split into chunks and store the count.
+    await SecureStore.deleteItemAsync(key).catch(() => undefined);
+    const chunks: string[] = [];
+    for (let i = 0; i < value.length; i += SECURE_STORE_CHUNK_BYTES) {
+        chunks.push(value.slice(i, i + SECURE_STORE_CHUNK_BYTES));
+    }
+    for (let i = 0; i < chunks.length; i++) {
+        await SecureStore.setItemAsync(`${key}__${i}`, chunks[i]);
+    }
+    await SecureStore.setItemAsync(key + SECURE_STORE_CHUNK_COUNT_SUFFIX, String(chunks.length));
+}
+
+async function secureRemove(key: string): Promise<void> {
+    const meta = await SecureStore.getItemAsync(key + SECURE_STORE_CHUNK_COUNT_SUFFIX);
+    if (meta) {
+        const count = parseInt(meta, 10);
+        if (Number.isFinite(count) && count > 0) {
+            for (let i = 0; i < count; i++) {
+                await SecureStore.deleteItemAsync(`${key}__${i}`).catch(() => undefined);
+            }
+        }
+        await SecureStore.deleteItemAsync(key + SECURE_STORE_CHUNK_COUNT_SUFFIX).catch(() => undefined);
+    }
+    await SecureStore.deleteItemAsync(key).catch(() => undefined);
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
         storage: {
             getItem: async (key: string) => {
                 if (typeof window === 'undefined') return null;
-                try {
-                    if (Platform.OS === 'web') {
-                        return await AsyncStorage.getItem(key);
-                    }
-                    const secureValue = await SecureStore.getItemAsync(key);
-                    if (secureValue !== null) return secureValue;
-                    return await AsyncStorage.getItem(key);
-                } catch {
+                if (Platform.OS === 'web') {
                     return await AsyncStorage.getItem(key);
                 }
+                return await secureGet(key);
             },
             setItem: async (key: string, value: string) => {
                 if (typeof window === 'undefined') return;
-                try {
-                    if (Platform.OS === 'web') {
-                        await AsyncStorage.setItem(key, value);
-                        return;
-                    }
-                    await SecureStore.setItemAsync(key, value);
-                } catch {
+                if (Platform.OS === 'web') {
                     await AsyncStorage.setItem(key, value);
+                    return;
                 }
+                await secureSet(key, value);
             },
             removeItem: async (key: string) => {
                 if (typeof window === 'undefined') return;
-                try {
-                    if (Platform.OS === 'web') {
-                        await AsyncStorage.removeItem(key);
-                        return;
-                    }
-                    await SecureStore.deleteItemAsync(key);
-                } catch {
-                    // Ignore SecureStore errors and fall back to AsyncStorage
+                if (Platform.OS === 'web') {
+                    await AsyncStorage.removeItem(key);
+                    return;
                 }
-                await AsyncStorage.removeItem(key);
+                await secureRemove(key);
             },
         },
         autoRefreshToken: true,
@@ -3109,8 +3161,12 @@ export async function updatePostMealReviewWithManualGlucose(
 }
 
 /**
- * Delete all user data from the database
- * Note: This does not delete the auth user - that must be done separately
+ * Delete all user data from the database AND sign out locally so the residual
+ * JWT can no longer be replayed against any endpoint.
+ *
+ * The edge function deletes the auth user via the admin API, which revokes
+ * refresh tokens server-side. But the access token in this client is still
+ * valid until expiry (typically 1h); calling signOut clears it from storage.
  */
 export async function deleteUserData(_userId: string): Promise<boolean> {
     try {
@@ -3123,7 +3179,15 @@ export async function deleteUserData(_userId: string): Promise<boolean> {
             return false;
         }
 
-        return Boolean(data?.success);
+        const success = Boolean(data?.success);
+        if (success) {
+            try {
+                await supabase.auth.signOut();
+            } catch (signOutErr) {
+                console.warn('signOut after delete failed:', signOutErr);
+            }
+        }
+        return success;
     } catch (err) {
         console.error('Delete user data error:', err);
         return false;

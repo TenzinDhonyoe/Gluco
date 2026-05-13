@@ -77,7 +77,16 @@
   "overrides": {
     "react-native-health": {
       "@expo/fingerprint": "0.15.4"
-    }
+    },
+    "@xmldom/xmldom": "^0.8.13",
+    "tar": "^7.5.11",
+    "node-forge": "^1.4.0",
+    "undici": "^6.24.0",
+    "minimatch": "^9.0.7",
+    "picomatch": "^4.0.4",
+    "fast-uri": "^3.1.2",
+    "flatted": "^3.4.2",
+    "protobufjs": "^7.5.5"
   },
   "expo": {
     "autolinking": {

@@ -11,13 +11,13 @@ function buildJsonResponse(
     });
 }
 
+const BEARER_RE = /^Bearer\s+([A-Za-z0-9._\-]+)\s*$/i;
+
 export function getBearerToken(req: Request): string | null {
-    const authHeader = req.headers.get('Authorization') || '';
-    const [type, token] = authHeader.split(' ');
-    if (!type || type.toLowerCase() !== 'bearer' || !token) {
-        return null;
-    }
-    return token.trim();
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) return null;
+    const match = authHeader.match(BEARER_RE);
+    return match ? match[1] : null;
 }
 
 export async function requireUser(

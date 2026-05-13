@@ -5,6 +5,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { requireMatchingUserId, requireUser } from '../_shared/auth.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { requirePro } from '../_shared/subscription.ts';
 import { callGenAI } from '../_shared/genai.ts';
 import { containsBannedTerms } from '../_shared/safety.ts';
 import { buildUserContext, type UserContextObject } from '../_shared/user-context.ts';
@@ -290,6 +291,10 @@ serve(async (req) => {
         // Rate limit check
         const rateLimitResponse = await checkRateLimit(supabase, user!.id, 'next-best-action', corsHeaders);
         if (rateLimitResponse) return rateLimitResponse;
+
+        // Server-side subscription gate (premium AI feature)
+        const proResponse = await requirePro(supabase, user!.id, corsHeaders);
+        if (proResponse) return proResponse;
 
         const hour = typeof local_hour === 'number' ? local_hour : new Date().getHours();
 
