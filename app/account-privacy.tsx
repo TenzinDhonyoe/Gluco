@@ -151,7 +151,7 @@ export default function AccountPrivacyScreen() {
                             const jsonString = JSON.stringify(data, null, 2);
                             await Share.share({
                                 message: jsonString,
-                                title: 'Gluco Data Export',
+                                title: 'Redu Data Export',
                             });
                         } catch {
                             Alert.alert('Error', 'Failed to export data. Please try again.');
@@ -388,7 +388,7 @@ export default function AccountPrivacyScreen() {
                         </View>
                         <View style={styles.divider} />
                         <SettingsRow
-                            label="How Gluco Works"
+                            label="How Redu Works"
                             showChevron={false}
                             showDropdown={true}
                             isExpanded={expandedSection === 'how-works'}
@@ -397,13 +397,13 @@ export default function AccountPrivacyScreen() {
                         {expandedSection === 'how-works' && (
                             <View style={styles.expandedContent}>
                                 <Text style={styles.expandedText}>
-                                    Gluco uses your glucose readings and lifestyle data to provide personalized insights and recommendations for better glucose management.
+                                    Redu uses your glucose readings and lifestyle data to provide personalized insights and recommendations for better glucose management.
                                 </Text>
                             </View>
                         )}
                         <View style={styles.divider} />
                         <SettingsRow
-                            label="How Gluco Uses Your Data"
+                            label="How Redu Uses Your Data"
                             showChevron={false}
                             showDropdown={true}
                             isExpanded={expandedSection === 'data-use'}

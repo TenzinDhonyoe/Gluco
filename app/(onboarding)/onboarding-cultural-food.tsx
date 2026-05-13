@@ -4,8 +4,8 @@ import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/hooks/useFonts';
-import { triggerHaptic } from '@/lib/utils/haptics';
 import { useOnboardingDraft } from '@/hooks/useOnboardingDraft';
+import { triggerHaptic } from '@/lib/utils/haptics';
 import { updateUserProfile } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
@@ -15,58 +15,64 @@ import {
     Alert,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
 
-const DIETARY_PREFERENCES = [
-    'Vegetarian', 'Vegan', 'Pescatarian', 'Gluten-free',
-    'Dairy-free', 'Halal', 'Kosher', 'Low-carb', 'No restrictions',
+const CULTURAL_FOOD_CONTEXTS = [
+    'South Asian', 'East Asian', 'Southeast Asian', 'Mediterranean',
+    'Latin American', 'Middle Eastern', 'African', 'Caribbean',
+    'European', 'North American', 'Other',
 ];
 
-export default function OnboardingBodyScreen() {
+export default function OnboardingCulturalFoodScreen() {
     const { draft, updateDraft, isLoaded } = useOnboardingDraft();
-    const [dietaryPreferences, setDietaryPreferences] = useState<string[]>([]);
+    const [culturalFoodContext, setCulturalFoodContext] = useState<string | null>(null);
+    const [otherCulturalInput, setOtherCulturalInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const { user } = useAuth();
     const draftRestored = React.useRef(false);
 
-    // Restore draft
     React.useEffect(() => {
         if (!isLoaded || draftRestored.current) return;
         draftRestored.current = true;
-        if (Array.isArray(draft.dietaryPreferences)) setDietaryPreferences(draft.dietaryPreferences);
-        AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'body').catch(() => null);
+        if (draft.culturalFoodContext) {
+            if (CULTURAL_FOOD_CONTEXTS.includes(draft.culturalFoodContext) || draft.culturalFoodContext === 'Other') {
+                setCulturalFoodContext(draft.culturalFoodContext);
+            } else {
+                setCulturalFoodContext('Other');
+                setOtherCulturalInput(draft.culturalFoodContext);
+            }
+        }
+        AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'cultural-food').catch(() => null);
     }, [isLoaded, draft]);
 
-    // Save to draft on changes
     React.useEffect(() => {
         if (!draftRestored.current) return;
         const timer = setTimeout(() => {
-            updateDraft({ dietaryPreferences });
+            const resolved = culturalFoodContext === 'Other' && otherCulturalInput.trim()
+                ? otherCulturalInput.trim()
+                : culturalFoodContext;
+            updateDraft({ culturalFoodContext: resolved });
         }, 300);
         return () => clearTimeout(timer);
-    }, [dietaryPreferences, updateDraft]);
-
-    const toggleDietaryPreference = (pref: string) => {
-        setDietaryPreferences(prev => {
-            if (pref === 'No restrictions') return prev.includes(pref) ? [] : ['No restrictions'];
-            const without = prev.filter(p => p !== 'No restrictions');
-            return without.includes(pref) ? without.filter(p => p !== pref) : [...without, pref];
-        });
-    };
+    }, [culturalFoodContext, otherCulturalInput, updateDraft]);
 
     const handleContinue = async () => {
         triggerHaptic('medium');
         setIsLoading(true);
         try {
-            if (user && dietaryPreferences.length > 0) {
-                await updateUserProfile(user.id, { dietary_preferences: dietaryPreferences });
+            const resolved = culturalFoodContext === 'Other' && otherCulturalInput.trim()
+                ? otherCulturalInput.trim()
+                : culturalFoodContext;
+            if (user && resolved) {
+                await updateUserProfile(user.id, { cultural_food_context: resolved });
             }
-            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'cultural-food');
-            router.push('/onboarding-cultural-food' as never);
+            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'tracking');
+            router.push('/onboarding-tracking' as never);
         } catch {
-            Alert.alert('Error', 'Failed to save your preferences. Please try again.');
+            Alert.alert('Error', 'Failed to save your answer. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -74,22 +80,19 @@ export default function OnboardingBodyScreen() {
 
     const handleSkip = () => {
         triggerHaptic();
-        AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'cultural-food').catch(() => null);
-        router.push('/onboarding-cultural-food' as never);
+        AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'tracking').catch(() => null);
+        router.push('/onboarding-tracking' as never);
     };
 
-    const handleBack = () => {
-        router.back();
-    };
-
-    const firstName = draft.firstName?.trim();
+    const handleBack = () => router.back();
 
     return (
         <OnboardingScreenLayout
-            currentStep={4}
-            title={firstName ? `Any dietary preferences, ${firstName}?` : 'Any dietary preferences?'}
-            subtitle="This helps us suggest meals and tips that fit your lifestyle."
+            currentStep={5}
+            title="Any cultural food traditions?"
+            subtitle="This helps us tailor meal suggestions to flavors you love."
             onBack={handleBack}
+            hasKeyboardInput={culturalFoodContext === 'Other'}
             bottomContent={
                 <View style={styles.buttonRow}>
                     <TouchableOpacity style={styles.skipButton} onPress={handleSkip} activeOpacity={0.7}>
@@ -110,39 +113,37 @@ export default function OnboardingBodyScreen() {
                 </View>
             }
         >
-            <View style={styles.section}>
-                <View style={styles.chipsContainer}>
-                    {DIETARY_PREFERENCES.map(pref => {
-                        const selected = dietaryPreferences.includes(pref);
-                        return (
-                            <AnimatedPressable
-                                key={pref}
-                                style={[styles.chip, selected && styles.chipSelected]}
-                                onPress={() => toggleDietaryPreference(pref)}
-                            >
-                                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                                    {pref}
-                                </Text>
-                            </AnimatedPressable>
-                        );
-                    })}
-                </View>
+            <View style={styles.chipsContainer}>
+                {CULTURAL_FOOD_CONTEXTS.map(ctx => {
+                    const selected = culturalFoodContext === ctx;
+                    return (
+                        <AnimatedPressable
+                            key={ctx}
+                            style={[styles.chip, selected && styles.chipSelected]}
+                            onPress={() => setCulturalFoodContext(selected ? null : ctx)}
+                        >
+                            <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                                {ctx}
+                            </Text>
+                        </AnimatedPressable>
+                    );
+                })}
             </View>
+            {culturalFoodContext === 'Other' && (
+                <TextInput
+                    style={styles.otherInput}
+                    placeholder="Describe your food traditions"
+                    placeholderTextColor={Colors.textTertiary}
+                    value={otherCulturalInput}
+                    onChangeText={setOtherCulturalInput}
+                    autoCapitalize="sentences"
+                />
+            )}
         </OnboardingScreenLayout>
     );
 }
 
 const styles = StyleSheet.create({
-    section: {
-        marginBottom: 28,
-    },
-    sectionLabel: {
-        fontFamily: fonts.medium,
-        fontSize: 12,
-        color: Colors.textSecondary,
-        letterSpacing: 0.8,
-        marginBottom: 12,
-    },
     chipsContainer: {
         flexDirection: 'row',
         flexWrap: 'wrap',

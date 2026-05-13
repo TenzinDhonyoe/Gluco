@@ -5,6 +5,7 @@ import { AddMenuFAB } from '@/components/overlays/AddMenuFAB';
 import { AddMenuOverlay } from '@/components/overlays/AddMenuOverlay';
 import { AddMenuProvider } from '@/context/AddMenuContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { DataSyncProvider } from '@/context/DataSyncContext';
 import { SubscriptionProvider } from '@/context/SubscriptionContext';
 import { useOutfitFonts } from '@/hooks/useFonts';
 import { isBehaviorV1Experience } from '@/lib/experience';
@@ -125,8 +126,9 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <SubscriptionProvider>
-        <AddMenuProvider>
+      <DataSyncProvider>
+        <SubscriptionProvider>
+          <AddMenuProvider>
           <SessionTracker />
           <View style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
             <ForestGlassBackground />
@@ -150,13 +152,13 @@ export default function RootLayout() {
               >
                 {/* Screens that manage their own full-screen presentation */}
                 <Stack.Screen name="index" options={{ headerShown: false }} />
-                <Stack.Screen name="signin" options={{ headerShown: false }} />
-                <Stack.Screen name="signup" options={{ headerShown: false }} />
-                <Stack.Screen name="privacy-intro" options={{ headerShown: false }} />
-                <Stack.Screen name="confirm-email" options={{ headerShown: false }} />
-                <Stack.Screen name="(onboarding)" options={{ headerShown: false, animation: 'none' }} />
-                <Stack.Screen name="framework-reset" options={{ headerShown: false }} />
-                <Stack.Screen name="paywall" options={{ headerShown: false }} />
+                <Stack.Screen name="signin" options={{ headerShown: false, gestureEnabled: false }} />
+                <Stack.Screen name="signup" options={{ headerShown: false, gestureEnabled: false }} />
+                <Stack.Screen name="privacy-intro" options={{ headerShown: false, gestureEnabled: false }} />
+                <Stack.Screen name="confirm-email" options={{ headerShown: false, gestureEnabled: false }} />
+                <Stack.Screen name="(onboarding)" options={{ headerShown: false, animation: 'none', gestureEnabled: false }} />
+                <Stack.Screen name="framework-reset" options={{ headerShown: false, gestureEnabled: false }} />
+                <Stack.Screen name="paywall" options={{ headerShown: false, gestureEnabled: false }} />
                 <Stack.Screen name="pre-meal-check" options={{ headerShown: false }} />
                 <Stack.Screen name="scan-label" options={{ headerShown: false }} />
                 <Stack.Screen name="meal-scanner" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
@@ -190,8 +192,9 @@ export default function RootLayout() {
             <AddMenuOverlay />
             <AddMenuFAB />
           </View>
-        </AddMenuProvider>
-      </SubscriptionProvider>
+          </AddMenuProvider>
+        </SubscriptionProvider>
+      </DataSyncProvider>
     </AuthProvider>
   );
 }

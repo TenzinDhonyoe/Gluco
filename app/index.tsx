@@ -2,6 +2,7 @@ import { FadeText } from '@/components/reacticx/organisms/fade-text';
 import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
+import { useSubscription } from '@/context/SubscriptionContext';
 import { fonts } from '@/hooks/useFonts';
 import { isBehaviorV1Experience, SKIP_FRAMEWORK_RESET_GATE } from '@/lib/experience';
 
@@ -27,11 +28,9 @@ const { width } = Dimensions.get('window');
 
 // Key for persisting onboarding step to AsyncStorage
 export const ONBOARDING_STEP_KEY = 'onboarding_current_step';
-// Key for tracking if user has dismissed/completed paywall
-export const PAYWALL_SEEN_KEY = 'paywall_seen';
 
-// Feature flag: Set to true to enable paywall after onboarding
-// Currently disabled for beta - all users get full access
+// Feature flag: Set to true to enable paywall after onboarding.
+// The real subscription gate is `isProUser` from SubscriptionContext (RevenueCat).
 export const PAYWALL_ENABLED = true;
 
 // Semantic step routes (new naming)
@@ -78,6 +77,7 @@ function getGreetingText(firstName: string | null | undefined): string {
 
 export default function WelcomeScreen() {
     const { user, profile, loading } = useAuth();
+    const { isProUser, loading: subLoading } = useSubscription();
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
     const [showGreeting, setShowGreeting] = useState(false);
     const pendingRouteRef = useRef<string | null>(null);
@@ -118,8 +118,9 @@ export default function WelcomeScreen() {
     // Check auth state and redirect accordingly
     useEffect(() => {
         const checkAuthState = async () => {
-            // Wait for auth to finish loading
-            if (loading) return;
+            // Wait for auth + subscription state to finish loading.
+            // subLoading must complete so the paywall gate uses real isProUser, not stale false.
+            if (loading || subLoading) return;
             // Prevent double-navigation
             if (hasNavigated.current) return;
             // Don't navigate if this screen is not focused (another screen is on top)
@@ -178,13 +179,10 @@ export default function WelcomeScreen() {
                         return;
                     }
 
-                    // Determine final destination
+                    // Determine final destination — gate on real subscription state, not a local flag.
                     let destination = '/(tabs)';
-                    if (PAYWALL_ENABLED) {
-                        const paywallSeen = await AsyncStorage.getItem(PAYWALL_SEEN_KEY);
-                        if (!paywallSeen) {
-                            destination = '/paywall';
-                        }
+                    if (PAYWALL_ENABLED && !isProUser) {
+                        destination = '/paywall';
                     }
 
                     // Show greeting splash before navigating
@@ -198,7 +196,7 @@ export default function WelcomeScreen() {
         };
 
         checkAuthState();
-    }, [user, profile, loading, isFocused]);
+    }, [user, profile, loading, isFocused, isProUser, subLoading]);
 
     // Separate timeout effect — does not re-trigger the main auth check
     useEffect(() => {

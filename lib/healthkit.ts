@@ -34,8 +34,19 @@ if (Platform.OS === 'ios') {
     }
 }
 
-// Cache authorization result to prevent repeated native bridge calls
+// Cache authorization result to prevent repeated native bridge calls.
+// Reset on sign-out via resetHealthKitAuth() so a different user signing in
+// on the same app session is forced to re-init (and re-probe permission state).
 let healthKitAuthorized: boolean | null = null;
+
+/**
+ * Reset the in-memory authorization cache. Call on sign-out and on SIGNED_IN
+ * to prevent cross-account contamination — the cache is module-level and
+ * would otherwise persist a previous user's "authorized" state.
+ */
+export function resetHealthKitAuth(): void {
+    healthKitAuthorized = null;
+}
 
 function getAppleHealthKit() {
     if (Platform.OS !== 'ios') return null;
@@ -50,10 +61,21 @@ export interface DailyBreakdownEntry {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-/** Extract YYYY-MM-DD from an ISO date string */
-function toDateKey(isoDate: string): string {
-    return isoDate.split('T')[0];
+/**
+ * YYYY-MM-DD in the device's local timezone. HealthKit returns ISO timestamps,
+ * which split-on-T yields a UTC date — that creates off-by-one bugs for users
+ * not on UTC (e.g. PST at 11pm logs as the next day). Always use local for
+ * day-bucket keys so reads/writes line up with what the user sees on their clock.
+ */
+function toLocalDateKey(date: Date | string): string {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
 }
+
+export { toLocalDateKey };
 
 function getDateRangeDays(startDate: Date, endDate: Date): number {
     const start = new Date(startDate);
@@ -216,7 +238,7 @@ export async function getSleepData(
                             if (nightDate.getHours() < 6) {
                                 nightDate.setDate(nightDate.getDate() - 1);
                             }
-                            const dateKey = toDateKey(nightDate.toISOString());
+                            const dateKey = toLocalDateKey(nightDate.toISOString());
 
                             nightMinutesMap.set(dateKey, (nightMinutesMap.get(dateKey) ?? 0) + durationMinutes);
                         });
@@ -313,7 +335,7 @@ export async function getSteps(
                         // Group by date (daily buckets may have multiple entries per day)
                         const dayStepsMap = new Map<string, number>();
                         results.forEach((sample) => {
-                            const dateKey = toDateKey(sample.startDate);
+                            const dateKey = toLocalDateKey(sample.startDate);
                             dayStepsMap.set(dateKey, (dayStepsMap.get(dateKey) ?? 0) + sample.value);
                         });
 
@@ -405,7 +427,7 @@ async function getAppleExerciseTime(
                     // Group by date
                     const dayMinutesMap = new Map<string, number>();
                     results.forEach((sample) => {
-                        const dateKey = toDateKey(sample.startDate);
+                        const dateKey = toLocalDateKey(sample.startDate);
                         dayMinutesMap.set(dateKey, (dayMinutesMap.get(dateKey) ?? 0) + sample.value);
                     });
 
@@ -468,7 +490,7 @@ async function getWorkoutsDuration(
                         const mins = (wEnd - wStart) / 60000;
                         totalMinutes += mins;
 
-                        const dateKey = toDateKey(workout.start);
+                        const dateKey = toLocalDateKey(workout.start);
                         dayMinutesMap.set(dateKey, (dayMinutesMap.get(dateKey) ?? 0) + mins);
                     });
 
@@ -538,7 +560,7 @@ export async function getRestingHeartRate(
                         // Group by date (average if multiple readings per day)
                         const dayHRMap = new Map<string, { total: number; count: number }>();
                         results.forEach((sample) => {
-                            const dateKey = toDateKey(sample.startDate);
+                            const dateKey = toLocalDateKey(sample.startDate);
                             const entry = dayHRMap.get(dateKey) ?? { total: 0, count: 0 };
                             entry.total += sample.value;
                             entry.count++;
@@ -612,7 +634,7 @@ export async function getHRV(
                         // Group by date (average if multiple readings per day)
                         const dayHRVMap = new Map<string, { total: number; count: number }>();
                         results.forEach((sample) => {
-                            const dateKey = toDateKey(sample.startDate);
+                            const dateKey = toLocalDateKey(sample.startDate);
                             const entry = dayHRVMap.get(dateKey) ?? { total: 0, count: 0 };
                             entry.total += sample.value * 1000;
                             entry.count++;
@@ -718,20 +740,28 @@ export async function getBloodGlucoseSamples(
     }
 }
 
+export interface GlucoseSyncResult {
+    attempted: number;
+    inserted: number;
+    duplicates: number;
+    failed: number;
+}
+
 /**
  * Sync HealthKit glucose samples to the glucose_logs table.
  * Deduplicates by timestamp (±1 min) and value similarity.
- * Returns count of new readings inserted.
+ * Returns counts so callers can surface failures (vs. silently swallowing them).
  */
 export async function syncHealthKitGlucoseToLogs(
     userId: string,
     startDate: Date,
     endDate: Date,
-): Promise<number> {
+): Promise<GlucoseSyncResult> {
+    const result: GlucoseSyncResult = { attempted: 0, inserted: 0, duplicates: 0, failed: 0 };
     try {
         // Fetch from HealthKit in mmol/L (DB storage format)
         const stats = await getBloodGlucoseSamples(startDate, endDate, 'mmolPerL');
-        if (!stats || stats.samples.length === 0) return 0;
+        if (!stats || stats.samples.length === 0) return result;
 
         // Dynamic import to avoid circular dependency
         const { createGlucoseLog, getGlucoseLogsByDateRange } = await import('@/lib/supabase');
@@ -739,8 +769,8 @@ export async function syncHealthKitGlucoseToLogs(
         // Fetch existing logs for dedup
         const existingLogs = await getGlucoseLogsByDateRange(userId, startDate, endDate);
 
-        let insertedCount = 0;
         for (const sample of stats.samples) {
+            result.attempted++;
             const sampleTime = new Date(sample.startDate);
 
             // Dedup: check if a log exists within 1 min and similar value
@@ -751,9 +781,12 @@ export async function syncHealthKitGlucoseToLogs(
                 return timeDiffMs < 60000 && valueDiff < 0.2; // 1 min, 0.2 mmol/L tolerance
             });
 
-            if (isDuplicate) continue;
+            if (isDuplicate) {
+                result.duplicates++;
+                continue;
+            }
 
-            const result = await createGlucoseLog(userId, {
+            const created = await createGlucoseLog(userId, {
                 glucose_level: sample.value,
                 unit: 'mmol/L',
                 logged_at: sampleTime.toISOString(),
@@ -761,12 +794,17 @@ export async function syncHealthKitGlucoseToLogs(
                 notes: `Source: ${sample.sourceName}`,
             });
 
-            if (result) insertedCount++;
+            if (created) {
+                result.inserted++;
+            } else {
+                result.failed++;
+            }
         }
 
-        return insertedCount;
+        return result;
     } catch (error) {
         console.warn('Error syncing HealthKit glucose:', error);
-        return 0;
+        result.failed = Math.max(result.failed, 1);
+        return result;
     }
 }

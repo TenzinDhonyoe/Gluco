@@ -10,7 +10,9 @@ import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useAuth } from '@/context/AuthContext';
+import { useSubscription } from '@/context/SubscriptionContext';
 import { fonts } from '@/hooks/useFonts';
+import { isOfferCodeRedemptionAvailable, presentCodeRedemption } from '@/lib/revenuecat';
 
 type SettingsItem = {
     label: string;
@@ -21,6 +23,7 @@ type SettingsItem = {
 export default function SettingsScreen() {
     const router = useRouter();
     const { signOut } = useAuth();
+    const { isProUser } = useSubscription();
 
     const handleLogout = async () => {
         Alert.alert(
@@ -58,10 +61,18 @@ export default function SettingsScreen() {
         }
     };
 
+    const handleRedeem = async () => {
+        await presentCodeRedemption();
+        // Customer-info listener auto-flips isProUser when Apple grants the entitlement.
+    };
+
+    const showRedeemRow = PAYWALL_ENABLED && !isProUser && isOfferCodeRedemptionAvailable();
+
     const menuItems: SettingsItem[] = [
         { label: 'Account & Privacy', onPress: () => router.push('/account-privacy' as never) },
         // Only show Manage Subscription when paywall is enabled
         ...(PAYWALL_ENABLED ? [{ label: 'Manage Subscription', onPress: handleManageSubscription }] : []),
+        ...(showRedeemRow ? [{ label: 'Redeem code', onPress: handleRedeem }] : []),
         { label: 'Data Sources', onPress: () => router.push('/data-sources' as never) },
         { label: 'Customization', onPress: () => router.push('/customization') },
         { label: 'Notifications', onPress: () => router.push('/notification-settings' as never) },

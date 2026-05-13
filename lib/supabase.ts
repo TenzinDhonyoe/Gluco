@@ -492,17 +492,44 @@ export async function createUserProfile(
     userId: string,
     email: string
 ): Promise<UserProfile | null> {
-    // The profile is automatically created by a database trigger when a user signs up
-    // So we just need to fetch it. If it doesn't exist yet, wait a moment and retry.
+    // The profile is normally created by a database trigger on signup. Under load
+    // the trigger can take longer than the legacy 1-second retry — we'd return
+    // null and the home screen would render with profile=null, which makes
+    // skipHealthKit gating decisions wrong. Use exponential backoff up to ~11s.
     let profile = await getUserProfile(userId);
+    if (profile) return profile;
 
-    if (!profile) {
-        // Wait a moment for the trigger to complete
-        await new Promise(resolve => setTimeout(resolve, 1000));
+    const delaysMs = [500, 1500, 3000, 6000];
+    for (const delay of delaysMs) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
         profile = await getUserProfile(userId);
+        if (profile) return profile;
     }
 
-    return profile;
+    // Trigger genuinely never fired — insert a row directly so the user can
+    // proceed instead of being stuck on a loading screen.
+    try {
+        const { data, error } = await supabase
+            .from('profiles')
+            .upsert(
+                {
+                    id: userId,
+                    email,
+                    onboarding_completed: false,
+                },
+                { onConflict: 'id' }
+            )
+            .select()
+            .maybeSingle();
+        if (error) {
+            console.error('createUserProfile fallback upsert failed:', error);
+            return null;
+        }
+        return data as UserProfile | null;
+    } catch (e) {
+        console.error('createUserProfile fallback exception:', e);
+        return null;
+    }
 }
 
 // Types for glucose logs
@@ -1719,7 +1746,7 @@ export async function upsertDailyContext(
             { onConflict: 'user_id,date' }
         )
         .select()
-        .single();
+        .maybeSingle();
 
     if (error) {
         console.error('Error upserting daily context:', error);

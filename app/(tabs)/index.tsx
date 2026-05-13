@@ -11,14 +11,18 @@ import { SegmentedControl } from '@/components/controls/segmented-control';
 import { ActiveExperimentWidget } from '@/components/experiments/ActiveExperimentWidget';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { ForestGlassBackground } from '@/components/backgrounds/forest-glass-background';
+import { HealthDataBanner } from '@/components/ui/HealthDataBanner';
 import { LiquidGlassIconButton } from '@/components/ui/LiquidGlassButton';
 import { SyncBanner } from '@/components/ui/SyncBanner';
+import { SyncErrorBanner } from '@/components/ui/SyncErrorBanner';
 import { behaviorV1Theme } from '@/constants/behaviorV1Theme';
 import { Colors } from '@/constants/Colors';
 import { Images } from '@/constants/Images';
 import { useAuth, useGlucoseUnit } from '@/context/AuthContext';
 import { useBehaviorHomeData } from '@/hooks/useBehaviorHomeData';
+import { useAppForeground } from '@/hooks/useAppForeground';
 import { useDailyContext } from '@/hooks/useDailyContext';
+import { useDataSync } from '@/context/DataSyncContext';
 import { fonts } from '@/hooks/useFonts';
 import { SleepData, useSleepData } from '@/hooks/useSleepData';
 import { useGlucoseTargetRange, useTodayScreenData } from '@/hooks/useTodayScreenData';
@@ -1531,23 +1535,35 @@ function TodayScreenInner() {
         return null;
     }, [currentScore, weeklyScores]);
 
-    // Pull-to-refresh handler - syncs all data sources
+    const { recordError } = useDataSync();
+
+    // Pull-to-refresh handler — syncs all data sources. Uses allSettled so a
+    // single failing source (e.g. metabolic-score edge function 5xx) doesn't
+    // abort the others. Each rejection is recorded for the SyncErrorBanner.
     const onRefresh = useCallback(async () => {
         setIsRefreshing(true);
-        try {
-            await Promise.all([
-                refetchData(),
-                dailyContext.sync(),
-                refetchSleep(),
-                refetchWeight(),
-                fetchWeeklyScores(),
-            ]);
-        } catch (error) {
-            console.warn('Error refreshing data:', error);
-        } finally {
-            setIsRefreshing(false);
-        }
-    }, [refetchData, dailyContext, refetchSleep, refetchWeight, fetchWeeklyScores]);
+        const tasks = [
+            { scope: 'meals' as const, run: () => refetchData() },
+            { scope: 'healthkit' as const, run: () => dailyContext.sync() },
+            { scope: 'sleep' as const, run: () => refetchSleep() },
+            { scope: 'weight' as const, run: () => refetchWeight() },
+            { scope: 'metabolic_score' as const, run: () => fetchWeeklyScores() },
+        ];
+        const results = await Promise.allSettled(tasks.map((t) => t.run()));
+        results.forEach((r, i) => {
+            if (r.status === 'rejected') {
+                recordError(tasks[i].scope, r.reason);
+            }
+        });
+        setIsRefreshing(false);
+    }, [refetchData, dailyContext, refetchSleep, refetchWeight, fetchWeeklyScores, recordError]);
+
+    // Refresh on app foreground so a user who synced data overnight in Apple
+    // Health (or anything else changed while backgrounded) sees fresh numbers
+    // without manual pull-to-refresh.
+    useAppForeground(useCallback(() => {
+        onRefresh();
+    }, [onRefresh]), !!user?.id);
 
     // Determine which tracking mode category the user is in
     const trackingMode = (profile?.tracking_mode || 'meals_wearables') as TrackingMode;
@@ -1572,7 +1588,7 @@ function TodayScreenInner() {
             userTargetMin: targetMin,
             userTargetMax: targetMax,
             meals: recentMeals,
-            avgSleepHours: sleepData?.avgHoursPerNight,
+            avgSleepHours: sleepData?.avgHoursPerNight ?? undefined,
             avgSteps: dailyContext.avgSteps ?? undefined,
             avgActiveMinutes: dailyContext.avgActiveMinutes ?? undefined,
             avgFibrePerDay: fibreSummary?.avgPerDay,
@@ -2184,7 +2200,7 @@ function TodayScreenInner() {
                     <LiquidGlassIconButton size={44} onPress={() => router.push('/settings')}>
                         <Text style={styles.avatarText}>{getInitials()}</Text>
                     </LiquidGlassIconButton>
-                    <Text style={styles.headerTitle}>GLUCO</Text>
+                    <Text style={styles.headerTitle}>REDU</Text>
                     <LiquidGlassIconButton size={44} onPress={() => router.push('/notifications-list')}>
                         <Ionicons name="notifications-outline" size={22} color={Colors.textPrimary} />
                     </LiquidGlassIconButton>
@@ -2225,6 +2241,16 @@ function TodayScreenInner() {
                     />
                 }
             >
+                {/* Surfaced data-sync signals: permission-likely-denied prompt
+                    and recent sync errors with retry. Both self-hide when not relevant. */}
+                <HealthDataBanner
+                    permissionLikelyDenied={dailyContext.permissionLikelyDenied}
+                    isAuthorized={dailyContext.isAuthorized}
+                    daysWithData={dailyContext.daysWithData}
+                    trackingMode={trackingMode}
+                />
+                <SyncErrorBanner onRetry={onRefresh} />
+
                 {isBehaviorV1 ? (
                     <>
                         {/* Metabolic Score Hero Card (with conjoined check-in banner) */}

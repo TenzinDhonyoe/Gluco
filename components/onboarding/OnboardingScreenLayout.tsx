@@ -27,7 +27,7 @@ interface OnboardingScreenLayoutProps {
 
 export function OnboardingScreenLayout({
     currentStep,
-    totalSteps = 6,
+    totalSteps = 10,
     title,
     subtitle,
     onBack,

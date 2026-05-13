@@ -115,9 +115,19 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         linkUser();
     }, [user?.id]);
 
+    const hasActiveAccess = (info: CustomerInfo): boolean => {
+        // Primary check: the configured entitlement is active.
+        if (typeof info.entitlements.active[PREMIUM_ENTITLEMENT_ID] !== 'undefined') return true;
+        // Fallback 1: any entitlement is active (in case the dashboard ID differs from PREMIUM_ENTITLEMENT_ID).
+        if (Object.keys(info.entitlements.active).length > 0) return true;
+        // Fallback 2: the user has an active subscription product (covers sandbox/race where
+        // the entitlement payload lags behind the purchase confirmation).
+        if (info.activeSubscriptions.length > 0) return true;
+        return false;
+    };
+
     const updateProStatus = (info: CustomerInfo) => {
-        const isPro = typeof info.entitlements.active[PREMIUM_ENTITLEMENT_ID] !== 'undefined';
-        setIsProUser(isPro);
+        setIsProUser(hasActiveAccess(info));
     };
 
     const refreshCustomerInfo = async () => {
@@ -141,6 +151,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
             setLoading(true);
             const { customerInfo: newInfo } = await Purchases.purchasePackage(pkg);
             setCustomerInfo(newInfo);
+            // Apple confirmed the charge — trust it. Any entitlement-payload lag
+            // would otherwise leave isProUser=false and bounce the user back to
+            // the paywall via the (tabs) gate.
+            setIsProUser(true);
             updateProStatus(newInfo);
             return { success: true };
         } catch (error: unknown) {
@@ -165,8 +179,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
             setCustomerInfo(info);
             updateProStatus(info);
 
-            const hasPremium = typeof info.entitlements.active[PREMIUM_ENTITLEMENT_ID] !== 'undefined';
-            if (hasPremium) {
+            if (hasActiveAccess(info)) {
                 return { success: true };
             } else {
                 return { success: false, error: 'No active subscription found' };

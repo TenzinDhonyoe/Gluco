@@ -10,9 +10,11 @@ import { useCallback, useState } from 'react';
 import { Platform } from 'react-native';
 
 export interface SleepData {
-    avgHoursPerNight: number;
-    totalNights: number;
-    totalHours: number;
+    // null distinguishes "no data / permission denied / fetch failed" from
+    // the genuine value 0. The UI should render "—" for null, not "0h".
+    avgHoursPerNight: number | null;
+    totalNights: number | null;
+    totalHours: number | null;
     isAuthorized: boolean;
     isAvailable: boolean;
 }
@@ -49,9 +51,9 @@ export function useSleepData(_range: RangeKey, skip = false): UseSleepDataReturn
             // Check if we're on iOS
             if (Platform.OS !== 'ios') {
                 setData({
-                    avgHoursPerNight: 0,
-                    totalNights: 0,
-                    totalHours: 0,
+                    avgHoursPerNight: null,
+                    totalNights: null,
+                    totalHours: null,
                     isAuthorized: false,
                     isAvailable: false,
                 });
@@ -62,9 +64,9 @@ export function useSleepData(_range: RangeKey, skip = false): UseSleepDataReturn
             // Check if HealthKit is available
             if (!isHealthKitAvailable()) {
                 setData({
-                    avgHoursPerNight: 0,
-                    totalNights: 0,
-                    totalHours: 0,
+                    avgHoursPerNight: null,
+                    totalNights: null,
+                    totalHours: null,
                     isAuthorized: false,
                     isAvailable: false,
                 });
@@ -76,9 +78,9 @@ export function useSleepData(_range: RangeKey, skip = false): UseSleepDataReturn
 
             if (!authorized) {
                 setData({
-                    avgHoursPerNight: 0,
-                    totalNights: 0,
-                    totalHours: 0,
+                    avgHoursPerNight: null,
+                    totalNights: null,
+                    totalHours: null,
                     isAuthorized: false,
                     isAvailable: true,
                 });
@@ -104,9 +106,9 @@ export function useSleepData(_range: RangeKey, skip = false): UseSleepDataReturn
                 });
             } else {
                 setData({
-                    avgHoursPerNight: 0,
-                    totalNights: 0,
-                    totalHours: 0,
+                    avgHoursPerNight: null,
+                    totalNights: null,
+                    totalHours: null,
                     isAuthorized: true,
                     isAvailable: true,
                 });
@@ -115,9 +117,9 @@ export function useSleepData(_range: RangeKey, skip = false): UseSleepDataReturn
             console.error('Error fetching sleep data:', err);
             setError(err as Error);
             setData({
-                avgHoursPerNight: 0,
-                totalNights: 0,
-                totalHours: 0,
+                avgHoursPerNight: null,
+                totalNights: null,
+                totalHours: null,
                 isAuthorized: false,
                 isAvailable: true,
             });
@@ -154,9 +156,9 @@ export async function fetchSleepDataForRange(range: RangeKey): Promise<SleepData
     // Check if we're on iOS
     if (Platform.OS !== 'ios') {
         return {
-            avgHoursPerNight: 0,
-            totalNights: 0,
-            totalHours: 0,
+            avgHoursPerNight: null,
+            totalNights: null,
+            totalHours: null,
             isAuthorized: false,
             isAvailable: false,
         };
@@ -165,9 +167,9 @@ export async function fetchSleepDataForRange(range: RangeKey): Promise<SleepData
     // Check if HealthKit is available
     if (!isHealthKitAvailable()) {
         return {
-            avgHoursPerNight: 0,
-            totalNights: 0,
-            totalHours: 0,
+            avgHoursPerNight: null,
+            totalNights: null,
+            totalHours: null,
             isAuthorized: false,
             isAvailable: false,
         };
@@ -179,9 +181,9 @@ export async function fetchSleepDataForRange(range: RangeKey): Promise<SleepData
 
         if (!authorized) {
             return {
-                avgHoursPerNight: 0,
-                totalNights: 0,
-                totalHours: 0,
+                avgHoursPerNight: null,
+                totalNights: null,
+                totalHours: null,
                 isAuthorized: false,
                 isAvailable: true,
             };
@@ -204,18 +206,18 @@ export async function fetchSleepDataForRange(range: RangeKey): Promise<SleepData
         }
 
         return {
-            avgHoursPerNight: 0,
-            totalNights: 0,
-            totalHours: 0,
+            avgHoursPerNight: null,
+            totalNights: null,
+            totalHours: null,
             isAuthorized: true,
             isAvailable: true,
         };
     } catch (error) {
         console.error('Error fetching sleep data:', error);
         return {
-            avgHoursPerNight: 0,
-            totalNights: 0,
-            totalHours: 0,
+            avgHoursPerNight: null,
+            totalNights: null,
+            totalHours: null,
             isAuthorized: false,
             isAvailable: true,
         };

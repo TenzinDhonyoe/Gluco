@@ -158,7 +158,7 @@ export default function NotificationSettingsScreen() {
                         refreshProfile?.();
                         Alert.alert(
                             'Notifications Disabled',
-                            'Notification permission was denied. Please enable notifications for Gluco in iOS Settings.',
+                            'Notification permission was denied. Please enable notifications for Redu in iOS Settings.',
                             [
                                 { text: 'Cancel', style: 'cancel' },
                                 { text: 'Open Settings', onPress: () => Linking.openSettings() },

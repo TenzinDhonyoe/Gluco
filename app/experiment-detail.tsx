@@ -152,7 +152,7 @@ export default function ExperimentDetailScreen() {
         triggerHaptic();
         if (!template) return;
         Share.share({
-            message: `I'm doing the "${template.title}" experiment on Gluco! ${template.short_description || template.subtitle || ''}`,
+            message: `I'm doing the "${template.title}" experiment on Redu! ${template.short_description || template.subtitle || ''}`,
         });
     };
 

@@ -6,7 +6,7 @@ import { fonts } from '@/hooks/useFonts';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { useOnboardingDraft } from '@/hooks/useOnboardingDraft';
 import { requestHealthKitAuthorization } from '@/lib/healthkit';
-import { PromptWindow, TrackingMode, updateUserProfile } from '@/lib/supabase';
+import { TrackingMode, updateUserProfile } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
@@ -29,17 +29,10 @@ interface TrackingOption {
     disabled: boolean;
 }
 
-const PROMPT_WINDOWS: { id: PromptWindow; label: string; subtitle: string }[] = [
-    { id: 'morning', label: 'Morning', subtitle: 'Start-day planning cue' },
-    { id: 'midday', label: 'Midday', subtitle: 'Lunchtime behavior nudge' },
-    { id: 'evening', label: 'Evening', subtitle: 'Wrap-up and prep cue' },
-];
-
 export default function OnboardingTrackingScreen() {
     const isIOS = Platform.OS === 'ios';
     const { draft, updateDraft, isLoaded } = useOnboardingDraft();
     const [selectedMode, setSelectedMode] = useState<TrackingMode>(isIOS ? 'meals_wearables' : 'meals_only');
-    const [promptWindow, setPromptWindow] = useState<PromptWindow>('midday');
     const [isLoading, setIsLoading] = useState(false);
     const { user } = useAuth();
     const draftRestored = React.useRef(false);
@@ -49,15 +42,14 @@ export default function OnboardingTrackingScreen() {
         if (!isLoaded || draftRestored.current) return;
         draftRestored.current = true;
         if (draft.selectedMode) setSelectedMode(draft.selectedMode as TrackingMode);
-        if (draft.promptWindow) setPromptWindow(draft.promptWindow as PromptWindow);
         AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'tracking').catch(() => null);
     }, [isLoaded, draft]);
 
     // Save to draft on changes
     React.useEffect(() => {
         if (!draftRestored.current) return;
-        updateDraft({ selectedMode, promptWindow });
-    }, [selectedMode, promptWindow, updateDraft]);
+        updateDraft({ selectedMode });
+    }, [selectedMode, updateDraft]);
 
     const trackingOptions: TrackingOption[] = [
         {
@@ -103,11 +95,10 @@ export default function OnboardingTrackingScreen() {
                 await updateUserProfile(user.id, {
                     tracking_mode: selectedMode,
                     manual_glucose_enabled: selectedMode === 'manual_glucose_optional',
-                    prompt_window: promptWindow,
                 });
             }
-            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'coaching');
-            router.push('/onboarding-coaching' as never);
+            await AsyncStorage.setItem(ONBOARDING_STEP_KEY, 'nudge-time');
+            router.push('/onboarding-nudge-time' as never);
         } catch {
             Alert.alert('Error', 'Failed to save your preferences. Please try again.');
         } finally {
@@ -129,7 +120,7 @@ export default function OnboardingTrackingScreen() {
 
     return (
         <OnboardingScreenLayout
-            currentStep={4}
+            currentStep={6}
             title="Choose your tracking style"
             subtitle={`We'll set up the right tools for your routine${firstName ? `, ${firstName}` : ''}.`}
             onBack={handleBack}
@@ -192,28 +183,6 @@ export default function OnboardingTrackingScreen() {
                         </TouchableOpacity>
                     );
                 })}
-            </View>
-
-            <View style={styles.promptSection}>
-                <Text style={styles.promptTitle}>PREFERRED DAILY NUDGE WINDOW</Text>
-                <View style={styles.promptOptions}>
-                    {PROMPT_WINDOWS.map(option => {
-                        const isSelected = promptWindow === option.id;
-                        return (
-                            <TouchableOpacity
-                                key={option.id}
-                                style={[styles.promptCard, isSelected && styles.promptCardSelected]}
-                                onPress={() => { triggerHaptic(); setPromptWindow(option.id); }}
-                                activeOpacity={0.75}
-                                accessibilityRole="radio"
-                                accessibilityState={{ selected: isSelected }}
-                            >
-                                <Text style={styles.promptCardTitle}>{option.label}</Text>
-                                <Text style={styles.promptCardSubtitle}>{option.subtitle}</Text>
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
             </View>
         </OnboardingScreenLayout>
     );

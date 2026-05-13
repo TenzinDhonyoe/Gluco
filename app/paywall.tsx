@@ -1,13 +1,11 @@
-import { PAYWALL_SEEN_KEY } from '@/app/index';
 import { Colors } from '@/constants/Colors';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useSubscription } from '@/context/SubscriptionContext';
 import { fonts } from '@/hooks/useFonts';
 import { navigateToApp } from '@/lib/navigation';
-import { getConfiguredStatus } from '@/lib/revenuecat';
+import { getConfiguredStatus, isOfferCodeRedemptionAvailable, presentCodeRedemption } from '@/lib/revenuecat';
 import { triggerHaptic } from '@/lib/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -61,6 +59,8 @@ export default function PaywallScreen() {
         loading: contextLoading,
         purchasePackage,
         restorePurchases,
+        isProUser,
+        refreshCustomerInfo,
     } = useSubscription();
     const [localOffering, setLocalOffering] = useState<PurchasesOffering | null>(null);
     const [timedOut, setTimedOut] = useState(false);
@@ -85,6 +85,12 @@ export default function PaywallScreen() {
         return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
     }, []);
 
+    // Auto-exit if a returning paid user lands here while RevenueCat is still linking.
+    // Without this they'd be stuck on the paywall (gestures are locked) until they tap Restore.
+    useEffect(() => {
+        if (isProUser && !purchaseSuccess) navigateToApp();
+    }, [isProUser, purchaseSuccess]);
+
     const offering = localOffering;
     const isLoading = contextLoading && !timedOut;
     const hasFailed = (!contextLoading && !offering) || (timedOut && !offering);
@@ -104,8 +110,7 @@ export default function PaywallScreen() {
         else if (!annualPackage && monthlyPackage && !selectedPackage) setSelectedPackage(monthlyPackage);
     }, [annualPackage, monthlyPackage, selectedPackage]);
 
-    const markSeenAndNavigate = async () => {
-        await AsyncStorage.setItem(PAYWALL_SEEN_KEY, 'true');
+    const markSeenAndNavigate = () => {
         navigateToApp();
     };
 
@@ -151,6 +156,26 @@ export default function PaywallScreen() {
             Alert.alert('Restore', result.error || 'No active subscription found');
         }
     };
+
+    const handleRedeem = async () => {
+        triggerHaptic();
+        const opened = await presentCodeRedemption();
+        if (!opened) return;
+        // Belt-and-suspenders: customer info listener should auto-fire on
+        // entitlement grant, but force a refresh in case the listener missed it.
+        setTimeout(() => { refreshCustomerInfo(); }, 2000);
+    };
+
+    // When entitlement flips to active (purchase, restore, or redeem),
+    // play the success animation and dismiss the paywall.
+    useEffect(() => {
+        if (!isProUser || purchaseSuccess) return;
+        setPurchaseSuccess(true);
+        triggerHaptic('medium');
+        checkScale.value = withSpring(1, { damping: 10, stiffness: 150 });
+        const timer = setTimeout(markSeenAndNavigate, SUCCESS_DISPLAY_MS);
+        return () => clearTimeout(timer);
+    }, [isProUser, purchaseSuccess, checkScale]);
 
     // ── Success State ──
     if (purchaseSuccess) {
@@ -202,11 +227,11 @@ export default function PaywallScreen() {
                                 </View>
                                 <Text style={styles.failedTitle}>Subscriptions unavailable</Text>
                                 <Text style={styles.failedMessage}>
-                                    This build can't connect to the subscription service. Please reinstall Gluco from the App Store, or contact support at tenzin@glucosolutions.ca.
+                                    This build can't connect to the subscription service. Please reinstall Redu from the App Store, or contact support at tenzin@glucosolutions.ca.
                                 </Text>
                                 <TouchableOpacity
                                     style={styles.ctaButton}
-                                    onPress={() => Linking.openURL('mailto:tenzin@glucosolutions.ca?subject=Gluco%20subscription%20issue')}
+                                    onPress={() => Linking.openURL('mailto:tenzin@glucosolutions.ca?subject=Redu%20subscription%20issue')}
                                     activeOpacity={0.7}
                                 >
                                     <Text style={styles.ctaButtonText}>Contact Support</Text>
@@ -333,6 +358,19 @@ export default function PaywallScreen() {
                             <Text style={styles.ctaButtonText}>Continue</Text>
                         )}
                     </TouchableOpacity>
+
+                    {/* Redeem Code — secondary CTA */}
+                    {isOfferCodeRedemptionAvailable() && (
+                        <TouchableOpacity
+                            style={styles.redeemButton}
+                            onPress={handleRedeem}
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                            <Ionicons name="ticket-outline" size={16} color={Colors.primary} style={styles.redeemIcon} />
+                            <Text style={styles.redeemButtonText}>Have a code? Redeem now</Text>
+                        </TouchableOpacity>
+                    )}
 
                     {/* Disclaimer */}
                     <Text style={styles.disclaimer}>
@@ -523,6 +561,25 @@ const styles = StyleSheet.create({
         fontFamily: fonts.semiBold,
         fontSize: 17,
         color: Colors.buttonActionText,
+    },
+
+    // ── Redeem Code (secondary CTA) ──
+    redeemButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        paddingVertical: 12,
+        marginTop: 8,
+    },
+    redeemIcon: {
+        marginRight: 2,
+    },
+    redeemButtonText: {
+        fontFamily: fonts.semiBold,
+        fontSize: 15,
+        color: Colors.primary,
+        textDecorationLine: 'underline',
     },
 
     // ── Disclaimer ──

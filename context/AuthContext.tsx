@@ -1,11 +1,18 @@
 import { getUserProfile, GlucoseUnit, supabase, updateUserProfile, UserProfile } from '@/lib/supabase';
 import { RESET_PASSWORD_REDIRECT_URI } from '@/lib/deeplinks';
+import { resetHealthKitAuth } from '@/lib/healthkit';
 import { clearLocalCachesForLogout } from '@/lib/utils/logout-cleanup';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session, User } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
+
+// AsyncStorage keys that hold per-device HealthKit toggle state. These leak
+// across accounts on the same device — must be cleared on sign-out so user B
+// doesn't inherit user A's "permission already granted" state.
+const HEALTHKIT_LOCAL_KEYS = ['apple_health_enabled', 'healthkit_permission_requested'];
 
 // Default glucose unit when user hasn't set a preference
 const DEFAULT_GLUCOSE_UNIT: GlucoseUnit = 'mmol/L';
@@ -59,6 +66,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setUser(session?.user ?? null);
 
                 if (session?.user) {
+                    // On SIGNED_IN, force a re-probe of HealthKit auth so a fresh
+                    // user doesn't inherit a previous user's cached permission state.
+                    if (event === 'SIGNED_IN') {
+                        resetHealthKitAuth();
+                    }
                     // Only reload profile if we don't have it or if it's a SIGN_IN event
                     if (!profile || event === 'SIGNED_IN') {
                         await loadProfile(session.user.id);
@@ -253,6 +265,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const signOut = async () => {
         try {
             setLoading(true);
+            // Clear cross-account state BEFORE the auth call so that even if signOut
+            // races with another flow, no stale HealthKit/device state lingers.
+            resetHealthKitAuth();
+            await AsyncStorage.multiRemove(HEALTHKIT_LOCAL_KEYS).catch(() => null);
             await supabase.auth.signOut();
             setUser(null);
             setSession(null);
