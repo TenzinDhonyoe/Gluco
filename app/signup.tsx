@@ -13,6 +13,7 @@ import { navigateToApp } from '@/lib/navigation';
 import React, { useMemo, useState } from 'react';
 import {
     Alert,
+    Keyboard,
     KeyboardAvoidingView,
     Linking,
     Platform,
@@ -20,6 +21,7 @@ import {
     StyleSheet,
     Text,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -140,9 +142,11 @@ export default function SignUpScreen() {
                         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                         style={styles.keyboardView}
                     >
+                        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
                         <ScrollView
                             contentContainerStyle={styles.scrollContent}
                             showsVerticalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
                         >
                             {/* Back Button */}
                             <LiquidGlassIconButton
@@ -330,6 +334,7 @@ export default function SignUpScreen() {
                                 </Text>
                             </View>
                         </ScrollView>
+                        </TouchableWithoutFeedback>
                     </KeyboardAvoidingView>
                 </SafeAreaView>
         </View>

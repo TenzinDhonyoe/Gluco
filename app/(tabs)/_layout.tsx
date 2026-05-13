@@ -4,6 +4,26 @@ import { useSubscription } from '@/context/SubscriptionContext';
 import { isBehaviorV1Experience } from '@/lib/experience';
 import { Redirect } from 'expo-router';
 import { NativeTabs, Icon, Label } from 'expo-router/unstable-native-tabs';
+import { Platform } from 'react-native';
+
+// iOS 26+ paints the tab bar with Liquid Glass natively, so we keep it fully
+// transparent. On older iOS the same props produce a bar with no background at
+// all (tabs floating over content), so we render a frosted material with a tint
+// matching ForestGlassBackground for a Liquid-Glass-like fallback.
+const isIOS26Plus =
+    Platform.OS === 'ios' && parseInt(String(Platform.Version), 10) >= 26;
+
+const tabBarProps = isIOS26Plus
+    ? {
+        backgroundColor: 'transparent',
+        blurEffect: 'none' as const,
+        shadowColor: 'transparent',
+    }
+    : {
+        backgroundColor: 'rgba(242, 242, 247, 0.80)',
+        blurEffect: 'systemThinMaterial' as const,
+        shadowColor: 'rgba(0, 0, 0, 0.08)',
+    };
 
 export default function TabLayout() {
     const { user, profile, loading } = useAuth();
@@ -29,7 +49,7 @@ export default function TabLayout() {
     }
 
     return (
-        <NativeTabs backgroundColor="transparent" blurEffect="none" shadowColor="transparent">
+        <NativeTabs {...tabBarProps}>
             <NativeTabs.Trigger name="index">
                 <Icon sf={{ default: 'house', selected: 'house.fill' }} />
                 <Label>Home</Label>

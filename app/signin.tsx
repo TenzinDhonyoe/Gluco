@@ -15,12 +15,14 @@ import { navigateToApp } from '@/lib/navigation';
 import React, { useState } from 'react';
 import {
     Alert,
+    Keyboard,
     KeyboardAvoidingView,
     Platform,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -164,9 +166,11 @@ export default function SignInScreen() {
                         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                         style={styles.keyboardView}
                     >
+                        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
                         <ScrollView
                             contentContainerStyle={styles.scrollContent}
                             showsVerticalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
                         >
                             {/* Back Button */}
                             <LiquidGlassIconButton
@@ -281,6 +285,7 @@ export default function SignInScreen() {
                                 <Text style={styles.signUpLink} onPress={handleSignUp}>Sign Up</Text>
                             </Text>
                         </ScrollView>
+                        </TouchableWithoutFeedback>
                     </KeyboardAvoidingView>
                 </SafeAreaView>
         </View>
