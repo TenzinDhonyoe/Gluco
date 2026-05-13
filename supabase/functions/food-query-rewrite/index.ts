@@ -8,7 +8,11 @@ import { containsBannedTerms } from '../_shared/safety.ts';
 
 /**
  * Food Query Rewrite Edge Function
- * Uses Gemini to correct typos and suggest alternative food search queries
+ * Uses Gemini to correct typos and suggest alternative food search queries.
+ *
+ * NOTE: Intentionally NOT gated by requirePro. Food search is a core free-tier
+ * feature — typo correction is needed before a user has any motivation to pay.
+ * Cost surface is bounded by checkRateLimit + requireAiEnabled + maxOutputTokens=256.
  */
 
 const corsHeaders = {

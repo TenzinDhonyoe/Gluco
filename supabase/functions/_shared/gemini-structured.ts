@@ -330,7 +330,12 @@ async function fetchImageAsBase64(
 ): Promise<{ data: string; mimeType: string; size: number }> {
     validatePhotoUrl(photoUrl);
 
-    const response = await fetch(photoUrl);
+    // redirect: 'manual' so a signed-URL 302 to an attacker-controlled host
+    // cannot escape the validatePhotoUrl allowlist.
+    const response = await fetch(photoUrl, { redirect: 'manual' });
+    if (response.status >= 300 && response.status < 400) {
+        throw new Error('Photo URL redirected — refusing to follow');
+    }
     if (!response.ok) {
         throw new Error(`Failed to fetch image: ${response.status}`);
     }

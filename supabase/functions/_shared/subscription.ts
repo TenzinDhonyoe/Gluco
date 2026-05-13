@@ -13,12 +13,17 @@
 //   - If REVENUECAT_SECRET_API_KEY is not set, returns null (allow) and logs a warning.
 //     This is deliberately lenient so the function still works during the rollout window;
 //     once the secret is set in prod, gating activates automatically.
-//   - Caches results for 60s per user to avoid hammering RevenueCat.
+//   - When REVENUECAT_GATING_REQUIRED=1, a missing secret fails CLOSED (returns false →
+//     402 from requirePro) and logs an error. Set this in production so a misconfigured
+//     deploy can never silently disable gating.
+//   - Caches results for 60s per user (bounded to MAX_CACHE_ENTRIES) to avoid
+//     hammering RevenueCat or growing memory unbounded in long-lived isolates.
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
 const ENTITLEMENT_ID = 'premium';
 const CACHE_TTL_MS = 60_000;
+const MAX_CACHE_ENTRIES = 10_000;
 
 interface CacheEntry {
     isPro: boolean;
@@ -36,6 +41,10 @@ interface RevenueCatSubscriber {
 async function checkRevenueCatPro(userId: string): Promise<boolean | null> {
     const secret = Deno.env.get('REVENUECAT_SECRET_API_KEY');
     if (!secret) {
+        if (Deno.env.get('REVENUECAT_GATING_REQUIRED') === '1') {
+            console.error('[subscription] REVENUECAT_SECRET_API_KEY missing while REVENUECAT_GATING_REQUIRED=1 — failing closed');
+            return false;
+        }
         console.warn('[subscription] REVENUECAT_SECRET_API_KEY not set — skipping server-side gating');
         return null;
     }
@@ -82,6 +91,11 @@ export async function isUserPro(userId: string): Promise<boolean | null> {
     }
     const result = await checkRevenueCatPro(userId);
     if (result !== null) {
+        if (cache.size >= MAX_CACHE_ENTRIES) {
+            // Map preserves insertion order; evict the oldest entry (FIFO).
+            const oldest = cache.keys().next().value;
+            if (oldest !== undefined) cache.delete(oldest);
+        }
         cache.set(userId, { isPro: result, cachedAt: Date.now() });
     }
     return result;

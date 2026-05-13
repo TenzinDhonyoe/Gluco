@@ -2067,7 +2067,6 @@ function TodayScreenInner() {
     const behaviorHeroReveal = useRef(new Animated.Value(0)).current;
     const behaviorMomentumReveal = useRef(new Animated.Value(0)).current;
     const behaviorMealsReveal = useRef(new Animated.Value(0)).current;
-    const behaviorAdvancedReveal = useRef(new Animated.Value(0)).current;
     const behaviorQueueReveal = useRef(new Animated.Value(0)).current;
     const behaviorEntrancePlayedRef = useRef(false);
 
@@ -2077,7 +2076,6 @@ function TodayScreenInner() {
             behaviorHeroReveal.setValue(0);
             behaviorMomentumReveal.setValue(0);
             behaviorMealsReveal.setValue(0);
-            behaviorAdvancedReveal.setValue(0);
             behaviorQueueReveal.setValue(0);
             return;
         }
@@ -2092,7 +2090,6 @@ function TodayScreenInner() {
             behaviorHeroReveal,
             behaviorMomentumReveal,
             behaviorMealsReveal,
-            behaviorAdvancedReveal,
             behaviorQueueReveal,
         ].map((value) =>
             Animated.timing(value, {
@@ -2109,7 +2106,6 @@ function TodayScreenInner() {
         behaviorHeroReveal,
         behaviorMomentumReveal,
         behaviorMealsReveal,
-        behaviorAdvancedReveal,
         behaviorQueueReveal,
     ]);
 
@@ -3116,71 +3112,6 @@ const styles = StyleSheet.create({
     momentumInviteCtaText: {
         fontFamily: fonts.medium,
         fontSize: 12,
-    },
-    behaviorAdvancedCard: {
-        borderRadius: 14,
-        backgroundColor: '#FFFFFF',
-        borderWidth: 1,
-        borderColor: 'rgba(60, 60, 67, 0.10)',
-        marginBottom: 14,
-        overflow: 'hidden',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 4,
-        elevation: 1,
-    },
-    behaviorAdvancedHeader: {
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    behaviorAdvancedHeaderLeft: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    behaviorAdvancedTitle: {
-        fontFamily: fonts.medium,
-        fontSize: 13,
-        color: Colors.textSecondary,
-    },
-    behaviorAdvancedBody: {
-        paddingHorizontal: 14,
-        paddingBottom: 14,
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(60, 60, 67, 0.10)',
-        gap: 8,
-    },
-    behaviorAdvancedMetric: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    behaviorAdvancedMetricLabel: {
-        fontFamily: fonts.regular,
-        fontSize: 13,
-        color: Colors.textSecondary,
-    },
-    behaviorAdvancedMetricValue: {
-        fontFamily: fonts.medium,
-        fontSize: 14,
-        color: Colors.textPrimary,
-    },
-    behaviorAdvancedCta: {
-        marginTop: 2,
-        borderRadius: 10,
-        backgroundColor: 'rgba(60, 60, 67, 0.06)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: 38,
-    },
-    behaviorAdvancedCtaText: {
-        fontFamily: fonts.medium,
-        fontSize: 13,
-        color: Colors.textPrimary,
     },
     trendsSection: {
         marginTop: 0,

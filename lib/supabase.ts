@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import { clearLocalCachesForLogout } from '@/lib/utils/logout-cleanup';
 
 // Get Supabase configuration from environment variables or app.json extra config
 // Priority: EXPO_PUBLIC_* env vars > app.json extra
@@ -3175,7 +3176,7 @@ export async function deleteUserData(_userId: string): Promise<boolean> {
         });
 
         if (error) {
-            console.error('Delete account error:', error);
+            if (__DEV__) console.error('Delete account error:', error);
             return false;
         }
 
@@ -3184,12 +3185,17 @@ export async function deleteUserData(_userId: string): Promise<boolean> {
             try {
                 await supabase.auth.signOut();
             } catch (signOutErr) {
-                console.warn('signOut after delete failed:', signOutErr);
+                if (__DEV__) console.warn('signOut after delete failed:', signOutErr);
+            }
+            try {
+                await clearLocalCachesForLogout();
+            } catch (cleanupErr) {
+                if (__DEV__) console.warn('cache cleanup after delete failed:', cleanupErr);
             }
         }
         return success;
     } catch (err) {
-        console.error('Delete user data error:', err);
+        if (__DEV__) console.error('Delete user data error:', err);
         return false;
     }
 }

@@ -8,6 +8,8 @@ const PER_USER_KEY_PREFIXES = [
     'onboarding_step',
     'photo_analysis_cache:',
     'meal_score_cache:',
+    'insights:',
+    'personalized_tips',
 ];
 
 export async function clearLocalCachesForLogout(): Promise<void> {
