@@ -17,7 +17,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "52",
+      "buildNumber": "91",
       "bundleIdentifier": "ca.gluco.solutions.gluco",
       "usesAppleSignIn": true,
       "infoPlist": {
